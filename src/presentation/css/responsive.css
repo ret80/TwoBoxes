@@ -11,9 +11,13 @@
     font-size: clamp(2.4rem, 8vh, 3.6rem);
   }
 
-  .panel--screen,
-  .selector-panel {
+  .panel--screen {
     max-height: min(74vh, 520px);
+  }
+
+  /* Панель выбора уровня и в альбоме не доходит до кнопки «Назад» */
+  .selector-panel {
+    max-height: min(74vh, calc(100vh - 2 * (var(--screen-pad-bottom) + 76px)));
   }
 
   .menu-card {

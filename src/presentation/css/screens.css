@@ -124,10 +124,10 @@
   line-height: 1.6;
 }
 
-/* Селектор уровней */
+/* Селектор уровней; высота не доходит до кнопки «Назад» */
 .selector-panel {
   width: min(520px, 92vw);
-  max-height: min(66vh, 620px);
+  max-height: min(64vh, calc(100vh - 2 * (var(--screen-pad-bottom) + 76px)));
   padding: 18px 18px 20px;
 }
 
@@ -159,13 +159,18 @@
   width: 100%;
 }
 
-/* Кнопка «Назад» — у нижнего края, на одном уровне во всех меню */
+/*
+ * Кнопка «Назад» — у нижнего края, на одном уровне во всех меню.
+ * Центрируем через auto-поля, а не transform: состояние :active у .btn
+ * сбрасывает transform и раньше сдвигало кнопку вправо при нажатии.
+ */
 .btn--back {
   position: fixed;
   bottom: var(--screen-pad-bottom);
-  left: 50%;
-  margin: 0;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  width: max-content;
+  margin: 0 auto;
 }
 
 /* Игровой экран */

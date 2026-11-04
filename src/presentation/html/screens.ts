@@ -48,6 +48,13 @@ const ICONS = {
   home: { stroke: false, paths: ['M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5Z'] },
   // Две стрелки вправо (играть / следующий уровень)
   next: { stroke: true, paths: ['M5 4l8 8-8 8', 'M12 4l8 8-8 8'] },
+  // Стрелка отката назад (undo)
+  undo: {
+    stroke: false,
+    paths: [
+      'M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.62-3.62A7.5 7.5 0 0 1 12.5 11c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8Z',
+    ],
+  },
   // Лампочка (подсказка)
   hint: {
     stroke: false,
@@ -169,18 +176,18 @@ export function buildSelectorScreen(
 
 /**
  * Игровой экран: плавающие панели поверх канваса (как в атласе).
- * Верхняя — номер уровня, сброс, пауза. Нижняя — сброс и подсказка.
+ * Верхняя — номер уровня и пауза. Нижняя — откат хода, сброс и подсказка.
  */
 export function buildGameScreen(
   i18n: LocaleManager,
-  cb: { onReset: () => void; onPause: () => void; onHint: () => void },
+  cb: { onReset: () => void; onPause: () => void; onHint: () => void; onUndo: () => void },
 ): {
   root: HTMLElement;
   levelLabel: HTMLElement;
   canvas: HTMLCanvasElement;
   canvasWrap: HTMLElement;
-  resetTop: HTMLButtonElement;
   pause: HTMLButtonElement;
+  undo: HTMLButtonElement;
   resetBottom: HTMLButtonElement;
   hint: HTMLButtonElement;
   hintToast: HTMLElement;
@@ -190,11 +197,9 @@ export function buildGameScreen(
 
   const topbar = el('div', 'game-topbar');
   const levelLabel = el('div', 'game-topbar__label', '');
-  const resetTop = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'reset', i18n.t('RESET'));
-  resetTop.addEventListener('click', cb.onReset);
   const pause = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'pause', i18n.t('PAUSE'));
   pause.addEventListener('click', cb.onPause);
-  topbar.append(levelLabel, resetTop, pause);
+  topbar.append(levelLabel, pause);
 
   const canvasWrap = el('div', '', undefined);
   canvasWrap.id = 'canvas-wrap';
@@ -205,14 +210,17 @@ export function buildGameScreen(
   const bottombar = el('div', 'game-bottombar');
   const hintToast = el('div', 'hud-hint');
   hintToast.hidden = true;
+  const undo = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'undo', i18n.t('UNDO'));
+  undo.disabled = true; // откатывать нечего до первого хода
+  undo.addEventListener('click', cb.onUndo);
   const resetBottom = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'reset', i18n.t('RESET'));
   resetBottom.addEventListener('click', cb.onReset);
   const hint = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'hint', i18n.t('HINT'));
   hint.addEventListener('click', cb.onHint);
-  bottombar.append(hintToast, resetBottom, hint);
+  bottombar.append(hintToast, undo, resetBottom, hint);
 
   root.append(canvasWrap, topbar, bottombar);
-  return { root, levelLabel, canvas, canvasWrap, resetTop, pause, resetBottom, hint, hintToast };
+  return { root, levelLabel, canvas, canvasWrap, pause, undo, resetBottom, hint, hintToast };
 }
 
 /** Экран помощи. */

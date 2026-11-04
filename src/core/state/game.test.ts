@@ -70,6 +70,30 @@ describe('Игровой FSM (create→input→move→check)', () => {
     void level;
   });
 
+  it('UNDO возвращает кубики и счётчик хода к состоянию до хода', () => {
+    const { actor } = setup(['#R..#..r#']);
+    actor.send({ type: 'CREATE_DONE' });
+    const start = actor.getSnapshot().context.boxes[0].pos.clone();
+    actor.send({ type: 'MOVE', dir: DIRS.right });
+    actor.send({ type: 'MOVE_DONE' });
+    expect(actor.getSnapshot().context.moves).toBe(1);
+    actor.send({ type: 'UNDO' });
+    expect(actor.getSnapshot().value).toBe('move');
+    actor.send({ type: 'MOVE_DONE' });
+    expect(actor.getSnapshot().value).toBe('input');
+    expect(actor.getSnapshot().context.moves).toBe(0);
+    expect(actor.getSnapshot().context.boxes[0].pos).toEqual(start);
+    expect(actor.getSnapshot().context.history).toHaveLength(0);
+  });
+
+  it('UNDO без ходов игнорируется (guard canUndo)', () => {
+    const { actor } = setup(['#R..#..r#']);
+    actor.send({ type: 'CREATE_DONE' });
+    actor.send({ type: 'UNDO' });
+    expect(actor.getSnapshot().value).toBe('input');
+    expect(actor.getSnapshot().context.moves).toBe(0);
+  });
+
   it('TICK увеличивает время', () => {
     const { actor } = setup(['#R.r#']);
     actor.send({ type: 'CREATE_DONE' });

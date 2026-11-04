@@ -101,6 +101,21 @@ export class GameController {
     this.startLevel(this.episodes.getCurLevel());
   }
 
+  /** Откат последнего хода (кнопка undo в нижней панели). */
+  undo(): void {
+    if (this.paused) return;
+    if ((this.gameActor.getSnapshot().value as string) !== 'input') return;
+    this.gameActor.send({ type: 'UNDO' });
+  }
+
+  /** Есть ли что откатывать — для состояния кнопки undo. */
+  canUndo(): boolean {
+    const snapshot = this.gameActor.getSnapshot();
+    return (
+      (snapshot.value as string) === 'input' && snapshot.context.history.length > 0
+    );
+  }
+
   /** Подсказка: первое направление кратчайшего решения (null — решения нет). */
   hint(): Position | null {
     const snapshot = this.gameActor.getSnapshot();

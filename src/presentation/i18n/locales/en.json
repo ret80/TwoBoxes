@@ -13,6 +13,7 @@
   "TITLE_SELECT_LVL": "Select Levels",
   "RESET": "Reset",
   "HINT": "Hint",
+  "UNDO": "Undo move",
   "HINT_NONE": "No moves left — reset the level",
   "MOVE": "Move",
   "COMPLETED": "Completed!",

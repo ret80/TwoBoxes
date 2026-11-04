@@ -21,6 +21,8 @@ export interface GameContext {
   boxes: Box[];
   moves: number;
   time: number; // секунды с начала уровня
+  /** История ходов для undo: позиции кубиков и счётчик до хода. */
+  history: { boxes: Box[]; moves: number }[];
 }
 
 export type GameEvent =
@@ -29,6 +31,7 @@ export type GameEvent =
   | { type: 'MOVE'; dir: Position } // ввод направления
   | { type: 'MOVE_DONE' } // tween-анимация движения завершена
   | { type: 'TICK'; delta: number } // тик игрового цикла (время)
+  | { type: 'UNDO' } // откат последнего хода (кнопка undo)
   | { type: 'RESTART'; level: Level }; // NEXT_LEVEL / RESET (уровень уже переключён менеджером)
 
 export function createGameMachine(initialLevel: Level) {
@@ -42,6 +45,7 @@ export function createGameMachine(initialLevel: Level) {
         event.type === 'MOVE' &&
         moveBoxes(context.level, context.boxes, event.dir, context.moves, context.time) !== null,
       isWin: ({ context }) => checkWin(context.boxes, context.level.ends),
+      canUndo: ({ context }) => context.history.length > 0,
     },
     actions: {
       setLevel: assign(({ event }) =>
@@ -51,13 +55,34 @@ export function createGameMachine(initialLevel: Level) {
               boxes: event.level.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color })),
               moves: 0,
               time: 0,
+              history: [],
             }
           : {},
       ),
       applyMove: assign(({ context, event }) => {
         if (event.type !== 'MOVE') return {};
         const next = moveBoxes(context.level, context.boxes, event.dir, context.moves, context.time);
-        return next ? { boxes: next.boxes, moves: next.moves } : {};
+        if (!next) return {};
+        return {
+          boxes: next.boxes,
+          moves: next.moves,
+          history: [
+            ...context.history,
+            {
+              boxes: context.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color })),
+              moves: context.moves,
+            },
+          ],
+        };
+      }),
+      undo: assign(({ context }) => {
+        const prev = context.history[context.history.length - 1];
+        if (!prev) return {};
+        return {
+          boxes: prev.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color })),
+          moves: prev.moves,
+          history: context.history.slice(0, -1),
+        };
       }),
       tickTime: assign(({ context, event }) =>
         event.type === 'TICK' ? { time: context.time + event.delta } : {},
@@ -71,6 +96,7 @@ export function createGameMachine(initialLevel: Level) {
       boxes: initialLevel.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color })),
       moves: 0,
       time: 0,
+      history: [],
     },
     states: {
       create: {
@@ -79,6 +105,9 @@ export function createGameMachine(initialLevel: Level) {
       input: {
         on: {
           MOVE: { target: 'move', guard: 'canMove', actions: 'applyMove' },
+          // Откат идёт через `move`, чтобы кубики вернулись с анимацией,
+          // а затем обычная проверка победы возвращает в `input`.
+          UNDO: { target: 'move', guard: 'canUndo', actions: 'undo' },
           TICK: { actions: 'tickTime' },
         },
       },

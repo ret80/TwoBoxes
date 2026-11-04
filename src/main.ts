@@ -58,6 +58,7 @@ const gameScreen = buildGameScreen(i18n, {
   onReset: () => undefined, // подключается ниже, после создания GameController
   onPause: () => undefined,
   onHint: () => undefined,
+  onUndo: () => undefined,
 });
 screensRoot.appendChild(gameScreen.root);
 // Вне состояния game верхняя панель HUD не показывается (меню, выбор уровня, помощь)
@@ -74,7 +75,7 @@ const game = new GameController(
 );
 
 // Панели HUD: верхняя (сброс/пауза) и нижняя (сброс/подсказка)
-gameScreen.resetTop.addEventListener('click', () => game.reset());
+gameScreen.undo.addEventListener('click', () => game.undo());
 gameScreen.resetBottom.addEventListener('click', () => game.reset());
 gameScreen.pause.addEventListener('click', () => game.pause());
 
@@ -133,6 +134,8 @@ const revealHud = (): void => {
 let prevGameState = gameActor.getSnapshot().value as string;
 gameActor.subscribe((snapshot) => {
   const state = snapshot.value as string;
+  // Кнопка undo активна, пока есть ходы в истории и ждём ввод
+  gameScreen.undo.disabled = !(state === 'input' && snapshot.context.history.length > 0);
   const entered = state !== prevGameState;
   prevGameState = state;
   if (!entered) return;
