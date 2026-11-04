@@ -24,9 +24,6 @@ export interface IRenderer {
 
   /** Волновая анимация появления уровня (7.4). */
   animateCreate(state: RenderState, onComplete: () => void): void;
-
-  /** Частицы на целевой площадке (7.5): включить/выключить эмиссию. */
-  setEndParticles(pos: Position, active: boolean): void;
 }
 
 /** Всё, что нужно отрисовщику на кадр. */

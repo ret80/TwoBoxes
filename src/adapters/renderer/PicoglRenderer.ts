@@ -2,7 +2,6 @@ import { App, DrawCall, Program, VertexArray, VertexBuffer, PicoGL } from 'picog
 import { mat4 } from 'gl-matrix';
 import { ColorType } from '../../core/types/color';
 import { CellType } from '../../core/types/cell';
-import { Position } from '../../core/types/position';
 import type { IRenderer, MoveAnimation, RenderState } from '../../ports/IRenderer';
 import {
   buildGridLines,
@@ -25,7 +24,6 @@ import {
   maxWave,
   WAVE_INTERVAL_MS,
 } from './create-animation';
-import { ParticleSystem } from './particles';
 
 // Цвета материалов оригинала (раздел 12.1 документации)
 const COLOR_FLOOR = [28 / 255, 68 / 255, 102 / 255]; // тёмно-голубой mat_floor
@@ -35,7 +33,6 @@ const COLOR_BOX_TWO = [192 / 255, 182 / 255, 28 / 255]; // жёлтый mat_colo
 const COLOR_END = [150 / 255, 45 / 255, 40 / 255]; // приглушённо-красная площадка
 const COLOR_END_TWO = [160 / 255, 150 / 255, 45 / 255]; // приглушённо-жёлтая площадка
 const COLOR_GRID = [0.35, 0.55, 0.75];
-const COLOR_PARTICLE = [1.0, 0.98, 0.23]; // жёлтый частиц (end.tscn)
 const COLOR_BG = [0.78, 0.78, 0.78]; // серый фон (cam_envir.tres)
 
 const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
@@ -67,7 +64,6 @@ export class PicoglRenderer implements IRenderer {
 
   private camera = new Camera();
   private tweens = new TweenManager();
-  private particles = new ParticleSystem();
 
   private state: RenderState | null = null;
   private boxPos: RenderBoxPos[] = [];
@@ -150,11 +146,6 @@ export class PicoglRenderer implements IRenderer {
         y: 0.5,
         color: b.color,
       }));
-      // Частицы: активны там, где кубик стоит на цели того же цвета
-      for (const end of state.ends) {
-        const filled = state.boxes.some((b) => b.pos.equals(end.pos) && b.color === end.color);
-        this.particles.setActive(end.pos, filled);
-      }
     }
     this.state = state;
   }
@@ -241,10 +232,6 @@ export class PicoglRenderer implements IRenderer {
     this.createDone = onComplete;
   }
 
-  setEndParticles(pos: Position, active: boolean): void {
-    this.particles.setActive(pos, active);
-  }
-
   startLoop(): void {
     if (this.loopRunning) return;
     this.loopRunning = true;
@@ -257,7 +244,6 @@ export class PicoglRenderer implements IRenderer {
       this.lastFrameTime = now;
       this.tweens.update();
       this.updateCreateAnim(dt);
-      this.particles.update(dt);
       this.drawFrame();
       this.rafId = requestAnimationFrame(frame);
     };
@@ -392,19 +378,6 @@ export class PicoglRenderer implements IRenderer {
         scale,
         0.9 * scale,
         b.color === ColorType.ONE ? COLOR_BOX : COLOR_BOX_TWO,
-      );
-    }
-
-    // Частицы (маленькие кубики 0.1)
-    for (const p of this.particles.getPositions()) {
-      drawCube(
-        p.x - state.width / 2,
-        p.y,
-        p.z - state.height / 2,
-        0.1,
-        0.1,
-        0.1,
-        COLOR_PARTICLE,
       );
     }
   }
