@@ -24,6 +24,12 @@ export interface IRenderer {
 
   /** Волновая анимация появления уровня (7.4). */
   animateCreate(state: RenderState, onComplete: () => void): void;
+
+  /** Орбита камеры: приращения рыскания (Y уровня) и наклона (X), радианы. */
+  orbit(dYaw: number, dPitch: number): void;
+
+  /** Текущие углы камеры (радианы). */
+  getCameraAngles(): { yaw: number; pitch: number };
 }
 
 /** Всё, что нужно отрисовщику на кадр. */

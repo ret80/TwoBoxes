@@ -48,6 +48,14 @@ const ICONS = {
   home: { stroke: false, paths: ['M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5Z'] },
   // Две стрелки вправо (играть / следующий уровень)
   next: { stroke: true, paths: ['M5 4l8 8-8 8', 'M12 4l8 8-8 8'] },
+  // Лампочка (подсказка)
+  hint: {
+    stroke: false,
+    paths: [
+      'M12 2a7 7 0 0 0-4.2 12.6c.5.4.8 1 .9 1.6l.1.8h6.4l.1-.8c.1-.6.4-1.2.9-1.6A7 7 0 0 0 12 2Z',
+      'M9 19h6v1.2a1.8 1.8 0 0 1-1.8 1.8h-2.4A1.8 1.8 0 0 1 9 20.2V19Z',
+    ],
+  },
 } as const;
 
 type IconName = keyof typeof ICONS;
@@ -69,11 +77,12 @@ function icon(name: IconName): SVGSVGElement {
 }
 
 /** Кнопка-иконка: текст убирается, подпись остаётся в aria-label/title. */
-function iconButton(btn: HTMLButtonElement, name: IconName, label: string): void {
+function iconButton(btn: HTMLButtonElement, name: IconName, label: string): HTMLButtonElement {
   btn.textContent = '';
   btn.appendChild(icon(name));
   btn.title = label;
   btn.setAttribute('aria-label', label);
+  return btn;
 }
 
 /** Главное меню: Resume (если есть сохранение), Play, Help, About. */
@@ -149,23 +158,34 @@ export function buildSelectorScreen(
   return root;
 }
 
-/** Игровой экран: topbar (номер уровня, Reset, Menu) + canvas. */
+/**
+ * Игровой экран: плавающие панели поверх канваса (как в атласе).
+ * Верхняя — номер уровня, сброс, пауза. Нижняя — сброс и подсказка.
+ */
 export function buildGameScreen(
   i18n: LocaleManager,
-  cb: { onReset: () => void; onPause: () => void },
-): { root: HTMLElement; levelLabel: HTMLElement; canvas: HTMLCanvasElement } {
+  cb: { onReset: () => void; onPause: () => void; onHint: () => void },
+): {
+  root: HTMLElement;
+  levelLabel: HTMLElement;
+  canvas: HTMLCanvasElement;
+  canvasWrap: HTMLElement;
+  resetTop: HTMLButtonElement;
+  pause: HTMLButtonElement;
+  resetBottom: HTMLButtonElement;
+  hint: HTMLButtonElement;
+  hintToast: HTMLElement;
+} {
   const root = el('div', 'screen screen--game');
   root.dataset.screen = 'game';
 
   const topbar = el('div', 'game-topbar');
   const levelLabel = el('div', 'game-topbar__label', '');
-  const reset = el<HTMLButtonElement>('button', 'btn btn--warning btn--icon');
-  iconButton(reset, 'reset', i18n.t('RESET'));
-  reset.addEventListener('click', cb.onReset);
-  const menu = el<HTMLButtonElement>('button', 'btn btn--icon');
-  iconButton(menu, 'pause', i18n.t('PAUSE'));
-  menu.addEventListener('click', cb.onPause);
-  topbar.append(levelLabel, reset, menu);
+  const resetTop = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'reset', i18n.t('RESET'));
+  resetTop.addEventListener('click', cb.onReset);
+  const pause = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'pause', i18n.t('PAUSE'));
+  pause.addEventListener('click', cb.onPause);
+  topbar.append(levelLabel, resetTop, pause);
 
   const canvasWrap = el('div', '', undefined);
   canvasWrap.id = 'canvas-wrap';
@@ -173,8 +193,17 @@ export function buildGameScreen(
   canvas.id = 'game-canvas';
   canvasWrap.appendChild(canvas);
 
-  root.append(topbar, canvasWrap);
-  return { root, levelLabel, canvas };
+  const bottombar = el('div', 'game-bottombar');
+  const hintToast = el('div', 'hud-hint');
+  hintToast.hidden = true;
+  const resetBottom = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'reset', i18n.t('RESET'));
+  resetBottom.addEventListener('click', cb.onReset);
+  const hint = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'hint', i18n.t('HINT'));
+  hint.addEventListener('click', cb.onHint);
+  bottombar.append(hintToast, resetBottom, hint);
+
+  root.append(canvasWrap, topbar, bottombar);
+  return { root, levelLabel, canvas, canvasWrap, resetTop, pause, resetBottom, hint, hintToast };
 }
 
 /** Экран помощи. */

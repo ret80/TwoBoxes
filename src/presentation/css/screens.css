@@ -32,11 +32,9 @@
 
 .screen__title {
   margin-bottom: 4px;
-  color: var(--color-dark-blue);
+  color: var(--color-coffee);
   text-align: center;
-  text-shadow:
-    0 2px 12px rgba(255, 255, 255, 0.85),
-    0 1px 0 rgba(255, 255, 255, 0.7);
+  text-shadow: none;
 }
 
 /* Большой заголовок главного меню — сверху, а не по центру */
@@ -44,9 +42,7 @@
   font-size: clamp(3.2rem, 15vw, 6rem);
   line-height: 0.95;
   letter-spacing: 0.01em;
-  text-shadow:
-    0 6px 24px rgba(255, 255, 255, 0.9),
-    0 2px 2px rgba(255, 255, 255, 0.7);
+  text-shadow: 0 6px 24px rgba(255, 255, 255, 0.55);
 }
 
 .screen__buttons {
@@ -75,13 +71,13 @@
 .menu-card {
   width: min(360px, 88vw);
   padding: 16px;
+  border: none;
   border-radius: 18px;
-  background: rgba(28, 68, 102, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    0 16px 44px rgba(0, 0, 0, 0.38),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(8px);
+  /* Подложки нет: вместо неё слегка размытое изображение под меню */
+  background: none;
+  box-shadow: none;
+  backdrop-filter: var(--blur-menu);
+  -webkit-backdrop-filter: var(--blur-menu);
 }
 
 /* Информационные экраны (help/about) и выбор уровня */
@@ -150,27 +146,32 @@
   overflow: hidden;
 }
 
+/* Плавающая кремовая панель по центру сверху (как в атласе) */
 .game-topbar {
-  position: relative;
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 50%;
   z-index: 2;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
-  /* Без плашки: панель полностью прозрачная, видно игровое поле */
-  background: none;
-  box-shadow: none;
-  backdrop-filter: none;
+  gap: 4px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 8px 10px 8px 20px;
+  border-radius: 18px;
+  background: var(--color-cream);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
   pointer-events: auto;
 }
 
 .game-topbar__label {
   min-width: 0;
+  max-width: 46vw;
+  margin-right: 10px;
   overflow: hidden;
   color: var(--color-coffee);
-  font-size: clamp(1rem, 4.4vw, 1.25rem);
+  font-size: clamp(1rem, 4.4vw, 1.2rem);
   font-weight: 600;
   letter-spacing: 0.01em;
   text-overflow: ellipsis;
@@ -178,34 +179,76 @@
   white-space: nowrap;
 }
 
-/* Кнопки HUD — только иконки: без фона, тени и плашки */
-.game-topbar .btn {
+/* Кнопки внутри плавающих панелей: только иконки, без своей плашки */
+.game-topbar .btn,
+.game-bottombar .btn {
   flex: 0 0 auto;
-  min-height: 44px;
-  min-width: 0;
-  padding: 8px 10px;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 8px;
+  border-radius: 12px;
   color: var(--color-coffee);
   background: none;
   box-shadow: none;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .game-topbar .btn:hover,
-.game-topbar .btn:focus-visible {
-  background: none;
+.game-topbar .btn:focus-visible,
+.game-bottombar .btn:hover,
+.game-bottombar .btn:focus-visible {
+  background: rgba(74, 53, 39, 0.07);
   box-shadow: none;
   color: var(--color-coffee-hover);
-  opacity: 0.75;
 }
 
-.game-topbar .btn:active {
+.game-topbar .btn:active,
+.game-bottombar .btn:active {
+  background: rgba(74, 53, 39, 0.12);
   transform: none;
   box-shadow: none;
-  opacity: 0.55;
 }
 
-/* Вне игры (меню, выбор уровня, помощь) верхняя панель HUD скрыта */
-.screen--game-idle .game-topbar {
+/* Вне игры (меню, выбор уровня, помощь) плавающие панели HUD скрыты */
+.screen--game-idle .game-topbar,
+.screen--game-idle .game-bottombar {
+  display: none;
+}
+
+/* Нижняя панель: сброс и подсказка */
+.game-bottombar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 20px;
+  border-radius: 18px;
+  background: var(--color-cream);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+/* Всплывающая плашка подсказки над нижней панелью */
+.hud-hint {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  padding: 8px 16px;
+  border-radius: 14px;
+  background: var(--color-cream);
+  box-shadow: var(--shadow);
+  color: var(--color-coffee);
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.hud-hint[hidden] {
   display: none;
 }
 
@@ -213,6 +256,7 @@
 #canvas-wrap {
   position: absolute;
   inset: 0;
+  touch-action: none; /* свайпы и орбита обрабатываются сами, без скролла страницы */
 }
 
 #game-canvas {

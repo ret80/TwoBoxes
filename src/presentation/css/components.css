@@ -1,4 +1,6 @@
 /* Кнопки, карточки, блоки */
+
+/* Все кнопки — кремовые «пилюли» как панели HUD, текст и иконки кофейные */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -6,15 +8,14 @@
   min-height: 52px; /* touch target */
   min-width: 160px;
   padding: 12px 24px;
-  border-radius: 12px;
-  background: var(--color-blue);
-  box-shadow:
-    0 3px 0 rgba(0, 0, 0, 0.22),
-    0 8px 18px rgba(0, 0, 0, 0.16);
-  color: var(--color-text);
+  border: none;
+  border-radius: var(--radius);
+  background: var(--color-cream);
+  box-shadow: var(--shadow-btn);
+  color: var(--color-coffee);
   font-size: clamp(1rem, 4.2vw, 1.15rem);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   transition:
     background 0.15s,
@@ -25,33 +26,27 @@
 
 .btn:hover,
 .btn:focus-visible {
-  background: var(--color-dark-blue);
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.55),
-    0 3px 0 rgba(0, 0, 0, 0.22);
+  background: var(--color-cream-strong);
+  box-shadow: 0 8px 22px rgba(74, 53, 39, 0.18);
   outline: none;
 }
 
 .btn:active {
-  transform: translateY(2px);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.22);
+  transform: translateY(1px);
+  box-shadow: 0 3px 10px rgba(74, 53, 39, 0.16);
 }
 
-.btn--danger {
-  background: var(--color-red);
+/* Смысловые варианты больше не меняют палитру: подложка и текст общие */
+.btn--danger,
+.btn--warning {
+  background: var(--color-cream);
+  color: var(--color-coffee);
 }
 .btn--danger:hover,
-.btn--danger:focus-visible {
-  background: #c0120e;
-}
-
-.btn--warning {
-  background: var(--color-yellow);
-  color: #2a2600;
-}
+.btn--danger:focus-visible,
 .btn--warning:hover,
 .btn--warning:focus-visible {
-  background: #a89f18;
+  background: var(--color-cream-strong);
 }
 
 .btn:disabled {
@@ -61,8 +56,8 @@
 }
 
 .btn--icon {
-  min-width: 48px;
-  padding: 10px 14px;
+  min-width: 44px;
+  padding: 10px 12px;
 }
 
 /* Плоская иконка внутри кнопки: размер от кегля, цвет от кнопки */
@@ -92,25 +87,23 @@
   justify-content: center;
   width: 100%;
   aspect-ratio: 1;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #3579b2, var(--color-blue));
-  box-shadow:
-    0 3px 0 rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  color: var(--color-text);
+  border: none;
+  border-radius: 14px;
+  background: var(--color-cream);
+  box-shadow: var(--shadow-btn);
+  color: var(--color-coffee);
   font-size: clamp(1rem, 4vw, 1.3rem);
   font-weight: 700;
   letter-spacing: 0.02em;
   transition:
     transform 0.1s,
-    filter 0.15s;
+    background 0.15s;
 }
 
 .lvl-card:hover:not(:disabled),
 .lvl-card:focus-visible:not(:disabled) {
-  filter: brightness(1.1);
-  outline: 2px solid rgba(255, 255, 255, 0.6);
-  outline-offset: 1px;
+  background: var(--color-cream-strong);
+  outline: none;
   transform: translateY(-1px);
 }
 
@@ -119,9 +112,9 @@
 }
 
 .lvl-card--locked {
-  background: rgba(255, 255, 255, 0.16);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
-  color: #000; /* замок — один плоский чёрный цвет */
+  background: var(--color-locked);
+  box-shadow: inset 0 0 0 1px rgba(74, 53, 39, 0.12);
+  color: var(--color-text-dim);
   pointer-events: none;
 }
 
@@ -131,10 +124,14 @@
   height: 40%;
 }
 
+/* Панели меню и диалогов: без подложки, вместо неё размытие фона под меню */
 .panel {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  background: var(--color-panel);
-  box-shadow: var(--shadow);
+  border: none;
+  border-radius: 18px;
+  background: none;
+  box-shadow: none;
   padding: 20px 22px;
+  color: var(--color-coffee);
+  backdrop-filter: var(--blur-menu);
+  -webkit-backdrop-filter: var(--blur-menu);
 }

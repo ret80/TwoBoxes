@@ -9,6 +9,7 @@ import type { IAudio } from '../../ports/IAudio';
 import type { ISaveStorage } from '../../ports/ISaveStorage';
 import type { Statistics } from '../../core/services/statistics';
 import { InputAction } from '../../ports/IInput';
+import { findHint } from '../../core/rules/hint';
 
 const SAVE_KEY = 'save';
 
@@ -98,6 +99,13 @@ export class GameController {
 
   reset(): void {
     this.startLevel(this.episodes.getCurLevel());
+  }
+
+  /** Подсказка: первое направление кратчайшего решения (null — решения нет). */
+  hint(): Position | null {
+    const snapshot = this.gameActor.getSnapshot();
+    if ((snapshot.value as string) === 'completed') return null;
+    return findHint(snapshot.context.level, snapshot.context.boxes);
   }
 
   pause(): void {

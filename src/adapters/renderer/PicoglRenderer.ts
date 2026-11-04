@@ -1,7 +1,7 @@
 import { App, DrawCall, Program, VertexArray, VertexBuffer, PicoGL } from 'picogl';
 import { mat4 } from 'gl-matrix';
 import { ColorType } from '../../core/types/color';
-import { CellType } from '../../core/types/cell';
+import { CellType, isBoxCell, isEndCell } from '../../core/types/cell';
 import type { IRenderer, MoveAnimation, RenderState } from '../../ports/IRenderer';
 import {
   buildGridLines,
@@ -25,15 +25,29 @@ import {
   WAVE_INTERVAL_MS,
 } from './create-animation';
 
-// Цвета материалов оригинала (раздел 12.1 документации)
-const COLOR_FLOOR = [28 / 255, 68 / 255, 102 / 255]; // тёмно-голубой mat_floor
-const COLOR_WALL = [44 / 255, 107 / 255, 160 / 255]; // голубой mat_wall
-const COLOR_BOX = [235 / 255, 31 / 255, 27 / 255]; // красный mat_color_one
-const COLOR_BOX_TWO = [192 / 255, 182 / 255, 28 / 255]; // жёлтый mat_color_two
-const COLOR_END = [150 / 255, 45 / 255, 40 / 255]; // приглушённо-красная площадка
-const COLOR_END_TWO = [160 / 255, 150 / 255, 45 / 255]; // приглушённо-жёлтая площадка
-const COLOR_GRID = [0.35, 0.55, 0.75];
-const COLOR_BG = [0.78, 0.78, 0.78]; // серый фон (cam_envir.tres)
+// Палитра атласа: тёплый крем, бирюзовые плиты, коралловый и золотой кубики.
+// Цвета заданы «базовыми»: шейдер умножает их на 0.78 + 0.30·diff, поэтому
+// верхние грани выходят светлее, боковые — темнее (мягкий свет как в оригинале).
+const COLOR_PLATFORM = [0.594, 0.727, 0.697]; // бирюзовая плита пути
+const COLOR_BOX = [0.898, 0.596, 0.482]; // куб mat_color_one (коралл)
+const COLOR_BOX_TWO = [0.914, 0.786, 0.462]; // куб mat_color_two (золото)
+const COLOR_GOAL_ONE = [0.933, 0.541, 0.404]; // контур цели красного кубика
+const COLOR_GOAL_TWO = [0.925, 0.788, 0.404]; // контур цели жёлтого кубика
+const COLOR_RECESS = [0.404, 0.529, 0.51]; // углубление целевой площадки
+const COLOR_GRID = [0.72, 0.83, 0.8]; // светлая сетка на плитах
+const COLOR_BG = [0.914, 0.894, 0.863]; // кремовый фон сцены
+
+/** Высота плиты пути: кубики катаются по возвышению, а не по низкому полу. */
+const PLATFORM_TOP = 0.34;
+/** Центр кубика по высоте: стоит на верхней грани плиты. */
+const BOX_Y = PLATFORM_TOP + 0.5;
+
+/**
+ * Плиты есть там, где может оказаться кубик: EMPTY, целевые клетки и сами
+ * кубики (их клетки в карте уровня помечены BOX/BOX_TWO). WALL — обрыв.
+ */
+const isWalkableCell = (cell: CellType): boolean =>
+  cell === CellType.EMPTY || isEndCell(cell) || isBoxCell(cell);
 
 const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 
@@ -143,7 +157,7 @@ export class PicoglRenderer implements IRenderer {
       this.boxPos = state.boxes.map((b) => ({
         x: b.pos.x + 0.5,
         z: b.pos.y + 0.5,
-        y: 0.5,
+        y: BOX_Y,
         color: b.color,
       }));
     }
@@ -152,7 +166,44 @@ export class PicoglRenderer implements IRenderer {
 
   private updateCamera(): void {
     if (!this.state) return;
-    this.camera.updateProjection(this.state.width, this.state.height, this.viewportW, this.viewportH);
+    this.camera.updateProjection(this.visibleBounds(this.state), this.viewportW, this.viewportH);
+  }
+
+  /**
+   * Габариты видимых плит в мировых координатах. Рамка строится по реальной
+   * форме пути, а не по всей карте: иначе невидимые стены по краям съедают
+   * половину экрана и поле выглядит мелким.
+   */
+  private visibleBounds(state: RenderState): {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  } {
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    for (let y = 0; y < state.height; y++) {
+      for (let x = 0; x < state.width; x++) {
+        if (!isWalkableCell(state.grid[y * state.width + x] as CellType)) continue;
+        const wx = x - state.width / 2;
+        const wz = y - state.height / 2;
+        if (wx < minX) minX = wx;
+        if (wx + 1 > maxX) maxX = wx + 1;
+        if (wz < minZ) minZ = wz;
+        if (wz + 1 > maxZ) maxZ = wz + 1;
+      }
+    }
+    if (!Number.isFinite(minX)) {
+      return {
+        minX: -state.width / 2,
+        maxX: state.width / 2,
+        minZ: -state.height / 2,
+        maxZ: state.height / 2,
+      };
+    }
+    return { minX, maxX, minZ, maxZ };
   }
 
   /** Перестроить сетку для данной волны create-анимации. */
@@ -164,10 +215,10 @@ export class PicoglRenderer implements IRenderer {
     // выходя тонкими штрихами за пределы платформы.
     const cellVisible = (x: number, y: number): boolean => {
       if (x < 0 || x >= state.width || y < 0 || y >= state.height) return false;
-      if (state.grid[y * state.width + x] === CellType.UNKNOWN) return false;
+      if (!isWalkableCell(state.grid[y * state.width + x] as CellType)) return false;
       return this.cellVisibleAt(x, y, wave);
     };
-    const lines = buildGridLines(state.width, state.height, cellVisible);
+    const lines = buildGridLines(state.width, state.height, cellVisible, PLATFORM_TOP + 0.004);
     // Пересоздать буфер (VAO/DrawCall) — число рёбер меняется на каждой волне
     this.gridBuf?.delete();
     this.gridVao?.delete();
@@ -202,7 +253,7 @@ export class PicoglRenderer implements IRenderer {
       const distance = Math.abs(m.to.x - m.from.x) + Math.abs(m.to.y - m.from.y);
       this.tweens.add(
         item as unknown as Record<string, number>,
-        { x: m.to.x + 0.5, z: m.to.y + 0.5, y: 0.5 },
+        { x: m.to.x + 0.5, z: m.to.y + 0.5, y: BOX_Y },
         TweenManager.moveDuration(distance),
         () => this.finishMove(),
       );
@@ -230,6 +281,17 @@ export class PicoglRenderer implements IRenderer {
     this.createStartedAt = performance.now();
     this.createElapsed = 0;
     this.createDone = onComplete;
+  }
+
+  /** Орбита: рыскание вокруг Y уровня и наклон вокруг X (радианы). */
+  orbit(dYaw: number, dPitch: number): void {
+    this.camera.orbit(dYaw, dPitch);
+    this.updateCamera();
+  }
+
+  /** Текущие углы камеры: по ним тач переводит свайп в локальные оси уровня. */
+  getCameraAngles(): { yaw: number; pitch: number } {
+    return this.camera.getAngles();
   }
 
   startLoop(): void {
@@ -317,11 +379,22 @@ export class PicoglRenderer implements IRenderer {
     const worldX = (x: number) => x - state.width / 2 + 0.5;
     const worldZ = (y: number) => y - state.height / 2 + 0.5;
 
-    // Пол, стены, целевые площадки: во время create клетки «прорастают» из центра
+    /** Плоский квад на клетке: размер, поворот вокруг Y (ромб цели). */
+    const drawQuad = (x: number, y: number, z: number, size: number, color: number[], rotY = 0) => {
+      // Порядок важен: сначала перенос в центр клетки, потом поворот, потом масштаб.
+      mat4.fromTranslation(model, [x, y, z]);
+      mat4.rotateY(model, model, rotY);
+      mat4.scale(model, model, [size, 1, size]);
+      this.quadDraw!.uniform('uModel', model).uniform('uViewProj', viewProj).uniform('uColor', color);
+      this.quadDraw!.draw();
+    };
+
+    // Стены и пол инвертированы: проходимые клетки — приподнятые плиты, по которым
+    // катаются кубики (WALL больше не рисуется — на его месте обрыв и фон сцены).
     for (let y = 0; y < state.height; y++) {
       for (let x = 0; x < state.width; x++) {
         const cell = state.grid[y * state.width + x] as CellType;
-        if (cell === CellType.UNKNOWN) continue;
+        if (!isWalkableCell(cell)) continue;
         const progress = this.cellProgress(x, y);
         if (progress <= 0) continue;
 
@@ -329,20 +402,26 @@ export class PicoglRenderer implements IRenderer {
         const scale = animating ? 0.05 + 0.95 * eased : 1;
         const lift = animating ? (1 - eased) * 1.2 : 0;
 
-        drawCube(worldX(x), -0.125 + lift, worldZ(y), scale, 0.25 * scale, scale, COLOR_FLOOR);
+        drawCube(
+          worldX(x),
+          (PLATFORM_TOP / 2) * scale + lift,
+          worldZ(y),
+          scale,
+          PLATFORM_TOP * scale,
+          scale,
+          COLOR_PLATFORM,
+        );
 
-        if (cell === CellType.WALL) {
-          drawCube(worldX(x), 0.25 + lift, worldZ(y), scale, 0.5 * scale, scale, COLOR_WALL);
-        }
-        if (cell === CellType.END || cell === CellType.END_TWO) {
-          const color = cell === CellType.END ? COLOR_END : COLOR_END_TWO;
-          mat4.fromTranslation(model, [worldX(x), 0.01 + lift, worldZ(y)]);
-          mat4.scale(model, model, [0.8 * scale, 1, 0.8 * scale]);
-          this.quadDraw
-            .uniform('uModel', model)
-            .uniform('uViewProj', viewProj)
-            .uniform('uColor', color);
-          this.quadDraw.draw();
+        if (isEndCell(cell)) {
+          const goalColor = cell === CellType.END ? COLOR_GOAL_ONE : COLOR_GOAL_TWO;
+          const surface = PLATFORM_TOP + lift;
+          // Углубление и контур цели. Квады без поворота: в изометрии
+          // осевой квадрат проецируется ромбом — как в атласе.
+          drawQuad(worldX(x), surface + 0.002, worldZ(y), 0.82 * scale, COLOR_RECESS);
+          if (!animating) {
+            drawQuad(worldX(x), surface + 0.006, worldZ(y), 0.68, goalColor);
+            drawQuad(worldX(x), surface + 0.009, worldZ(y), 0.48, COLOR_RECESS);
+          }
         }
       }
     }
@@ -372,7 +451,7 @@ export class PicoglRenderer implements IRenderer {
       const lift = animating ? (1 - eased) * 1.2 : 0;
       drawCube(
         b.x - state.width / 2,
-        0.5 * scale + lift,
+        BOX_Y * scale + lift,
         b.z - state.height / 2,
         0.9 * scale,
         scale,

@@ -32,10 +32,4 @@
   .menu-card {
     width: min(360px, 60vw);
   }
-
-  .game-topbar {
-    max-width: none;
-    margin: 0;
-    border-radius: 0;
-  }
 }

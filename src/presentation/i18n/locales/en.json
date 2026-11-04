@@ -12,6 +12,8 @@
   "MMENU": "Main Menu",
   "TITLE_SELECT_LVL": "Select Levels",
   "RESET": "Reset",
+  "HINT": "Hint",
+  "HINT_NONE": "No moves left — reset the level",
   "MOVE": "Move",
   "COMPLETED": "Completed!",
   "BACK": "Back",

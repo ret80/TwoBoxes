@@ -2,7 +2,7 @@ import type { IInput, InputHandler, InputPayload } from '../../ports/IInput';
 import { InputAction } from '../../ports/IInput';
 import { DIRS } from '../../core/types/position';
 import { KeyboardInput } from './KeyboardInput';
-import { TouchInput } from './TouchInput';
+import { TouchInput, type ViewAnglesProvider } from './TouchInput';
 import { GamepadInput } from './GamepadInput';
 import { DemoInput } from './DemoInput';
 
@@ -44,9 +44,10 @@ export class InputAggregator implements IInput {
   private gamepad: GamepadInput;
   private demoInput: DemoInput;
 
-  constructor() {
+  constructor(getAngles?: ViewAnglesProvider) {
     this.keyboard = new KeyboardInput((a) => this.dispatch(a, dirPayload(a)));
-    this.touch = new TouchInput((a, dir) => this.dispatch(a, { dir }));
+    // Свайп переводится в локальные оси уровня по текущим углам камеры.
+    this.touch = new TouchInput((a, dir) => this.dispatch(a, { dir }), getAngles);
     this.gamepad = new GamepadInput((a) => this.dispatch(a, dirPayload(a)));
     this.demoInput = new DemoInput((a, dir) => this.dispatch(a, { dir }));
   }

@@ -6,8 +6,10 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(10, 24, 38, 0.62);
-  backdrop-filter: blur(3px);
+  /* Подложка диалога — только лёгкая дымка и размытие всей сцены под ним */
+  background: rgba(233, 228, 220, 0.2);
+  backdrop-filter: blur(7px) saturate(1.05);
+  -webkit-backdrop-filter: blur(7px) saturate(1.05);
   z-index: 10;
 }
 
@@ -16,6 +18,9 @@
 }
 
 .dialog__box {
+  /* Сцена уже размыта оверлеем: у самой панели подложки и размытия нет */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -42,7 +47,7 @@
   flex-direction: column;
   gap: 4px;
   margin-bottom: 8px;
-  color: var(--color-text);
+  color: var(--color-text-dim);
   font-size: 1.05rem;
   line-height: 1.5;
   opacity: 0.92;

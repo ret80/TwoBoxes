@@ -75,16 +75,17 @@ export const QUAD_NORMALS: Float32Array = new Float32Array([
  * Возвращает пары вершин для режима GL_LINES в координатах поля (центр — origin).
  * `isVisible` — фильтр клеток: ребро проводится только если хотя бы одна
  * из двух смежных клеток видима (иначе UNKNOWN-зоны покрываются сеткой).
+ * `y` — высота линий над плоскостью поля (сетка лежит на верхней грани плит).
  */
 export function buildGridLines(
   width: number,
   height: number,
   isVisible?: (x: number, y: number) => boolean,
+  y = 0.002,
 ): Float32Array {
   const lines: number[] = [];
   const x0 = -width / 2;
   const z0 = -height / 2;
-  const y = 0.002;
   const vis = (x: number, cy: number) => (isVisible ? isVisible(x, cy) : true);
 
   for (let cy = 0; cy < height; cy++) {

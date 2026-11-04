@@ -8,6 +8,7 @@ import { Statistics } from '@core/services/statistics';
 import { PicoglRenderer } from '@adapters/renderer/PicoglRenderer';
 import { WebAudioPlayer } from '@adapters/audio/WebAudioPlayer';
 import { InputAggregator } from '@adapters/input/InputAggregator';
+import { OrbitInput } from '@adapters/input/OrbitInput';
 import { LocalStorageSave } from '@adapters/storage/LocalStorageSave';
 import { InputAction } from '@ports/IInput';
 import { LocaleManager } from '@presentation/i18n/LocaleManager';
@@ -42,7 +43,7 @@ if (saved) episodes.deserialize(saved as SaveData);
 // 4–7. Адаптеры
 const renderer = new PicoglRenderer();
 const audio = new WebAudioPlayer();
-const input = new InputAggregator();
+const input = new InputAggregator(() => renderer.getCameraAngles());
 void config; // громкость/демо — конфиг подключён через подписки контроллеров
 
 // 9. FSM-машины
@@ -56,6 +57,7 @@ const i18n = new LocaleManager(storage);
 const gameScreen = buildGameScreen(i18n, {
   onReset: () => undefined, // подключается ниже, после создания GameController
   onPause: () => undefined,
+  onHint: () => undefined,
 });
 screensRoot.appendChild(gameScreen.root);
 // Вне состояния game верхняя панель HUD не показывается (меню, выбор уровня, помощь)
@@ -71,10 +73,25 @@ const game = new GameController(
   gameActor,
 );
 
-// Кнопки topbar: [Reset, Menu(Pause)]
-const [resetBtn, menuBtn] = Array.from(gameScreen.root.querySelectorAll('button'));
-resetBtn.addEventListener('click', () => game.reset());
-menuBtn.addEventListener('click', () => game.pause());
+// Панели HUD: верхняя (сброс/пауза) и нижняя (сброс/подсказка)
+gameScreen.resetTop.addEventListener('click', () => game.reset());
+gameScreen.resetBottom.addEventListener('click', () => game.reset());
+gameScreen.pause.addEventListener('click', () => game.pause());
+
+// Подсказка: направление первого хода кратчайшего решения во всплывающей плашке
+const ARROWS: Record<string, string> = { '1,0': '→', '-1,0': '←', '0,1': '↓', '0,-1': '↑' };
+let hintTimer = 0;
+gameScreen.hint.addEventListener('click', () => {
+  const dir = game.hint();
+  gameScreen.hintToast.textContent = dir
+    ? `${i18n.t('HINT')}: ${ARROWS[`${dir.x},${dir.y}`] ?? ''}`
+    : i18n.t('HINT_NONE');
+  gameScreen.hintToast.hidden = false;
+  window.clearTimeout(hintTimer);
+  hintTimer = window.setTimeout(() => {
+    gameScreen.hintToast.hidden = true;
+  }, 2200);
+});
 
 renderer.init(gameScreen.canvas);
 const onResize = () => renderer.resize(window.innerWidth, window.innerHeight);
@@ -82,6 +99,13 @@ window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);
 onResize();
 renderer.startLoop();
+
+// Орбита камеры: мышь — перетаскивание, тач — два пальца (один палец — свайп хода)
+const ORBIT_SPEED = 0.006; // радиан на пиксель сдвига
+const orbit = new OrbitInput((dx, dy) =>
+  renderer.orbit(dx * ORBIT_SPEED, dy * ORBIT_SPEED),
+);
+orbit.attach(gameScreen.canvasWrap);
 
 const menuCtrl = new MenuController(screensRoot, i18n, episodes, menuActor, (ep, lvl) => {
   episodes.setCurLevel(ep, lvl);
@@ -139,6 +163,7 @@ menuActor.subscribe((snapshot) => {
   game.setDemo(demo);
   menuCtrl.show(state);
   gameScreen.root.classList.toggle('screen--game-idle', state !== 'game');
+  orbit.setEnabled(state === 'game');
 
   if (enteringGame) {
     const selected = snapshot.context.selected;
