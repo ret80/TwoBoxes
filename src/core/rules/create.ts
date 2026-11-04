@@ -1,0 +1,60 @@
+import { CellType } from '../types/cell';
+import { ColorType } from '../types/color';
+import type { Box, End } from '../types/entity';
+import { Level } from '../types/level';
+import { LevelGrid } from '../types/level-grid';
+import { Position } from '../types/position';
+
+/**
+ * Создание уровня из данных карт (аналог `_create_level()` в episode.gd + `build()` в field.gd).
+ * Ширина поля = максимальная длина строки; короткие строки добиваются ' ' (UNKNOWN),
+ * поле не требует центрирования на уровне данных — центрирование выполняет рендер
+ * через `LevelGrid.nearestEven`.
+ */
+export function createLevelFromData(
+  episodeId: number,
+  levelId: number,
+  rows: string[],
+): Level {
+  const height = rows.length;
+  const width = Math.max(...rows.map((r) => r.length));
+  const grid = new LevelGrid(width, height);
+  const boxes: Box[] = [];
+  const ends: End[] = [];
+
+  for (let y = 0; y < height; y++) {
+    const row = rows[y].padEnd(width, ' ');
+    for (let x = 0; x < width; x++) {
+      const pos = new Position(x, y);
+      switch (row[x]) {
+        case '#':
+          grid.set(pos, CellType.WALL);
+          break;
+        case '.':
+          grid.set(pos, CellType.EMPTY);
+          break;
+        case 'R':
+          grid.set(pos, CellType.BOX);
+          boxes.push({ pos, color: ColorType.ONE });
+          break;
+        case 'Y':
+          grid.set(pos, CellType.BOX_TWO);
+          boxes.push({ pos, color: ColorType.TWO });
+          break;
+        case 'r':
+          grid.set(pos, CellType.END);
+          ends.push({ pos, color: ColorType.ONE });
+          break;
+        case 'y':
+          grid.set(pos, CellType.END_TWO);
+          ends.push({ pos, color: ColorType.TWO });
+          break;
+        default:
+          grid.set(pos, CellType.UNKNOWN);
+          break;
+      }
+    }
+  }
+
+  return new Level(episodeId, levelId, grid, boxes, ends);
+}

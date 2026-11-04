@@ -1,0 +1,31 @@
+/* Адаптивность: портрет/ландшафт (Фаза 12) */
+
+/* Портрет: canvas на весь экран, UI сверху/снизу (как в оригинале 480×854) */
+@media (orientation: portrait) {
+  .screen__title {
+    font-size: clamp(2rem, 8vw, 3rem);
+  }
+
+  .selector-grid {
+    grid-template-columns: repeat(4, minmax(56px, 72px));
+  }
+}
+
+/* Ландшафт: UI не перекрывает игровое поле — компактнее */
+@media (orientation: landscape) {
+  .game-topbar {
+    max-width: 480px;
+    margin: 0 auto;
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+
+  .screen__title {
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+  }
+
+  .screen__buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}

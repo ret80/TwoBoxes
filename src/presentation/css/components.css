@@ -1,0 +1,90 @@
+/* Кнопки, карточки, блоки */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px; /* touch target */
+  min-width: 160px;
+  padding: 10px 24px;
+  border-radius: var(--radius);
+  background: var(--color-blue);
+  color: var(--color-text);
+  font-size: 1.1rem;
+  transition:
+    background 0.15s,
+    transform 0.1s;
+  user-select: none;
+}
+
+.btn:hover,
+.btn:focus-visible {
+  background: var(--color-dark-blue);
+  outline: 2px solid var(--color-text-dim);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn--danger {
+  background: var(--color-red);
+}
+.btn--danger:hover,
+.btn--danger:focus-visible {
+  background: #c0120e;
+}
+
+.btn--warning {
+  background: var(--color-yellow);
+  color: #333;
+}
+.btn--warning:hover,
+.btn--warning:focus-visible {
+  background: #a89f18;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.btn--icon {
+  min-width: 48px;
+  padding: 10px 14px;
+}
+
+/* Карточка уровня (селектор) */
+.lvl-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius);
+  background: var(--color-blue);
+  font-size: 1.2rem;
+  transition: transform 0.1s;
+}
+
+.lvl-card:hover {
+  transform: scale(1.05);
+}
+
+.lvl-card--locked {
+  background: var(--color-locked);
+  pointer-events: none;
+}
+
+.lvl-card--locked::after {
+  content: '🔒';
+  font-size: 1rem;
+  margin-left: 6px;
+}
+
+.panel {
+  background: var(--color-panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}

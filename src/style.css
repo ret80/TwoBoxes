@@ -1,0 +1,8 @@
+/* Точка сборки стилей */
+@import './presentation/css/reset.css';
+@import './presentation/css/theme.css';
+@import './presentation/css/typography.css';
+@import './presentation/css/components.css';
+@import './presentation/css/screens.css';
+@import './presentation/css/dialogs.css';
+@import './presentation/css/responsive.css';

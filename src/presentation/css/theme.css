@@ -1,0 +1,14 @@
+/* Цветовая палитра (материалы оригинала, раздел 12.1 документации) */
+:root {
+  --color-red: #eb1f1b; /* mat_color_one */
+  --color-yellow: #c0b61c; /* mat_color_two */
+  --color-blue: #2c6ba0; /* mat_wall */
+  --color-dark-blue: #1c4466; /* mat_floor */
+  --color-bg: #c7c7c7; /* фон сцены (0.78 серый) */
+  --color-panel: rgba(28, 68, 102, 0.92);
+  --color-text: #ffffff;
+  --color-text-dim: rgba(255, 255, 255, 0.6);
+  --color-locked: rgba(0, 0, 0, 0.35);
+  --radius: 10px;
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}

@@ -1,0 +1,21 @@
+{
+  "TITLE": "2Box",
+  "PLAY": "Play",
+  "OPTIONS": "Options",
+  "HELP": "Help",
+  "ABOUT": "About",
+  "LVL_NUM": "Level #%d-%d",
+  "RESUME": "Resume",
+  "EXIT": "Exit",
+  "PAUSE": "Pause",
+  "LVL_SELECTOR": "Level select",
+  "MMENU": "Main Menu",
+  "TITLE_SELECT_LVL": "Select Levels",
+  "RESET": "Reset",
+  "MOVE": "Move",
+  "COMPLETED": "Completed!",
+  "BACK": "Back",
+  "EPISODE_NUM": "Episode #%d",
+  "TIME": "Time: %s",
+  "MOVES_COUNT": "Number of moves: %d"
+}
