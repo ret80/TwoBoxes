@@ -37,6 +37,10 @@ const COLOR_RECESS = [0.404, 0.529, 0.51]; // углубление целево�
 const COLOR_GRID = [0.72, 0.83, 0.8]; // светлая сетка на плитах
 const COLOR_BG = [0.914, 0.894, 0.863]; // кремовый фон сцены
 
+/** Полосы, резервируемые под плавающие панели HUD (CSS-пиксели). */
+const HUD_INSET_TOP = 76;
+const HUD_INSET_BOTTOM = 76;
+
 /** Высота плиты пути: кубики катаются по возвышению, а не по низкому полу. */
 const PLATFORM_TOP = 0.34;
 /** Центр кубика по высоте: стоит на верхней грани плиты. */
@@ -166,24 +170,18 @@ export class PicoglRenderer implements IRenderer {
 
   /**
    * Кадр фиксируется на старте уровня: дальность считается по опорному ракурсу
-   * и больше не меняется. Высота под панели HUD при этом учитывается, поэтому
-   * поле не уезжает под плавающие панели.
+   * и больше не меняется. Под панели HUD постоянно резервируется полоса, поэтому
+   * поле не уезжает под них и не дёргается при анимации панелей.
    */
   private updateCamera(): void {
     if (!this.state) return;
-    const free = Math.max(1, this.viewportH - this.hudOccupiedHeight());
-    this.camera.frame(this.visibleBounds(this.state), this.viewportW, free);
-  }
-
-  /** Сколько пикселей по высоте занимают панели HUD сверх обычных отступов. */
-  private hudOccupiedHeight(): number {
-    if (typeof document === 'undefined') return 0;
-    const REF_TOP = 64; // обычный отступ сверху в CSS-пикселях
-    const REF_BOTTOM = 72; // обычный отступ снизу
-    const top = document.querySelector('.game-topbar')?.getBoundingClientRect().bottom ?? 0;
-    const bottomBar = document.querySelector('.game-bottombar')?.getBoundingClientRect();
-    const bottomInset = bottomBar ? this.viewportH - bottomBar.top : 0;
-    return Math.max(0, top - REF_TOP) + Math.max(0, bottomInset - REF_BOTTOM);
+    this.camera.frame(
+      this.visibleBounds(this.state),
+      this.viewportW,
+      this.viewportH,
+      HUD_INSET_TOP,
+      HUD_INSET_BOTTOM,
+    );
   }
 
   /**

@@ -67,11 +67,12 @@ export class Camera {
     bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
     viewportW: number,
     viewportH: number,
+    safeTop = 0,
+    safeBottom = 0,
   ): void {
     const rx = mat4.fromXRotation(mat4.create(), DEFAULT_PITCH);
     const ry = mat4.fromYRotation(mat4.create(), DEFAULT_YAW);
     mat4.multiply(this.refView, rx, ry);
-    const viewportAspect = Math.max(1, viewportW) / Math.max(1, viewportH);
 
     const yBottom = -0.05; // низ плит
     const yTop = 1.45; // верх кубика на приподнятой плите
@@ -94,24 +95,28 @@ export class Camera {
       }
     }
 
-    // Высота панелей HUD учтена в пикселях, здесь — только немного воздуха.
-    const margin = 0.4;
-    const marginTop = 0.4;
-    const marginBottom = 0.5;
-    const boxW = maxX - minX + margin * 2;
-    const boxH = maxY - minY + marginTop + marginBottom;
-    const cx = (minX + maxX) / 2;
-    const cy = (minY - marginBottom + maxY + marginTop) / 2;
+    const width = Math.max(1, viewportW);
+    const height = Math.max(1, viewportH);
+    const fieldW = maxX - minX;
+    const fieldH = maxY - minY;
+    const air = 0.4; // поля вокруг поля в клетках
 
-    let halfW: number;
-    let halfH: number;
-    if (boxW / boxH >= viewportAspect) {
-      halfW = boxW / 2;
-      halfH = halfW / viewportAspect;
-    } else {
-      halfH = boxH / 2;
-      halfW = halfH * viewportAspect;
-    }
+    // Свободная полоса между панелями HUD. Вписываем поле равномерно в неё,
+    // а не в урезанный вьюпорт — иначе при скрытых панелях кадр сплющивается.
+    const usableW = width;
+    const usableH = Math.max(1, height - safeTop - safeBottom);
+    const scale = Math.min(
+      usableW / Math.max(0.001, fieldW + air * 2),
+      usableH / Math.max(0.001, fieldH + air * 2),
+    );
+    // Пикселей на единицу мира: одинаковая по обеим осям.
+    const halfW = width / (2 * scale);
+    const halfH = height / (2 * scale);
+
+    const cx = (minX + maxX) / 2;
+    // Сдвиг центра: положительный safeTop опускает картинку под верхнюю панель.
+    const shiftPx = (safeTop - safeBottom) / 2;
+    const cy = (minY + maxY) / 2 - shiftPx / scale;
 
     mat4.ortho(this.proj, cx - halfW, cx + halfW, cy - halfH, cy + halfH, -100, 100);
     this.rebuildViewProj();
