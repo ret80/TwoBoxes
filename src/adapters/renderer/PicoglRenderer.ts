@@ -164,9 +164,26 @@ export class PicoglRenderer implements IRenderer {
     this.state = state;
   }
 
+  /**
+   * Кадр фиксируется на старте уровня: дальность считается по опорному ракурсу
+   * и больше не меняется. Высота под панели HUD при этом учитывается, поэтому
+   * поле не уезжает под плавающие панели.
+   */
   private updateCamera(): void {
     if (!this.state) return;
-    this.camera.updateProjection(this.visibleBounds(this.state), this.viewportW, this.viewportH);
+    const free = Math.max(1, this.viewportH - this.hudOccupiedHeight());
+    this.camera.frame(this.visibleBounds(this.state), this.viewportW, free);
+  }
+
+  /** Сколько пикселей по высоте занимают панели HUD сверх обычных отступов. */
+  private hudOccupiedHeight(): number {
+    if (typeof document === 'undefined') return 0;
+    const REF_TOP = 64; // обычный отступ сверху в CSS-пикселях
+    const REF_BOTTOM = 72; // обычный отступ снизу
+    const top = document.querySelector('.game-topbar')?.getBoundingClientRect().bottom ?? 0;
+    const bottomBar = document.querySelector('.game-bottombar')?.getBoundingClientRect();
+    const bottomInset = bottomBar ? this.viewportH - bottomBar.top : 0;
+    return Math.max(0, top - REF_TOP) + Math.max(0, bottomInset - REF_BOTTOM);
   }
 
   /**

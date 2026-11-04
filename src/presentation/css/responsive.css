@@ -1,27 +1,14 @@
 /* Адаптивность: портрет/ландшафт (Фаза 12) */
 
-/* Портрет: canvas на весь экран, UI сверху/снизу (как в оригинале 480×854) */
-@media (orientation: portrait) {
-  .screen--menu {
-    padding-top: clamp(28px, 9vh, 96px);
-  }
-}
-
-/* Ландшафт: UI не перекрывает игровое поле — компактнее */
+/* Ландшафт: меньше вертикальных отступов, чтобы панели не перекрывали поле */
 @media (orientation: landscape) {
-  .screen--menu {
-    gap: 16px;
-    padding-top: clamp(16px, 6vh, 48px);
+  .screen {
+    --screen-pad-top: clamp(14px, 6vh, 40px);
+    --screen-pad-bottom: clamp(14px, 6vh, 40px);
   }
 
   .screen__title--main {
     font-size: clamp(2.4rem, 8vh, 3.6rem);
-  }
-
-  .screen--info,
-  .screen--selector {
-    justify-content: center;
-    padding-top: 16px;
   }
 
   .panel--screen,

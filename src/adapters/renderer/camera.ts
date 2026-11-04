@@ -15,6 +15,7 @@ export class Camera {
   private proj = mat4.create();
   private view = mat4.create();
   private viewProj = mat4.create();
+  private refView = mat4.create();
   private corner = vec3.create();
 
   private yaw = DEFAULT_YAW;
@@ -24,12 +25,20 @@ export class Camera {
     this.updateView();
   }
 
-  /** Орбита: рыскание свободное, наклон ограничен MIN_PITCH…MAX_PITCH. */
+  /**
+   * Орбита: рыскание свободное, наклон ограничен MIN_PITCH…MAX_PITCH.
+   * Масштаб при этом не меняется — проекция уже зафиксирована в `frame()`.
+   */
   orbit(dYaw: number, dPitch: number): void {
+    this.setAngles(this.yaw + dYaw, this.pitch + dPitch);
+  }
+
+  setAngles(yaw: number, pitch: number): void {
     const twoPi = Math.PI * 2;
-    this.yaw = (((this.yaw + dYaw) % twoPi) + twoPi) % twoPi;
-    this.pitch = Math.min(MAX_PITCH, Math.max(MIN_PITCH, this.pitch + dPitch));
+    this.yaw = (((yaw % twoPi) + twoPi) % twoPi);
+    this.pitch = Math.min(MAX_PITCH, Math.max(MIN_PITCH, pitch));
     this.updateView();
+    this.rebuildViewProj();
   }
 
   getAngles(): { yaw: number; pitch: number } {
@@ -48,17 +57,20 @@ export class Camera {
   }
 
   /**
-   * Обновление проекции под реальные габариты сцены и окно (Фаза 12).
+   * Разовая настройка кадра на старте уровня (Фаза 12).
    *
-   * `bounds` — габариты **видимых** плит в мировых координатах: рамка не тратит
-   * место на невидимые стены по краям карты. Считаем проекцию углов на экран
-   * с учётом поворота камеры и вписываем в кадр с отступами под панели HUD.
+   * Дальность камеры фиксируется по **опорному** ракурсу, а не по текущему:
+   * иначе при вращении уровня проекция пересчитывалась бы и сцена то
+   * приближалась, то отдалялась. Теперь орбита только меняет ориентацию.
    */
-  updateProjection(
+  frame(
     bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
     viewportW: number,
     viewportH: number,
   ): void {
+    const rx = mat4.fromXRotation(mat4.create(), DEFAULT_PITCH);
+    const ry = mat4.fromYRotation(mat4.create(), DEFAULT_YAW);
+    mat4.multiply(this.refView, rx, ry);
     const viewportAspect = Math.max(1, viewportW) / Math.max(1, viewportH);
 
     const yBottom = -0.05; // низ плит
@@ -73,7 +85,7 @@ export class Camera {
       for (const sz of [bounds.minZ, bounds.maxZ]) {
         for (const sy of [yBottom, yTop]) {
           vec3.set(this.corner, sx, sy, sz);
-          vec3.transformMat4(this.corner, this.corner, this.view);
+          vec3.transformMat4(this.corner, this.corner, this.refView);
           if (this.corner[0] < minX) minX = this.corner[0];
           if (this.corner[0] > maxX) maxX = this.corner[0];
           if (this.corner[1] < minY) minY = this.corner[1];
@@ -82,9 +94,10 @@ export class Camera {
       }
     }
 
-    const margin = 0.6; // боковые отступы в клетках
-    const marginTop = 2.0; // запас сверху под плавающую панель HUD
-    const marginBottom = 1.8; // запас снизу под нижнюю панель
+    // Высота панелей HUD учтена в пикселях, здесь — только немного воздуха.
+    const margin = 0.4;
+    const marginTop = 0.4;
+    const marginBottom = 0.5;
     const boxW = maxX - minX + margin * 2;
     const boxH = maxY - minY + marginTop + marginBottom;
     const cx = (minX + maxX) / 2;
@@ -101,6 +114,10 @@ export class Camera {
     }
 
     mat4.ortho(this.proj, cx - halfW, cx + halfW, cy - halfH, cy + halfH, -100, 100);
+    this.rebuildViewProj();
+  }
+
+  private rebuildViewProj(): void {
     mat4.multiply(this.viewProj, this.proj, this.view);
   }
 

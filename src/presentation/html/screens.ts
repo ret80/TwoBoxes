@@ -76,6 +76,14 @@ function icon(name: IconName): SVGSVGElement {
   return svg;
 }
 
+/**
+ * Пустой слой-распорка у края экрана. Заголовок и кнопка «Назад»
+ * позиционируются от этих краёв, поэтому стоят на одном уровне во всех меню.
+ */
+function hideLayer(kind: 'title' | 'bottom'): HTMLElement {
+  return el('div', `menu-hide menu-hide--${kind}`);
+}
+
 /** Кнопка-иконка: текст убирается, подпись остаётся в aria-label/title. */
 function iconButton(btn: HTMLButtonElement, name: IconName, label: string): HTMLButtonElement {
   btn.textContent = '';
@@ -114,7 +122,7 @@ export function buildMenuScreen(
   buttons.append(resume, play, help, about);
   card.appendChild(buttons);
 
-  root.append(title, card);
+  root.append(hideLayer('title'), title, card, hideLayer('bottom'));
   return root;
 }
 
@@ -126,6 +134,7 @@ export function buildSelectorScreen(
 ): HTMLElement {
   const root = el('div', 'screen screen--selector');
   root.dataset.screen = 'selector';
+  root.append(hideLayer('title'));
   root.appendChild(el('h2', 'screen__title', i18n.t('TITLE_SELECT_LVL')));
 
   const panel = el('div', 'panel panel--screen selector-panel');
@@ -154,7 +163,7 @@ export function buildSelectorScreen(
 
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
-  root.append(panel, back);
+  root.append(panel, back, hideLayer('bottom'));
   return root;
 }
 
@@ -213,6 +222,7 @@ export function buildHelpScreen(
 ): HTMLElement {
   const root = el('div', 'screen screen--info screen--help');
   root.dataset.screen = 'help';
+  root.append(hideLayer('title'));
   root.appendChild(el('h2', 'screen__title', i18n.t('HELP')));
   const panel = el('div', 'panel panel--screen');
   panel.appendChild(
@@ -226,7 +236,7 @@ export function buildHelpScreen(
   );
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
-  root.append(panel, back);
+  root.append(panel, back, hideLayer('bottom'));
   return root;
 }
 
@@ -237,6 +247,7 @@ export function buildAboutScreen(
 ): HTMLElement {
   const root = el('div', 'screen screen--info screen--about');
   root.dataset.screen = 'about';
+  root.append(hideLayer('title'));
   root.appendChild(el('h2', 'screen__title', '2Box Puzzle'));
   const panel = el('div', 'panel panel--screen');
   panel.appendChild(el('p', undefined, 'Program: Alexey Dyadchenko'));
@@ -244,7 +255,7 @@ export function buildAboutScreen(
   panel.appendChild(el('p', undefined, 'Level Design: Nikolay Unknow'));
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
-  root.append(panel, back);
+  root.append(panel, back, hideLayer('bottom'));
   return root;
 }
 

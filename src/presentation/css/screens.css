@@ -8,41 +8,69 @@
 }
 
 .screen {
+  /* Единые отступы: заголовок и «Назад» стоят на одном уровне во всех меню */
+  --screen-pad-top: clamp(24px, 8vh, 84px);
+  --screen-pad-bottom: clamp(24px, 8vh, 84px);
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: clamp(16px, 4vmin, 32px);
+  gap: 0;
+  padding: var(--screen-pad-top) clamp(16px, 4vmin, 32px) var(--screen-pad-bottom);
   background: transparent;
   overflow-y: auto;
   overscroll-behavior: contain;
+  isolation: isolate;
   pointer-events: none; /* клики сквозь на canvas (демо-фон) */
+}
+
+/*
+ * Меню: сначала размывается весь игровой экран, а интерфейс и заголовок
+ * рисуются уже поверх размытия. Псевдоэлемент с z-index: -1 под контентом,
+ * но над канвасом.
+ */
+.screen::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgba(233, 228, 220, 0.16);
+  backdrop-filter: blur(10px) saturate(1.05);
+  -webkit-backdrop-filter: blur(10px) saturate(1.05);
 }
 
 .screen > * {
   pointer-events: auto;
 }
 
+/* Пустые слои-распорки (см. hideLayer в screens.ts): задают уровень краёв */
+.menu-hide {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
 .screen--hidden {
   display: none;
 }
 
+/* Заголовок — на одном и том же расстоянии от верхнего края на всех экранах */
 .screen__title {
-  margin-bottom: 4px;
+  position: fixed;
+  top: var(--screen-pad-top);
+  left: 50%;
+  margin: 0;
   color: var(--color-coffee);
   text-align: center;
   text-shadow: none;
+  transform: translateX(-50%);
 }
 
-/* Большой заголовок главного меню — сверху, а не по центру */
+/* Большой заголовок главного меню */
 .screen__title--main {
   font-size: clamp(3.2rem, 15vw, 6rem);
   line-height: 0.95;
   letter-spacing: 0.01em;
-  text-shadow: 0 6px 24px rgba(255, 255, 255, 0.55);
 }
 
 .screen__buttons {
@@ -56,36 +84,29 @@
   width: 100%;
 }
 
-/* Главное меню: заголовок прижат к верху, кнопки — по центру остатка */
-.screen--menu {
-  justify-content: flex-start;
-  padding-top: clamp(28px, 10vh, 110px);
-  gap: clamp(18px, 5vh, 44px);
-}
-
-.screen--menu .menu-card {
-  margin-top: auto;
-  margin-bottom: clamp(24px, 5vh, 56px); /* ниже — видно демо-поле за меню */
-}
-
+/* Главное меню: карточка по центру под заголовком */
 .menu-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
   width: min(360px, 88vw);
+  margin: 0;
   padding: 16px;
   border: none;
   border-radius: 18px;
-  /* Подложки нет: вместо неё слегка размытое изображение под меню */
   background: none;
   box-shadow: none;
-  backdrop-filter: var(--blur-menu);
-  -webkit-backdrop-filter: var(--blur-menu);
+  transform: translate(-50%, -50%);
 }
 
-/* Информационные экраны (help/about) и выбор уровня */
-.screen--info,
-.screen--selector {
-  justify-content: flex-start;
-  padding-top: clamp(22px, 8vh, 80px);
-  gap: 18px;
+/* Информационные экраны (help/about) и выбор уровня — панель по центру */
+.screen--info .panel--screen,
+.screen--selector .panel--screen {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
 }
 
 .panel--screen {
@@ -138,12 +159,26 @@
   width: 100%;
 }
 
+/* Кнопка «Назад» — у нижнего края, на одном уровне во всех меню */
+.btn--back {
+  position: fixed;
+  bottom: var(--screen-pad-bottom);
+  left: 50%;
+  margin: 0;
+  transform: translateX(-50%);
+}
+
 /* Игровой экран */
 .screen--game {
   justify-content: flex-start;
   gap: 0;
   padding: 0;
   overflow: hidden;
+}
+
+/* В самой игре канвас не размывается — только в меню и диалогах */
+.screen--game::before {
+  display: none;
 }
 
 /* Плавающая кремовая панель по центру сверху (как в атласе) */
@@ -162,6 +197,9 @@
   background: var(--color-cream);
   box-shadow: var(--shadow);
   transform: translateX(-50%);
+  transition:
+    transform 0.45s cubic-bezier(0.22, 0.9, 0.24, 1),
+    opacity 0.3s ease;
   pointer-events: auto;
 }
 
@@ -209,12 +247,6 @@
   box-shadow: none;
 }
 
-/* Вне игры (меню, выбор уровня, помощь) плавающие панели HUD скрыты */
-.screen--game-idle .game-topbar,
-.screen--game-idle .game-bottombar {
-  display: none;
-}
-
 /* Нижняя панель: сброс и подсказка */
 .game-bottombar {
   position: absolute;
@@ -229,7 +261,32 @@
   background: var(--color-cream);
   box-shadow: var(--shadow);
   transform: translateX(-50%);
+  transition:
+    transform 0.45s cubic-bezier(0.22, 0.9, 0.24, 1),
+    opacity 0.3s ease;
   pointer-events: auto;
+}
+
+/*
+ * Анимация появления/ухода HUD: на старте уровня панели выезжают из-за краёв,
+ * после прохождения — уезжают обратно за экран.
+ */
+.hud--hidden .game-topbar {
+  opacity: 0;
+  transform: translate(-50%, calc(-100% - 32px));
+  pointer-events: none;
+}
+
+.hud--hidden .game-bottombar {
+  opacity: 0;
+  transform: translate(-50%, calc(100% + 32px));
+  pointer-events: none;
+}
+
+/* Вне игры (меню, выбор уровня, помощь) плавающие панели HUD скрыты */
+.screen--game-idle .game-topbar,
+.screen--game-idle .game-bottombar {
+  display: none;
 }
 
 /* Всплывающая плашка подсказки над нижней панелью */

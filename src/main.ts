@@ -117,6 +117,29 @@ const pauseDialog = new PauseDialogController(dialogRoot, i18n, audio, input, {
   onMainMenu: () => menuActor.send({ type: 'HOME' }),
 });
 
+/*
+ * HUD-панели: выезжают из-за краёв на старте уровня и уезжают за экран,
+ * когда уровень пройден. Стартовое положение держим один кадр, иначе
+ * transition не успевает сработать и панели появляются «прыжком».
+ */
+const hudRoot = gameScreen.root;
+const revealHud = (): void => {
+  hudRoot.classList.add('hud--hidden');
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => hudRoot.classList.remove('hud--hidden')),
+  );
+};
+
+let prevGameState = gameActor.getSnapshot().value as string;
+gameActor.subscribe((snapshot) => {
+  const state = snapshot.value as string;
+  const entered = state !== prevGameState;
+  prevGameState = state;
+  if (!entered) return;
+  if (state === 'create') revealHud();
+  if (state === 'completed') hudRoot.classList.add('hud--hidden');
+});
+
 const completedDialog = new CompletedDialogController(dialogRoot, i18n, audio, {
   onNext: () => {
     episodes.nextLevel();
@@ -163,6 +186,7 @@ menuActor.subscribe((snapshot) => {
   game.setDemo(demo);
   menuCtrl.show(state);
   gameScreen.root.classList.toggle('screen--game-idle', state !== 'game');
+  if (state !== 'game') hudRoot.classList.add('hud--hidden');
   orbit.setEnabled(state === 'game');
 
   if (enteringGame) {

@@ -124,7 +124,7 @@
   height: 40%;
 }
 
-/* Панели меню и диалогов: без подложки, вместо неё размытие фона под меню */
+/* Панели меню и диалогов: без подложки — фон размывается целиком оверлеем */
 .panel {
   border: none;
   border-radius: 18px;
@@ -132,6 +132,4 @@
   box-shadow: none;
   padding: 20px 22px;
   color: var(--color-coffee);
-  backdrop-filter: var(--blur-menu);
-  -webkit-backdrop-filter: var(--blur-menu);
 }
