@@ -159,30 +159,49 @@
   gap: 10px;
   width: 100%;
   padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
-  background: rgba(28, 68, 102, 0.92);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(6px);
+  /* Без плашки: панель полностью прозрачная, видно игровое поле */
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
   pointer-events: auto;
 }
 
 .game-topbar__label {
   min-width: 0;
   overflow: hidden;
-  color: var(--color-text);
+  color: var(--color-coffee);
   font-size: clamp(1rem, 4.4vw, 1.25rem);
   font-weight: 600;
   letter-spacing: 0.01em;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  text-shadow: none;
   white-space: nowrap;
 }
 
+/* Кнопки HUD — только иконки: без фона, тени и плашки */
 .game-topbar .btn {
   flex: 0 0 auto;
   min-height: 44px;
   min-width: 0;
-  padding: 8px 14px;
+  padding: 8px 10px;
+  color: var(--color-coffee);
+  background: none;
+  box-shadow: none;
   font-size: 0.95rem;
+}
+
+.game-topbar .btn:hover,
+.game-topbar .btn:focus-visible {
+  background: none;
+  box-shadow: none;
+  color: var(--color-coffee-hover);
+  opacity: 0.75;
+}
+
+.game-topbar .btn:active {
+  transform: none;
+  box-shadow: none;
+  opacity: 0.55;
 }
 
 /* Вне игры (меню, выбор уровня, помощь) верхняя панель HUD скрыта */
