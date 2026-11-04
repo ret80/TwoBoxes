@@ -1,11 +1,32 @@
 import type { IInput, InputHandler, InputPayload } from '../../ports/IInput';
 import { InputAction } from '../../ports/IInput';
+import { DIRS } from '../../core/types/position';
 import { KeyboardInput } from './KeyboardInput';
 import { TouchInput } from './TouchInput';
 import { GamepadInput } from './GamepadInput';
 import { DemoInput } from './DemoInput';
 
 const DEBOUNCE_MS = 100; // защита от случайных двойных ходов
+
+/**
+ * Payload направления для действия. Клавиатура и геймпад присылают только
+ * действие — без `dir` подписчики направлений (GameController.handleDirection)
+ * игнорировали такие события, и стрелки не двигали кубики.
+ */
+function dirPayload(action: InputAction): InputPayload | undefined {
+  switch (action) {
+    case InputAction.UP:
+      return { dir: DIRS.up };
+    case InputAction.DOWN:
+      return { dir: DIRS.down };
+    case InputAction.LEFT:
+      return { dir: DIRS.left };
+    case InputAction.RIGHT:
+      return { dir: DIRS.right };
+    default:
+      return undefined;
+  }
+}
 
 /**
  * Объединяет все источники ввода (план 8.4).
@@ -24,9 +45,9 @@ export class InputAggregator implements IInput {
   private demoInput: DemoInput;
 
   constructor() {
-    this.keyboard = new KeyboardInput((a) => this.dispatch(a));
+    this.keyboard = new KeyboardInput((a) => this.dispatch(a, dirPayload(a)));
     this.touch = new TouchInput((a, dir) => this.dispatch(a, { dir }));
-    this.gamepad = new GamepadInput((a) => this.dispatch(a));
+    this.gamepad = new GamepadInput((a) => this.dispatch(a, dirPayload(a)));
     this.demoInput = new DemoInput((a, dir) => this.dispatch(a, { dir }));
   }
 

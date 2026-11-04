@@ -21,21 +21,26 @@ export class TweenManager {
     onComplete?: () => void,
   ): Tween<Record<string, number>> {
     const tween = new Tween(target, this.group)
-      .to(to, Math.max(1, Math.round(durationMs * 1000)))
+      .to(to, Math.max(1, Math.round(durationMs)))
       .easing(Easing.Circular.Out)
       .onComplete(() => onComplete?.())
       .start();
     return tween;
   }
 
-  /** Длительность движения в секундах: speed * distance. */
+  /** Длительность движения в мс: speed (сек на клетку) * distance * 1000. */
   static moveDuration(distance: number): number {
-    return MOVE_SPEED * distance;
+    return MOVE_SPEED * distance * 1000;
   }
 
-  /** Обновление всех активных tween (вызывается за кадр). */
-  update(deltaMs: number): void {
-    this.group.update(deltaMs);
+  /**
+   * Обновление всех активных tween (вызывается за кадр).
+   * tween.js v25 трактует аргумент как абсолютное время в мс, а не кадровую
+   * дельту: с `dt * 1000` анимация хода почти не продвигалась и кубик висел
+   * на старой клетке десятки секунд.
+   */
+  update(): void {
+    this.group.update(performance.now());
   }
 
   get active(): boolean {

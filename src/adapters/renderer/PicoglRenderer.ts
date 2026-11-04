@@ -255,7 +255,7 @@ export class PicoglRenderer implements IRenderer {
       // и огромный dt мгновенно «проглатывал» анимацию появления уровня.
       const dt = Math.min(Math.max((now - this.lastFrameTime) / 1000, 0), 0.05);
       this.lastFrameTime = now;
-      this.tweens.update(dt * 1000);
+      this.tweens.update();
       this.updateCreateAnim(dt);
       this.particles.update(dt);
       this.drawFrame();
