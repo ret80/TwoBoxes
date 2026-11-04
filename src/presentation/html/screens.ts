@@ -33,6 +33,49 @@ function lockIcon(): SVGSVGElement {
   return svg;
 }
 
+/** Геометрия иконок кнопок: 24×24, один цвет (currentColor) — плоский стиль. */
+const ICONS = {
+  // Закрученная стрелка (сброс уровня)
+  reset: {
+    stroke: false,
+    paths: [
+      'M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35Z',
+    ],
+  },
+  // Две вертикальные полоски (пауза)
+  pause: { stroke: false, paths: ['M6 19h4V5H6v14Zm8-14v14h4V5h-4Z'] },
+  // Плоский домик (в главное меню)
+  home: { stroke: false, paths: ['M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5Z'] },
+  // Две стрелки вправо (играть / следующий уровень)
+  next: { stroke: true, paths: ['M5 4l8 8-8 8', 'M12 4l8 8-8 8'] },
+} as const;
+
+type IconName = keyof typeof ICONS;
+
+/** Плоская иконка (без объёма и тени), цвет наследуется от кнопки. */
+function icon(name: IconName): SVGSVGElement {
+  const def = ICONS[name];
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.classList.add('btn__icon', def.stroke ? 'btn__icon--stroke' : 'btn__icon--fill');
+  for (const d of def.paths) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+/** Кнопка-иконка: текст убирается, подпись остаётся в aria-label/title. */
+function iconButton(btn: HTMLButtonElement, name: IconName, label: string): void {
+  btn.textContent = '';
+  btn.appendChild(icon(name));
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+}
+
 /** Главное меню: Resume (если есть сохранение), Play, Help, About. */
 export function buildMenuScreen(
   i18n: LocaleManager,
@@ -116,11 +159,11 @@ export function buildGameScreen(
 
   const topbar = el('div', 'game-topbar');
   const levelLabel = el('div', 'game-topbar__label', '');
-  const reset = el<HTMLButtonElement>('button', 'btn btn--warning btn--icon', i18n.t('RESET'));
-  reset.setAttribute('aria-label', i18n.t('RESET'));
+  const reset = el<HTMLButtonElement>('button', 'btn btn--warning btn--icon');
+  iconButton(reset, 'reset', i18n.t('RESET'));
   reset.addEventListener('click', cb.onReset);
-  const menu = el<HTMLButtonElement>('button', 'btn btn--icon', i18n.t('PAUSE'));
-  menu.setAttribute('aria-label', i18n.t('PAUSE'));
+  const menu = el<HTMLButtonElement>('button', 'btn btn--icon');
+  iconButton(menu, 'pause', i18n.t('PAUSE'));
   menu.addEventListener('click', cb.onPause);
   topbar.append(levelLabel, reset, menu);
 
@@ -206,14 +249,14 @@ export function buildCompletedDialog(
   const box = el('div', 'dialog__box panel');
   const title = el('div', 'dialog__title', i18n.t('COMPLETED'));
   const stats = el('div', 'dialog__stats');
-  const reset = el('button', 'btn btn--warning btn--icon', i18n.t('RESET'));
+  const reset = el<HTMLButtonElement>('button', 'btn btn--warning btn--icon');
+  iconButton(reset, 'reset', i18n.t('RESET'));
   reset.addEventListener('click', cb.onReset);
-  const home = el<HTMLButtonElement>('button', 'btn btn--icon', '🏠');
-  home.title = i18n.t('MMENU');
-  home.setAttribute('aria-label', i18n.t('MMENU'));
+  const home = el<HTMLButtonElement>('button', 'btn btn--icon');
+  iconButton(home, 'home', i18n.t('MMENU'));
   home.addEventListener('click', cb.onHome);
-  const next = el<HTMLButtonElement>('button', 'btn btn--danger', i18n.t('PLAY'));
-  next.setAttribute('aria-label', i18n.t('PLAY'));
+  const next = el<HTMLButtonElement>('button', 'btn btn--danger btn--icon');
+  iconButton(next, 'next', i18n.t('PLAY'));
   next.addEventListener('click', cb.onNext);
   const row = el('div', 'dialog__actions');
   row.append(reset, home, next);

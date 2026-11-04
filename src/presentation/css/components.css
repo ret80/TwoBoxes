@@ -65,6 +65,26 @@
   padding: 10px 14px;
 }
 
+/* Плоская иконка внутри кнопки: размер от кегля, цвет от кнопки */
+.btn__icon {
+  display: block;
+  width: 1.35em;
+  height: 1.35em;
+  overflow: visible;
+}
+
+.btn__icon--fill {
+  fill: currentColor;
+}
+
+.btn__icon--stroke {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+
 /* Карточка уровня (селектор) */
 .lvl-card {
   display: flex;
