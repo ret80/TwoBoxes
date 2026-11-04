@@ -21,3 +21,8 @@ button {
   cursor: pointer;
   color: inherit;
 }
+
+/* Атрибут hidden должен побеждать display у классов (.btn и т.п.) */
+[hidden] {
+  display: none !important;
+}

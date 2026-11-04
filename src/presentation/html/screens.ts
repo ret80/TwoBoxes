@@ -67,8 +67,17 @@ const ICONS = {
 
 type IconName = keyof typeof ICONS;
 
+/** Иконки-символы: проще и чётче, чем путь (например, знак вопроса). */
+const TEXT_ICONS: Partial<Record<IconName, string>> = { hint: '?' };
+
 /** Плоская иконка (без объёма и тени), цвет наследуется от кнопки. */
-function icon(name: IconName): SVGSVGElement {
+function icon(name: IconName): Element {
+  const glyph = TEXT_ICONS[name];
+  if (glyph) {
+    const span = el('span', 'btn__icon btn__icon--text', glyph);
+    span.setAttribute('aria-hidden', 'true');
+    return span;
+  }
   const def = ICONS[name];
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -113,7 +122,12 @@ export function buildMenuScreen(
   const card = el('div', 'menu-card');
   const buttons = el('div', 'screen__buttons');
   const resume = el<HTMLButtonElement>('button', 'btn', i18n.t('RESUME'));
-  resume.disabled = !canResume;
+  resume.dataset.action = 'resume';
+  // Пока игра ни разу не начиналась, «Продолжить» вообще не показываем
+  if (!canResume) {
+    resume.hidden = true;
+    resume.disabled = true;
+  }
   resume.setAttribute('aria-label', i18n.t('RESUME'));
   resume.addEventListener('click', cb.onResume);
   const play = el<HTMLButtonElement>('button', 'btn', i18n.t('PLAY'));
@@ -232,16 +246,23 @@ export function buildHelpScreen(
   root.dataset.screen = 'help';
   root.append(hideLayer('title'));
   root.appendChild(el('h2', 'screen__title', i18n.t('HELP')));
-  const panel = el('div', 'panel panel--screen');
-  panel.appendChild(
-    el(
-      'p',
-      undefined,
-      'Переместите 2 кубика на целевые площадки того же цвета. ' +
-        'Все кубики двигаются одновременно: скользят до упора. ' +
-        'Управление: стрелки / свайпы. R — сброс уровня. Escape — пауза.',
-    ),
-  );
+  const panel = el('div', 'panel panel--screen help');
+
+  const section = (title: string, body: string) => {
+    panel.appendChild(el('h3', 'help__title', title));
+    panel.appendChild(el('p', 'help__text', body));
+  };
+  section(i18n.t('HELP_GOAL_TITLE'), i18n.t('HELP_GOAL'));
+  section(i18n.t('HELP_MOVE_TITLE'), i18n.t('HELP_MOVE'));
+
+  panel.appendChild(el('h3', 'help__title', i18n.t('HELP_CTRL_TITLE')));
+  const controls = el('ul', 'help__list');
+  for (const key of ['HELP_CTRL_MOVE', 'HELP_CTRL_ORBIT', 'HELP_CTRL_UNDO', 'HELP_CTRL_HINT']) {
+    controls.appendChild(el('li', 'help__item', i18n.t(key)));
+  }
+  panel.appendChild(controls);
+  panel.appendChild(el('p', 'help__tip', i18n.t('HELP_TIP')));
+
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
   root.append(panel, back, hideLayer('bottom'));

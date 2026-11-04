@@ -20,6 +20,13 @@ export class Camera {
 
   private yaw = DEFAULT_YAW;
   private pitch = DEFAULT_PITCH;
+  /**
+   * Точка, вокруг которой вращается уровень. Без неё орбита крутила форму
+   * вокруг центра всей карты, и уровни со смещённым путём (например 1-6)
+   * уезжали вбок при вращении.
+   */
+  private pivotX = 0;
+  private pivotZ = 0;
 
   constructor() {
     this.updateView();
@@ -53,7 +60,11 @@ export class Camera {
   private updateView(): void {
     const rx = mat4.fromXRotation(mat4.create(), this.pitch);
     const ry = mat4.fromYRotation(mat4.create(), this.yaw);
-    mat4.multiply(this.view, rx, ry);
+    const rotation = mat4.multiply(mat4.create(), rx, ry);
+    // Сначала переносим центр формы в начало координат, потом вращаем:
+    // view = R · T(−pivot)
+    const shift = mat4.fromTranslation(mat4.create(), [-this.pivotX, 0, -this.pivotZ]);
+    mat4.multiply(this.view, rotation, shift);
   }
 
   /**
@@ -74,6 +85,10 @@ export class Camera {
     const ry = mat4.fromYRotation(mat4.create(), DEFAULT_YAW);
     mat4.multiply(this.refView, rx, ry);
 
+    // Вращаем и кадрируем вокруг центра именно видимых плит.
+    this.pivotX = (bounds.minX + bounds.maxX) / 2;
+    this.pivotZ = (bounds.minZ + bounds.maxZ) / 2;
+
     const yBottom = -0.05; // низ плит
     const yTop = 1.45; // верх кубика на приподнятой плите
 
@@ -85,7 +100,7 @@ export class Camera {
     for (const sx of [bounds.minX, bounds.maxX]) {
       for (const sz of [bounds.minZ, bounds.maxZ]) {
         for (const sy of [yBottom, yTop]) {
-          vec3.set(this.corner, sx, sy, sz);
+          vec3.set(this.corner, sx - this.pivotX, sy, sz - this.pivotZ);
           vec3.transformMat4(this.corner, this.corner, this.refView);
           if (this.corner[0] < minX) minX = this.corner[0];
           if (this.corner[0] > maxX) maxX = this.corner[0];
@@ -119,6 +134,7 @@ export class Camera {
     const cy = (minY + maxY) / 2 - shiftPx / scale;
 
     mat4.ortho(this.proj, cx - halfW, cx + halfW, cy - halfH, cy + halfH, -100, 100);
+    this.updateView();
     this.rebuildViewProj();
   }
 

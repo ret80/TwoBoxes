@@ -8,7 +8,7 @@
   }
 
   .screen__title--main {
-    font-size: clamp(2.4rem, 8vh, 3.6rem);
+    font-size: clamp(2.6rem, 9.5vh, 4rem);
   }
 
   .panel--screen {
@@ -22,5 +22,22 @@
 
   .menu-card {
     width: min(360px, 60vw);
+  }
+}
+
+/* Низкие экраны: кнопки меню прижаты вниз, но не залезают на заголовок */
+@media (max-height: 520px) {
+  .menu-card {
+    max-height: calc(100vh - var(--screen-pad-top) - 96px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .screen__buttons {
+    gap: 8px;
+  }
+
+  .menu-card .btn {
+    min-height: 44px;
   }
 }

@@ -233,7 +233,7 @@ export class PicoglRenderer implements IRenderer {
       if (!isWalkableCell(state.grid[y * state.width + x] as CellType)) return false;
       return this.cellVisibleAt(x, y, wave);
     };
-    const lines = buildGridLines(state.width, state.height, cellVisible, PLATFORM_TOP + 0.004);
+    const lines = buildGridLines(state.width, state.height, cellVisible, PLATFORM_TOP + 0.02);
     // Пересоздать буфер (VAO/DrawCall) — число рёбер меняется на каждой волне
     this.gridBuf?.delete();
     this.gridVao?.delete();
@@ -432,10 +432,12 @@ export class PicoglRenderer implements IRenderer {
           const surface = PLATFORM_TOP + lift;
           // Углубление и контур цели. Квады без поворота: в изометрии
           // осевой квадрат проецируется ромбом — как в атласе.
-          drawQuad(worldX(x), surface + 0.002, worldZ(y), 0.82 * scale, COLOR_RECESS);
+          // Отступы по Y — не меньше шага depth-буфера (16 бит на 200 единиц
+          // ≈ 0.003): при 0.002 контур цели дрожал и мерцал (уровень 1-2).
+          drawQuad(worldX(x), surface + 0.012, worldZ(y), 0.82 * scale, COLOR_RECESS);
           if (!animating) {
-            drawQuad(worldX(x), surface + 0.006, worldZ(y), 0.68, goalColor);
-            drawQuad(worldX(x), surface + 0.009, worldZ(y), 0.48, COLOR_RECESS);
+            drawQuad(worldX(x), surface + 0.024, worldZ(y), 0.68, goalColor);
+            drawQuad(worldX(x), surface + 0.036, worldZ(y), 0.48, COLOR_RECESS);
           }
         }
       }

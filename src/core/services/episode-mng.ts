@@ -70,6 +70,25 @@ export class EpisodeManager {
     return false;
   }
 
+  /**
+   * Следующая карта по кругу через все эпизоды — для демо-фона в меню:
+   * прогресс игрока при этом не меняется.
+   */
+  nextCyclicLevel(episodeId: number, levelId: number): { episodeId: number; levelId: number } {
+    const counts = this.episodes.map((e) => e.levelCount);
+    const total = counts.reduce((sum, n) => sum + n, 0);
+    if (total === 0) return { episodeId, levelId };
+    let flat = 0;
+    for (let e = 0; e < episodeId; e++) flat += counts[e];
+    flat = (flat + levelId + 1) % total;
+    let episode = 0;
+    while (flat >= counts[episode]) {
+      flat -= counts[episode];
+      episode++;
+    }
+    return { episodeId: episode, levelId: flat };
+  }
+
   isLocked(episodeId: number, levelId: number): boolean {
     return this.getEpisode(episodeId).isLocked(levelId);
   }
@@ -95,6 +114,11 @@ export class EpisodeManager {
       if (saved) ep.deserialize(saved);
     });
     this.setCurLevel(data.curEpisodeId, data.curLevelId);
+    this.saved = true;
+  }
+
+  /** Отметить, что прогресс уже есть: игра начата, Resume доступна. */
+  markStarted(): void {
     this.saved = true;
   }
 

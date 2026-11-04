@@ -52,6 +52,26 @@ describe('EpisodeManager', () => {
     expect(restored.curLevelId).toBe(2);
   });
 
+  it('nextCyclicLevel идёт по картам по кругу и не трогает прогресс', () => {
+    const mng = new EpisodeManager();
+    mng.setCurLevel(0, 0);
+    const second = mng.nextCyclicLevel(0, 0);
+    expect(second).toEqual({ episodeId: 0, levelId: 1 });
+    // последняя карта эпизода переходит в начало следующего
+    const count = mng.getEpisode(0).levelCount;
+    expect(mng.nextCyclicLevel(0, count - 1)).toEqual({ episodeId: 1, levelId: 0 });
+    // прогресс и текущий уровень не меняются
+    expect(mng.curLevelId).toBe(0);
+    expect(mng.isLocked(0, 1)).toBe(true);
+  });
+
+  it('markStarted делает Resume доступной без загрузки сохранения', () => {
+    const mng = new EpisodeManager();
+    expect(mng.isResume()).toBe(false);
+    mng.markStarted();
+    expect(mng.isResume()).toBe(true);
+  });
+
   it('getLevel создаёт уровень с корректными сущностями', () => {
     const mng = new EpisodeManager();
     const level = mng.getLevel(0, 0);

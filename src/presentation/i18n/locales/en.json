@@ -20,5 +20,15 @@
   "BACK": "Back",
   "EPISODE_NUM": "Episode #%d",
   "TIME": "Time: %s",
-  "MOVES_COUNT": "Number of moves: %d"
+  "MOVES_COUNT": "Number of moves: %d",
+  "HELP_GOAL_TITLE": "Goal",
+  "HELP_GOAL": "Two boxes, two pads. Slide the coral box onto the coral pad and the gold box onto the gold pad. When both sit on their pads, the level is solved.",
+  "HELP_MOVE_TITLE": "Boxes move as a pair",
+  "HELP_MOVE": "One gesture moves both boxes: they slide the same way until they hit a wall, the edge of the field or each other. The second box often acts as a brake for the first — that is what most solutions are built on.",
+  "HELP_CTRL_TITLE": "Controls",
+  "HELP_CTRL_MOVE": "Swipe on the field or use the arrow keys to make a move.",
+  "HELP_CTRL_ORBIT": "Two fingers or mouse drag rotates the level so you can look behind the boxes.",
+  "HELP_CTRL_UNDO": "Undo takes back the previous move; reset starts the level over.",
+  "HELP_CTRL_HINT": "The «?» button shows the first move of the shortest solution when one exists.",
+  "HELP_TIP": "Stuck? Step back: many levels are solved by an unexpected first move. Hotkeys: R — reset, Esc — pause."
 }

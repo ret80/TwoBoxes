@@ -56,16 +56,26 @@
 }
 
 .btn--icon {
-  min-width: 44px;
+  min-width: 48px;
   padding: 10px 12px;
 }
 
 /* Плоская иконка внутри кнопки: размер от кегля, цвет от кнопки */
 .btn__icon {
   display: block;
-  width: 1.35em;
-  height: 1.35em;
+  width: 1.65em;
+  height: 1.65em;
   overflow: visible;
+}
+
+/* Иконка-символ (например, «?»): держим её по центру и в размер сбоку от SVG */
+.btn__icon--text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2em;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .btn__icon--fill {

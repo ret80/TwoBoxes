@@ -81,11 +81,14 @@ export class MenuController {
     if (this.current === 'selector') this.show('selector');
   }
 
-  /** Обновить доступность Resume (после появления сохранения). */
+  /** Показать/скрыть Resume: пока игра не начиналась, кнопки нет совсем. */
   refreshResume(): void {
     const menu = this.screens.get('mmenu');
-    const btn = menu?.querySelector('button');
-    if (btn) (btn as HTMLButtonElement).disabled = !this.episodes.isResume();
+    const btn = menu?.querySelector<HTMLButtonElement>('button[data-action="resume"]');
+    if (!btn) return;
+    const canResume = this.episodes.isResume();
+    btn.hidden = !canResume;
+    btn.disabled = !canResume;
   }
 
   show(name: string): void {

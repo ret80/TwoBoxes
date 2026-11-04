@@ -28,6 +28,9 @@ export class GameController {
   private levelLabel: HTMLElement;
   private isDemo = false;
   private paused = false;
+  /** Текущий уровень демо-фона: цикл по всем картам без затрагивания прогресса. */
+  private demoEpisode = 0;
+  private demoLevel = 0;
 
   private lastSeenBoxes: Box[] = [];
   private lastState = '';
@@ -55,6 +58,8 @@ export class GameController {
     this.storage = storage;
     this.levelLabel = levelLabel;
     this.gameActor = gameActor;
+    this.demoEpisode = episodes.curEpisodeId;
+    this.demoLevel = episodes.curLevelId;
 
     this.gameActor.subscribe((snapshot) => this.onTransition(snapshot));
     this.startLoop();
@@ -80,14 +85,19 @@ export class GameController {
   /** Запуск уровня (NEXT_LEVEL/RESET/SELECT_LEVEL/RESUME). */
   startLevel(level: Level): void {
     this.hideDialogs?.();
-    this.statistics.reset();
-    this.statistics.start();
+    // Демо-фон не пишет статистику и не трогает сохранение игрока
+    if (!this.isDemo) {
+      this.statistics.reset();
+      this.statistics.start();
+    }
     this.paused = false;
     this.lastSeenBoxes = level.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
     this.levelLabel.textContent = `Level #${level.label}`;
     // Сброс уровня при уже активном create должен заново запустить анимацию
     this.lastState = '';
     this.gameActor.send({ type: 'START', level });
+    // Игрок начал игру — теперь «Продолжить» есть что продолжать
+    if (!this.isDemo) this.save();
   }
 
   /** Обработка ввода направления (в т.ч. из DemoInput). */
@@ -137,6 +147,8 @@ export class GameController {
   }
 
   private save(): void {
+    // После первого старта уровня «Продолжить» уже есть что продолжать
+    this.episodes.markStarted();
     this.storage.save(SAVE_KEY, this.episodes.serialize());
   }
 
@@ -180,11 +192,25 @@ export class GameController {
     }
 
     if (state === 'completed') {
+      // В демо диалог не показываем: под меню просто появляется следующая
+      // карта, и автоигра продолжает переставлять кубики.
+      if (this.isDemo) {
+        this.nextDemoLevel();
+        return;
+      }
       this.statistics.stop();
       this.episodes.unlockCurrent();
       this.save();
       this.showCompleted?.(ctx.moves, ctx.time);
     }
+  }
+
+  /** Следующая карта для демо-фона (по кругу, прогресс игрока не меняется). */
+  private nextDemoLevel(): void {
+    const next = this.episodes.nextCyclicLevel(this.demoEpisode, this.demoLevel);
+    this.demoEpisode = next.episodeId;
+    this.demoLevel = next.levelId;
+    this.startLevel(this.episodes.getLevel(next.episodeId, next.levelId));
   }
 
   private buildRenderState(ctx: ReturnType<typeof this.gameActor.getSnapshot>['context']): RenderState {

@@ -68,7 +68,7 @@
 
 /* Большой заголовок главного меню */
 .screen__title--main {
-  font-size: clamp(3.2rem, 15vw, 6rem);
+  font-size: clamp(4.2rem, 22vw, 7.5rem);
   line-height: 0.95;
   letter-spacing: 0.01em;
 }
@@ -84,19 +84,50 @@
   width: 100%;
 }
 
-/* Главное меню: карточка по центру под заголовком */
+/* Главное меню: кнопки прижаты к нижнему краю экрана */
 .menu-card {
   position: fixed;
-  top: 50%;
+  bottom: calc(var(--screen-pad-bottom) - 12px);
   left: 50%;
   width: min(360px, 88vw);
   margin: 0;
-  padding: 16px;
+  padding: 12px 16px;
   border: none;
   border-radius: 18px;
   background: none;
   box-shadow: none;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
+}
+
+/* Помощь: короткие разделы вместо сплошного абзаца */
+.help__title {
+  margin: 6px 0 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.help__text {
+  margin: 0;
+}
+
+.help__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.15em;
+}
+
+.help__item::marker {
+  color: var(--color-coffee);
+  opacity: 0.55;
+}
+
+.help__tip {
+  margin: 10px 0 0;
+  font-style: italic;
+  opacity: 0.85;
 }
 
 /* Информационные экраны (help/about) и выбор уровня — панель по центру */
