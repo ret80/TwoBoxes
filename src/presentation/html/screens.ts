@@ -14,6 +14,25 @@ export function el<T extends HTMLElement = HTMLElement>(
   return e as T;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/** Плоский одноцветный замок (заливка currentColor). */
+const LOCK_PATH =
+  'M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm0 2a3 3 0 0 1 3 3v3H9V7a3 3 0 0 1 3-3Z';
+
+/** Иконка закрытого уровня: один цвет (наследует color), без объёма и тени. */
+function lockIcon(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.classList.add('lvl-card__lock');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', LOCK_PATH);
+  svg.appendChild(path);
+  return svg;
+}
+
 /** Главное меню: Resume (если есть сохранение), Play, Help, About. */
 export function buildMenuScreen(
   i18n: LocaleManager,
@@ -22,8 +41,9 @@ export function buildMenuScreen(
 ): HTMLElement {
   const root = el('div', 'screen screen--menu');
   root.dataset.screen = 'mmenu';
-  const title = el('h1', 'screen__title', i18n.t('TITLE'));
+  const title = el('h1', 'screen__title screen__title--main', i18n.t('TITLE'));
 
+  const card = el('div', 'menu-card');
   const buttons = el('div', 'screen__buttons');
   const resume = el<HTMLButtonElement>('button', 'btn', i18n.t('RESUME'));
   resume.disabled = !canResume;
@@ -40,8 +60,9 @@ export function buildMenuScreen(
   about.setAttribute('aria-label', i18n.t('ABOUT'));
   about.addEventListener('click', cb.onAbout);
   buttons.append(resume, play, help, about);
+  card.appendChild(buttons);
 
-  root.append(title, buttons);
+  root.append(title, card);
   return root;
 }
 
@@ -55,27 +76,33 @@ export function buildSelectorScreen(
   root.dataset.screen = 'selector';
   root.appendChild(el('h2', 'screen__title', i18n.t('TITLE_SELECT_LVL')));
 
+  const panel = el('div', 'panel panel--screen selector-panel');
   const gridWrap = el('div', 'selector-grid-wrap');
   episodes.episodes.forEach((episode) => {
     gridWrap.appendChild(el('div', 'selector-episode', i18n.t('EPISODE_NUM', episode.episodeId + 1)));
     const grid = el('div', 'selector-grid');
     for (let lvl = 0; lvl < episode.levelCount; lvl++) {
-      const card = el<HTMLButtonElement>('button', 'lvl-card', `${episode.episodeId + 1}-${lvl + 1}`);
+      const label = `${episode.episodeId + 1}-${lvl + 1}`;
+      const card = el<HTMLButtonElement>('button', 'lvl-card', label);
       if (episodes.isLocked(episode.episodeId, lvl)) {
         card.classList.add('lvl-card--locked');
         card.disabled = true;
+        card.textContent = '';
+        card.appendChild(lockIcon());
+        card.setAttribute('aria-label', `${i18n.t('TITLE_SELECT_LVL')} ${label}`);
       } else {
-        card.setAttribute('aria-label', `Level ${episode.episodeId + 1}-${lvl + 1}`);
+        card.setAttribute('aria-label', `Level ${label}`);
         card.addEventListener('click', () => cb.onSelect(episode.episodeId, lvl));
       }
       grid.appendChild(card);
     }
     gridWrap.appendChild(grid);
   });
+  panel.appendChild(gridWrap);
 
-  const back = el('button', 'btn', i18n.t('BACK'));
+  const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
-  root.append(gridWrap, back);
+  root.append(panel, back);
   return root;
 }
 
@@ -112,10 +139,10 @@ export function buildHelpScreen(
   i18n: LocaleManager,
   cb: { onBack: () => void },
 ): HTMLElement {
-  const root = el('div', 'screen screen--help');
+  const root = el('div', 'screen screen--info screen--help');
   root.dataset.screen = 'help';
   root.appendChild(el('h2', 'screen__title', i18n.t('HELP')));
-  const panel = el('div', 'panel');
+  const panel = el('div', 'panel panel--screen');
   panel.appendChild(
     el(
       'p',
@@ -125,7 +152,7 @@ export function buildHelpScreen(
         'Управление: стрелки / свайпы. R — сброс уровня. Escape — пауза.',
     ),
   );
-  const back = el('button', 'btn', i18n.t('BACK'));
+  const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
   root.append(panel, back);
   return root;
@@ -133,17 +160,17 @@ export function buildHelpScreen(
 
 /** Экран «О игре» — кредиты команды. */
 export function buildAboutScreen(
-  _i18n: LocaleManager,
+  i18n: LocaleManager,
   cb: { onBack: () => void },
 ): HTMLElement {
-  const root = el('div', 'screen screen--about');
+  const root = el('div', 'screen screen--info screen--about');
   root.dataset.screen = 'about';
   root.appendChild(el('h2', 'screen__title', '2Box Puzzle'));
-  const panel = el('div', 'panel');
+  const panel = el('div', 'panel panel--screen');
   panel.appendChild(el('p', undefined, 'Program: Alexey Dyadchenko'));
   panel.appendChild(el('p', undefined, 'Art: Olga Iva'));
   panel.appendChild(el('p', undefined, 'Level Design: Nikolay Unknow'));
-  const back = el('button', 'btn', 'Back');
+  const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
   root.append(panel, back);
   return root;
@@ -188,7 +215,7 @@ export function buildCompletedDialog(
   const next = el<HTMLButtonElement>('button', 'btn btn--danger', i18n.t('PLAY'));
   next.setAttribute('aria-label', i18n.t('PLAY'));
   next.addEventListener('click', cb.onNext);
-  const row = el('div', 'screen__buttons');
+  const row = el('div', 'dialog__actions');
   row.append(reset, home, next);
   box.append(title, stats, row);
   root.appendChild(box);

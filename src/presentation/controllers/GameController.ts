@@ -29,6 +29,7 @@ export class GameController {
   private paused = false;
 
   private lastSeenBoxes: Box[] = [];
+  private lastState = '';
   private rafId = 0;
   private lastTime = 0;
 
@@ -56,6 +57,9 @@ export class GameController {
 
     this.gameActor.subscribe((snapshot) => this.onTransition(snapshot));
     this.startLoop();
+    // Подписка не вызывает колбэк для текущего состояния: без этого поле
+    // появлялось сразу, без волновой анимации (create → input).
+    this.onTransition(this.gameActor.getSnapshot());
   }
 
   attachDialogs(ui: {
@@ -80,6 +84,8 @@ export class GameController {
     this.paused = false;
     this.lastSeenBoxes = level.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
     this.levelLabel.textContent = `Level #${level.label}`;
+    // Сброс уровня при уже активном create должен заново запустить анимацию
+    this.lastState = '';
     this.gameActor.send({ type: 'START', level });
   }
 
@@ -119,7 +125,16 @@ export class GameController {
     const state = snapshot.value as string;
     const ctx = snapshot.context;
 
+    // ⚠️ XState уведомляет подписчиков на КАЖДЫЙ event, включая TICK без
+    // перехода. Анимации (create/move) и диалог завершения запускаем только
+    // при входе в состояние: иначе create перезапускается каждый кадр,
+    // маска обнуляется и уровень так и не появляется.
+    const entered = state !== this.lastState;
+    this.lastState = state;
+    if (!entered) return;
+
     if (state === 'create') {
+      this.lastSeenBoxes = ctx.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
       this.renderer.animateCreate(this.buildRenderState(ctx), () =>
         this.gameActor.send({ type: 'CREATE_DONE' }),
       );
@@ -161,10 +176,10 @@ export class GameController {
 
   /** Игровой цикл: время (TICK/статистика) + отрисовка. */
   private startLoop(): void {
-    this.lastTime = performance.now();
-    const frame = (now: number) => {
-      const dt = (now - this.lastTime) / 1000;
-      this.lastTime = now;
+    this.lastTime = performance.now();      const frame = (now: number) => {
+        // Клампим dt, иначе после паузы вкладки время и TICK скачут
+        const dt = Math.min(Math.max((now - this.lastTime) / 1000, 0), 0.05);
+        this.lastTime = now;
       if (!this.paused) {
         this.statistics.tick(dt);
         this.gameActor.send({ type: 'TICK', delta: dt });

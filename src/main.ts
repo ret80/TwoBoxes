@@ -58,6 +58,8 @@ const gameScreen = buildGameScreen(i18n, {
   onPause: () => undefined,
 });
 screensRoot.appendChild(gameScreen.root);
+// Вне состояния game верхняя панель HUD не показывается (меню, выбор уровня, помощь)
+gameScreen.root.classList.add('screen--game-idle');
 
 const game = new GameController(
   renderer,
@@ -136,6 +138,7 @@ menuActor.subscribe((snapshot) => {
   input.setDemoMode(demo);
   game.setDemo(demo);
   menuCtrl.show(state);
+  gameScreen.root.classList.toggle('screen--game-idle', state !== 'game');
 
   if (enteringGame) {
     const selected = snapshot.context.selected;

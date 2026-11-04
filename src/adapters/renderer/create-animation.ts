@@ -3,10 +3,16 @@ import { Position } from '../../core/types/position';
 /**
  * Волновая анимация появления уровня (план 7.4, док. раздел 8.1).
  * Аналог `_create_mask()` / `_fill_mask()` в create_state.gd:
- * BFS от 1–3 случайных точек, волна каждые 25 мс.
+ * BFS от точки старта, волна каждые WAVE_INTERVAL_MS.
+ *
+ * ⚠️ Правки порта:
+ * - источник волны один — центр поля (поле «прорастает» из точки наружу,
+ *   а не появляется сразу в трёх случайных местах);
+ * - интервал волны 25 мс был слишком быстрым, уровень «выскакивал» целиком;
+ *   теперь волна идёт заметно, а каждая клетка ещё и подрастает (CREATE_GROW_MS).
  */
-export const WAVE_INTERVAL_MS = 25;
-export const SEED_COUNT = 3;
+export const WAVE_INTERVAL_MS = 70;
+export const CREATE_GROW_MS = 260;
 
 /**
  * Вычислить маску волн: для каждой клетки — номер волны (BFS-расстояние
@@ -16,28 +22,28 @@ export function createWaveMask(
   width: number,
   height: number,
   isRenderable: (x: number, y: number) => boolean,
-  rand: () => number = Math.random,
 ): number[][] {
   const mask: number[][] = Array.from({ length: height }, () => new Array<number>(width).fill(-1));
 
-  // 1–3 случайных seed среди отрисовываемых клеток
-  const renderable: Position[] = [];
+  // Источник — ближайшая к центру отрисовываемая клетка
+  const centerX = (width - 1) / 2;
+  const centerY = (height - 1) / 2;
+  let seed: Position | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (isRenderable(x, y)) renderable.push(new Position(x, y));
+      if (!isRenderable(x, y)) continue;
+      const dist = (x - centerX) ** 2 + (y - centerY) ** 2;
+      if (dist < bestDist) {
+        bestDist = dist;
+        seed = new Position(x, y);
+      }
     }
   }
-  if (renderable.length === 0) return mask;
+  if (!seed) return mask;
 
-  const seedCount = 1 + Math.floor(rand() * SEED_COUNT);
-  const queue: Position[] = [];
-  for (let i = 0; i < Math.min(seedCount, renderable.length); i++) {
-    const seed = renderable[Math.floor(rand() * renderable.length)];
-    if (mask[seed.y][seed.x] === -1) {
-      mask[seed.y][seed.x] = 0;
-      queue.push(seed);
-    }
-  }
+  const queue: Position[] = [seed];
+  mask[seed.y][seed.x] = 0;
 
   let head = 0;
   const dirs = [
@@ -58,9 +64,9 @@ export function createWaveMask(
     }
   }
 
-  // ⚠️ Фикс «поле не собирается»: клетки, недостижимые из seed (isolated),
-  // получали mask = -1 и никогда не появлялись. Назначаем им волны
-  // после максимальной — уровень гарантированно собирается целиком.
+  // Клетки, недостижимые из seed (isolated), получали mask = -1 и никогда
+  // не появлялись. Назначаем им волны после максимальной — уровень
+  // гарантированно собирается целиком.
   let max = 0;
   for (const row of mask) for (const v of row) if (v > max) max = v;
   for (let y = 0; y < height; y++) {
