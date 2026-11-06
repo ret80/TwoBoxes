@@ -136,22 +136,26 @@ const menuCtrl = new MenuController(
   config,
 );
 
+/*
+ * HUD-панели: выезжают из-за краёв на старте уровня, уезжают за экран, когда
+ * уровень пройден или поверх поля открыт любой диалог. Стартовое положение
+ * держим один кадр, иначе transition не успевает сработать.
+ */
+const hudRoot = gameScreen.root;
+
+// Любое меню поверх поля прячет HUD тем же движением, что и экран победы.
+const setDialogVisible = (visible: boolean): void => {
+  dialogVisible = visible;
+  applySceneBlur();
+  hudRoot.classList.toggle('hud--hidden', visible);
+};
+
 const pauseDialog = new PauseDialogController(dialogRoot, i18n, audio, input, {
   onResume: () => game.resume(),
   onLevelSelect: () => menuActor.send({ type: 'BACK' }),
   onMainMenu: () => menuActor.send({ type: 'HOME' }),
-  onVisibility: (visible) => {
-    dialogVisible = visible;
-    applySceneBlur();
-  },
+  onVisibility: setDialogVisible,
 });
-
-/*
- * HUD-панели: выезжают из-за краёв на старте уровня и уезжают за экран,
- * когда уровень пройден. Стартовое положение держим один кадр, иначе
- * transition не успевает сработать и панели появляются «прыжком».
- */
-const hudRoot = gameScreen.root;
 const revealHud = (): void => {
   hudRoot.classList.add('hud--hidden');
   requestAnimationFrame(() =>
@@ -178,10 +182,7 @@ const completedDialog = new CompletedDialogController(dialogRoot, i18n, audio, {
   },
   onHome: () => menuActor.send({ type: 'HOME' }),
   onReset: () => game.reset(),
-  onVisibility: (visible) => {
-    dialogVisible = visible;
-    applySceneBlur();
-  },
+  onVisibility: setDialogVisible,
 });
 
 game.attachDialogs({
