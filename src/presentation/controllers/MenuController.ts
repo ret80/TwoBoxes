@@ -37,8 +37,16 @@ const MENU_LABEL: Record<MenuItemId, string> = {
   debug: 'DEBUG',
 };
 
-/** Сколько пикселей свайпа — на одну иконку карусели. */
-const SWIPE_STEP = 46;
+/**
+ * Пороги свайпа (CSS-пиксели). Жест делает ровно один шаг: короткие случайные
+ * касания не двигают карусель, а длинный свайп не проскакивает мимо иконки.
+ */
+const SWIPE_STEP_X = 30;
+const SWIPE_STEP_Y = 34;
+/** С этого расстояния понятно, по какой оси идёт жест. */
+const SWIPE_AXIS = 12;
+/** Запас вокруг ряда иконок: вертикальный свайп работает только в этой полосе. */
+const SWIPE_ZONE_PAD = 28;
 
 /**
  * Контроллер меню (план 11.3): управление экранами mmenu/selector/help/about/settings,
@@ -191,39 +199,79 @@ export class MenuController {
   }
 
   /**
-   * Свайп пальцем по экрану листает карусель: на тач-устройствах попадать
-   * по соседним иконкам неудобно, а подписи у них нет.
+   * Свайп пальцем по меню.
+   *
+   * Раньше шаг считался по приращению «от прошлой точки» и повторялся, пока
+   * палец едет: случайная дрож на границе порога давала то два шага подряд,
+   * то ни одного. Теперь жест фиксирован — **один свайп = один шаг** того
+   * направления, которое победило по оси, а после него жест уже не повторяется:
+   * иконка всегда встаёт точно та, что нужна.
+   *
+   * Горизонтальный свайп листает ряд, вертикальный — меняет местами «Играть»
+   * и «Продолжить» (вниз — на «Продолжить», вверх — обратно на «Играть»),
+   * но только если жест начался в полосе иконок.
    */
   private attachSwipe(): void {
     let pointerId = -1;
     let startX = 0;
     let startY = 0;
-    let lastX = 0;
+    let axis: '' | 'x' | 'y' = '';
+    let handled = false;
+
+    const inIconZone = (y: number): boolean => {
+      const menu = this.menu;
+      if (!menu) return false;
+      let top = Number.POSITIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+      for (const [id, btn] of menu.items) {
+        if (btn.hidden) continue;
+        const r = btn.getBoundingClientRect();
+        if (r.width === 0) continue;
+        top = Math.min(top, r.top);
+        bottom = Math.max(bottom, r.bottom);
+        void id;
+      }
+      return Number.isFinite(top) && y >= top - SWIPE_ZONE_PAD && y <= bottom + SWIPE_ZONE_PAD;
+    };
 
     const onDown = (e: PointerEvent) => {
+      // Мышь не свайпает: по иконкам кликают, перетаскивание ей не нужно.
+      if (e.pointerType === 'mouse') return;
       if (this.current !== 'mmenu' || pointerId !== -1 || !e.isPrimary) return;
       pointerId = e.pointerId;
-      startX = lastX = e.clientX;
+      startX = e.clientX;
       startY = e.clientY;
+      axis = '';
+      handled = false;
     };
+
     const onMove = (e: PointerEvent) => {
       if (e.pointerId !== pointerId) return;
-      const totalX = e.clientX - startX;
-      const totalY = e.clientY - startY;
-      // Вертикальный жест — не листание карусели.
-      if (Math.abs(totalY) > 60 && Math.abs(totalY) > Math.abs(totalX)) {
-        pointerId = -1;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (axis === '' && Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_AXIS) {
+        axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+      }
+      if (axis === '' || handled) return;
+      if (axis === 'x') {
+        if (Math.abs(dx) < SWIPE_STEP_X) return;
+        this.suppressClickUntil = performance.now() + 500;
+        this.navigate(dx < 0 ? 'right' : 'left');
+        handled = true;
         return;
       }
-      const step = e.clientX - lastX;
-      if (Math.abs(step) < SWIPE_STEP) return;
+      // Вертикальный жест работает только в полосе иконок.
+      if (!inIconZone(startY) || Math.abs(dy) < SWIPE_STEP_Y) return;
       this.suppressClickUntil = performance.now() + 500;
-      this.navigate(step < 0 ? 'right' : 'left');
-      // Длинный свайп продолжается с текущей точки: несколько шагов за жест.
-      lastX = e.clientX;
+      this.selectItem(dy > 0 ? 'continue' : 'play');
+      handled = true;
     };
+
     const onUp = (e: PointerEvent) => {
-      if (e.pointerId === pointerId) pointerId = -1;
+      if (e.pointerId !== pointerId) return;
+      pointerId = -1;
+      axis = '';
+      handled = false;
     };
 
     window.addEventListener('pointerdown', onDown, { passive: true });

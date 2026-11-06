@@ -20,7 +20,9 @@ export class Config {
     musicVolume: 0.3,
     demoMode: true,
     showFps: false,
-    projection: 'ortho',
+    // По умолчанию — изометрия с лёгкой прямой перспективой: чистая
+    // аксонометрия читается как обратная перспектива (дальнее кажется крупнее).
+    projection: 'iso',
   };
 
   private listeners = new Set<ChangeListener>();

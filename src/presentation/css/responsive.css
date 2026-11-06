@@ -16,8 +16,8 @@
 
   /* Карусель в альбоме: компактнее, чтобы иконки не упирались в подпись */
   .xmb {
-    --xmb-step-x: clamp(84px, 17vw, 124px);
-    --xmb-step-y: clamp(62px, 24vh, 92px);
+    --xmb-step-x: clamp(74px, 15vw, 104px);
+    --xmb-step-y: clamp(62px, 17vh, 84px);
     --xmb-size: clamp(54px, 12vh, 76px);
     --xmb-center-y: 74%;
   }
@@ -31,8 +31,8 @@
 /* Низкие экраны: карусель и подпись не должны пересекаться */
 @media (max-height: 520px) {
   .xmb {
-    --xmb-step-y: 58px;
-    --xmb-size: 52px;
+    --xmb-step-y: 56px;
+    --xmb-size: 50px;
     --xmb-center-y: 74%;
   }
 

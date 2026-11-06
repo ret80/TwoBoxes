@@ -45,8 +45,8 @@ const COLOR_BOX_TWO = [0.914, 0.786, 0.462]; // куб mat_color_two (золот
 const COLOR_GOAL_ONE = [0.933, 0.541, 0.404]; // контур цели красного кубика
 const COLOR_GOAL_TWO = [0.925, 0.788, 0.404]; // контур цели жёлтого кубика
 const COLOR_RECESS = [0.404, 0.529, 0.51]; // углубление целевой площадки
-const COLOR_GRID = [0.72, 0.83, 0.8]; // светлая сетка на плитах
-const COLOR_BG = [0.914, 0.894, 0.863]; // кремовый фон сцены
+const COLOR_GRID = [0.9, 0.96, 0.94]; // светлая сетка на плитах
+const COLOR_BG = [0.933, 0.906, 0.843]; // тёплый желтоватый фон сцены
 
 // Свечение кубика на своей площадке — насыщенный цвет кубика (не белый).
 const GLOW_ONE = [1.0, 0.42, 0.17]; // коралловый ореол
@@ -54,9 +54,11 @@ const GLOW_TWO = [1.0, 0.66, 0.18]; // золотой ореол
 // Стрелки-подсказки на полу: чуть светлее кубиков, чтобы читались на плитах.
 const ARROW_ONE = [0.93, 0.44, 0.26];
 const ARROW_TWO = [0.93, 0.71, 0.24];
-// Компас клавиатуры (L/D): без подложки, оси и буквы лежат на полу —
-// серый как у недоступной кнопки отката (кофейный икон а при 45% на кремовом).
-const COLOR_KEY_MARK = [0.6, 0.57, 0.53];
+// Кофейный цвет текста и иконок интерфейса (--color-coffee).
+// Компас: оси — им же, но с прозрачностью недоступной кнопки отката (45%),
+// буквы «L»/«D» — полным цветом активной кнопки отката.
+const COLOR_INK = [0.29, 0.208, 0.153];
+const KEY_GUIDE_DIM_ALPHA = 0.45;
 
 /** Стрелки подсказки: доехали до упора → держатся → гаснут (как плашка HUD). */
 const HINT_SLIDE_MS = 560;
@@ -806,9 +808,12 @@ export class PicoglRenderer implements IRenderer {
   }
 
   /**
-   * Компас клавиатуры: плоскость в осях XZ, повёрнутая так же, как уровень.
-   * На ней две оси с кнопками «L» (влево) и «D» (вниз): при повороте уровня
-   * сразу видно, какая стрелка клавиатуры куда двигает кубики.
+   * Компас клавиатуры: две оси в плоскости пола уровня. Стержень компаса —
+   * **начало координат**: оси выходят из него и вся фигура вращается вокруг
+   * него же. «L» — мировая −X, «D» — мировая +Z.
+   *
+   * Оси блёклые (цвет недоступной кнопки отката), буквы — билборды цветом
+   * активной кнопки, поэтому подписи читаются и при сильном наклоне.
    */
   private drawKeyGuide(): void {
     const app = this.app;
@@ -827,14 +832,19 @@ export class PicoglRenderer implements IRenderer {
     const { yaw, pitch } = this.camera.getAngles();
     mat4.fromXRotation(this.scratchRot, pitch);
     mat4.multiply(this.scratchRot, this.scratchRot, mat4.fromYRotation(mat4.create(), yaw));
-    mat4.ortho(this.gizmoProj, -1.6, 1.6, -1.6, 1.6, -20, 20);
+    // Кадр компаса симметричен относительно начала координат: при вращении
+    // стрелки ходят по кругу, и такой кадр их никогда не обрезает.
+    const half = 1;
+    mat4.ortho(this.gizmoProj, -half, half, -half, half, -20, 20);
     mat4.multiply(this.gizmoViewProj, this.gizmoProj, this.scratchRot);
     this.viewProj = this.gizmoViewProj;
 
     app.disable(PicoGL.DEPTH_TEST);
-    app.disable(PicoGL.BLEND);
+    const gl = app.gl;
+    app.enable(PicoGL.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE);
 
-    // Подсказка рисуется без искажения проекции: оси — не часть уровня.
+    // Компас не часть уровня: искажение глубины к нему не применяется.
     const warp = this.warp;
     this.warp = 0;
 
@@ -842,49 +852,61 @@ export class PicoglRenderer implements IRenderer {
     // только штрихи, чтобы компас не закрывал поле цветной плашкой.
     PicoglRenderer.setBasis(this.basisMatrix, [0, 0, 0], [1, 0, 0], [0, 0, -1]);
 
-    // Оси из общего угла: «L» — мировая −X, «D» — мировая +Z (локальная −Y).
-    const ox = 0.5;
-    const oz = 0.5; // локальные координаты угла (мир: x=0.5, z=−0.5)
-    const reach = 0.86;
-    const thick = 0.07;
-    this.drawBar(this.basisMatrix, ox, oz, ox - reach, oz, thick, COLOR_KEY_MARK);
-    this.drawBar(this.basisMatrix, ox, oz, ox, oz - reach, thick, COLOR_KEY_MARK);
+    const reach = 0.74;
+    const thick = 0.062;
+    const alpha = KEY_GUIDE_DIM_ALPHA;
+    this.drawBar(this.basisMatrix, 0, 0, -reach, 0, thick, COLOR_INK, alpha);
+    this.drawBar(this.basisMatrix, 0, 0, 0, -reach, thick, COLOR_INK, alpha);
     // Наконечники осей.
-    const head = 0.13;
-    const spread = 0.085;
-    this.drawBar(this.basisMatrix, ox - reach, oz, ox - reach + head, oz + spread, thick, COLOR_KEY_MARK);
-    this.drawBar(this.basisMatrix, ox - reach, oz, ox - reach + head, oz - spread, thick, COLOR_KEY_MARK);
-    this.drawBar(this.basisMatrix, ox, oz - reach, ox + spread, oz - reach + head, thick, COLOR_KEY_MARK);
-    this.drawBar(this.basisMatrix, ox, oz - reach, ox - spread, oz - reach + head, thick, COLOR_KEY_MARK);
+    // Стержень компаса: точка, вокруг которой вся фигура вращается.
+    this.drawBar(this.basisMatrix, -0.045, 0, 0.045, 0, 0.09, COLOR_INK, alpha);
+    const head = 0.095;
+    const spread = 0.058;
+    this.drawBar(this.basisMatrix, -reach, 0, -reach + head, spread, thick, COLOR_INK, alpha);
+    this.drawBar(this.basisMatrix, -reach, 0, -reach + head, -spread, thick, COLOR_INK, alpha);
+    this.drawBar(this.basisMatrix, 0, -reach, spread, -reach + head, thick, COLOR_INK, alpha);
+    this.drawBar(this.basisMatrix, 0, -reach, -spread, -reach + head, thick, COLOR_INK, alpha);
 
-    // Буквы лежат в той же плоскости, что и оси: без разворота к камере и без
-    // компенсации ракурса — это надписи на полу, а не билборды.
-    this.drawGlyphL(ox - reach - 0.32, oz);
-    this.drawGlyphD(ox, oz - reach - 0.3);
+    // Буквы — билборды: точку кончика переносим в пространство взгляда тем же
+    // поворотом, а саму надпись кладём уже в экранной плоскости (без поворота),
+    // иначе при наклоне буквы заваливались бы вместе с полом.
+    this.viewProj = this.gizmoProj;
+    PicoglRenderer.setBasis(this.basisMatrix, [0, 0, 0], [1, 0, 0], [0, 1, 0]);
+    const tipL = this.viewPoint(-reach - 0.16, 0.02, 0);
+    const tipD = this.viewPoint(0, 0.02, reach + 0.16);
+    this.drawGlyphL(tipL[0], tipL[1], COLOR_INK);
+    this.drawGlyphD(tipD[0], tipD[1], COLOR_INK);
 
     this.warp = warp;
+    app.disable(PicoGL.BLEND);
     app.enable(PicoGL.DEPTH_TEST);
     app.defaultViewport();
     this.viewProj = this.camera.getViewProj();
   }
 
-  /** Буква «L» на полу: подпись оси левой стрелки. */
-  private drawGlyphL(cx: number, cy: number): void {
-    const h = 0.21;
-    const w = 0.19;
-    const t = 0.062;
-    const x0 = cx - w / 2;
-    this.drawBar(this.basisMatrix, x0, cy - h, x0, cy + h, t, COLOR_KEY_MARK);
-    this.drawBar(this.basisMatrix, x0, cy - h, x0 + w, cy - h, t, COLOR_KEY_MARK);
+  /** Мировая точка → пространство взгляда (только поворот камеры, без сдвига). */
+  private viewPoint(x: number, y: number, z: number): [number, number] {
+    const m = this.scratchRot;
+    return [m[0] * x + m[4] * y + m[8] * z, m[1] * x + m[5] * y + m[9] * z];
   }
 
-  /** Буква «D» на полу: подпись оси нижней стрелки. */
-  private drawGlyphD(cx: number, cy: number): void {
-    const h = 0.21;
-    const r = 0.21;
-    const t = 0.062;
+  /** Буква «L»: подпись оси левой стрелки. */
+  private drawGlyphL(cx: number, cy: number, color: number[]): void {
+    const h = 0.115;
+    const w = 0.1;
+    const t = 0.04;
+    const x0 = cx - w / 2;
+    this.drawBar(this.basisMatrix, x0, cy - h, x0, cy + h, t, color);
+    this.drawBar(this.basisMatrix, x0, cy - h, x0 + w, cy - h, t, color);
+  }
+
+  /** Буква «D»: подпись оси нижней стрелки. */
+  private drawGlyphD(cx: number, cy: number, color: number[]): void {
+    const h = 0.115;
+    const r = 0.115;
+    const t = 0.04;
     const x0 = cx - r * 0.45;
-    this.drawBar(this.basisMatrix, x0, cy - h, x0, cy + h, t, COLOR_KEY_MARK);
+    this.drawBar(this.basisMatrix, x0, cy - h, x0, cy + h, t, color);
     const steps = 6;
     let px = x0;
     let py = cy + h;
@@ -892,7 +914,7 @@ export class PicoglRenderer implements IRenderer {
       const a = Math.PI / 2 - (Math.PI * i) / steps;
       const nx = x0 + r * Math.cos(a);
       const ny = cy + h * Math.sin(a);
-      this.drawBar(this.basisMatrix, px, py, nx, ny, t, COLOR_KEY_MARK);
+      this.drawBar(this.basisMatrix, px, py, nx, ny, t, color);
       px = nx;
       py = ny;
     }

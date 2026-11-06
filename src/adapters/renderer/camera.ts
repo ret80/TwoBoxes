@@ -55,17 +55,19 @@ export class Camera {
   setAngles(yaw: number, pitch: number): void {
     const twoPi = Math.PI * 2;
     this.yaw = (((yaw % twoPi) + twoPi) % twoPi);
-    // В изометрических режимах наклон зафиксирован: крутить можно только вокруг
-    // вертикали, иначе «изометрия» перестаёт быть изометрией.
-    this.pitch =
-      this.mode === 'ortho'
-        ? Math.min(MAX_PITCH, Math.max(MIN_PITCH, pitch))
-        : ISO_PITCH;
+    // Наклон свободен во всех режимах: раньше в изометрии он жёстко
+    // приравнивался к ISO_PITCH, и на тач-экране вертикальный жест (два
+    // пальца) не давал никакого эффекта — казалось, что наклон сломан.
+    // Режим задаёт только стартовый угол (см. setProjection).
+    this.pitch = Math.min(MAX_PITCH, Math.max(MIN_PITCH, pitch));
     this.updateView();
     this.rebuildViewProj();
   }
 
-  /** Переключить режим проекции (отладочное меню). */
+  /**
+   * Переключить режим проекции (отладочное меню). Изометрические режимы
+   * стартуют с канонического наклона ISO_PITCH, но дальше его можно менять.
+   */
   setProjection(mode: ProjectionMode): void {
     this.mode = mode;
     this.setAngles(this.yaw, mode === 'ortho' ? this.pitch : ISO_PITCH);
@@ -75,9 +77,20 @@ export class Camera {
     return this.mode;
   }
 
-  /** Сила «обратной перспективы» для вершинных шейдеров (0 — выключена). */
+  /**
+   * Искажение глубины для вершинных шейдеров (`uWarp`).
+   *
+   * • `ortho` — 0: чистая аксонометрия, одинаковые предметы всегда одного размера.
+   * • `iso` — небольшая **прямая** перспектива: дальние части уровня чуть уже,
+   *   ближние чуть шире. В строгой аксонометрии укорочения нет вовсе, и глаз,
+   *   ожидая его, читает дальние предметы как «раздутые» — отсюда ощущение
+   *   обратной перспективы. Минус даёт нормальный знак.
+   * • `isoReverse` — вывернутая перспектива в плюс (экспериментальный режим).
+   */
   getWarp(): number {
-    return this.mode === 'isoReverse' ? 0.42 : 0;
+    if (this.mode === 'isoReverse') return 0.42;
+    if (this.mode === 'iso') return -0.45;
+    return 0;
   }
 
   getAngles(): { yaw: number; pitch: number } {

@@ -9,6 +9,7 @@ import { PicoglRenderer } from '@adapters/renderer/PicoglRenderer';
 import { WebAudioPlayer } from '@adapters/audio/WebAudioPlayer';
 import { InputAggregator } from '@adapters/input/InputAggregator';
 import { OrbitInput } from '@adapters/input/OrbitInput';
+import { ModalityTracker } from '@adapters/input/ModalityTracker';
 import { LocalStorageSave } from '@adapters/storage/LocalStorageSave';
 import { InputAction } from '@ports/IInput';
 import type { ProjectionMode } from '@ports/IRenderer';
@@ -56,6 +57,9 @@ if (saved) episodes.deserialize(saved as SaveData);
 const renderer = new PicoglRenderer();
 const audio = new WebAudioPlayer();
 const input = new InputAggregator(() => renderer.getCameraAngles());
+// Компас L/D нужен только клавиатуре и геймпаду: на тач-экране подсказка
+// про клавиши только мешает.
+const modality = new ModalityTracker();
 
 // Громкость из настроек применяется к аудио-адаптеру сразу, отладочные
 // переключатели — к рендеру (счётчик кадров и проекция уровня).
@@ -258,6 +262,14 @@ input.on(InputAction.BACK, () => {
 });
 input.setEnabled(true);
 
+// Компас клавиатуры: только в самой игре и только когда ввод идёт с клавиш
+// или геймпада (на тач-экране клавиш нет, подсказка не нужна).
+let inGame = false;
+const applyKeyGuide = (): void => renderer.setKeyGuideVisible(inGame && modality.isPointing());
+modality.attach();
+modality.subscribe(applyKeyGuide);
+applyKeyGuide();
+
 // Демо-режим: активен во всех состояниях menuFSM, кроме `game` (фон меню)
 let prevMenuState = menuActor.getSnapshot().value as string;
 const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): void => {
@@ -273,7 +285,8 @@ const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): voi
   input.setDemoMode(demo);
   game.setDemo(demo);
   menuCtrl.show(state);
-  renderer.setKeyGuideVisible(state === 'game');
+  inGame = state === 'game';
+  applyKeyGuide();
   gameScreen.root.classList.toggle('screen--game-idle', state !== 'game');
   if (state !== 'game') hudRoot.classList.add('hud--hidden');
   orbit.setEnabled(state === 'game');

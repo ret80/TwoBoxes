@@ -39,7 +39,7 @@
   position: fixed;
   inset: 0;
   z-index: -1;
-  background: rgba(233, 228, 220, 0.16);
+  background: rgba(238, 231, 215, 0.16);
 }
 
 .screen > * {
@@ -90,12 +90,14 @@
  */
 .screen--menu::before {
   /* Демо-уровень должен быть виден на фоне, поэтому вуаль почти прозрачная */
-  background: rgba(233, 228, 220, 0.06);
+  background: rgba(238, 231, 215, 0.06);
 }
 
 .xmb {
-  --xmb-step-x: clamp(78px, 21vw, 128px);
-  --xmb-step-y: clamp(84px, 17vh, 112px);
+  /* Шаг ряда чуть больше иконки: плотная лента без «дырок», а вертикальный
+     шаг с запасом, чтобы «Продолжить» не наползало на «Играть». */
+  --xmb-step-x: clamp(76px, 19vw, 112px);
+  --xmb-step-y: clamp(74px, 13vh, 104px);
   --xmb-size: clamp(64px, 16vw, 92px);
   /* Карусель — у нижней трети: центр экрана остаётся свободным для демо */
   --xmb-center-y: 76%;
@@ -134,8 +136,8 @@
     background 0.2s ease,
     box-shadow 0.3s ease;
   pointer-events: auto;
-  /* Горизонтальный свайп — листание карусели, а не прокрутка страницы */
-  touch-action: pan-y;
+  /* Свайпы по иконкам обрабатываем сами (листание, смена «Играть»/«Продолжить») */
+  touch-action: none;
   user-select: none;
 }
 
