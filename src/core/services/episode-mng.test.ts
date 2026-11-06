@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { EpisodeManager } from './episode-mng';
 
 describe('EpisodeManager', () => {
-  it('создаёт 2 эпизода (12 + 2 уровней)', () => {
+  it('создаёт 2 эпизода (по 12 уровней)', () => {
     const mng = new EpisodeManager();
     expect(mng.episodes).toHaveLength(2);
     expect(mng.getEpisode(0).levelCount).toBe(12);
-    expect(mng.getEpisode(1).levelCount).toBe(2);
+    expect(mng.getEpisode(1).levelCount).toBe(12);
   });
 
   it('уровень 1 доступен, остальные заблокированы', () => {
@@ -32,10 +32,10 @@ describe('EpisodeManager', () => {
 
   it('nextLevel в последнем эпизоде остаётся на месте', () => {
     const mng = new EpisodeManager();
-    mng.setCurLevel(1, 1);
+    mng.setCurLevel(1, 11);
     expect(mng.nextLevel()).toBe(false);
     expect(mng.curEpisodeId).toBe(1);
-    expect(mng.curLevelId).toBe(1);
+    expect(mng.curLevelId).toBe(11);
   });
 
   it('serialize/deserialize сохраняет прогресс', () => {
