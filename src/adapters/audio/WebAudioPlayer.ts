@@ -3,22 +3,70 @@ import type { IAudio } from '../../ports/IAudio';
 const MUSIC_VOLUME = 0.3;
 
 /**
+ * Эмбиент-сет. Четыре аккорда сменяют друг друга каждые CHORD_SECONDS: бас
+ * ведёт низ, пэд тянет середину, редкие «капли» мелодии идут по пентатонике
+ * A-мажора. Пентатоника выбрана потому, что она не конфликтует ни с одним
+ * аккордом сетки, поэтому мелодия может падать в любую долю без фальши.
+ */
+const CHORDS: { bass: number; pad: number[] }[] = [
+  { bass: 110, pad: [220, 277.18, 329.63, 493.88] }, // A add9
+  { bass: 92.5, pad: [185, 220, 277.18, 369.99] }, // F#m7
+  { bass: 73.42, pad: [146.83, 220, 293.66, 369.99] }, // D add9
+  { bass: 82.41, pad: [164.81, 246.94, 329.63, 415.3] }, // E
+];
+const PENTATONIC = [440, 493.88, 554.37, 659.25, 739.99];
+
+const CHORD_SECONDS = 16;
+/** Сколько секунд вперёд планируем события: запас больше интервала таймера. */
+const SCHEDULE_AHEAD = 2.5;
+
+/** Реверб: импульс из шума с экспоненциальным затуханием — длинный «зал». */
+function createReverb(ctx: AudioContext, seconds = 3.6): ConvolverNode {
+  const rate = ctx.sampleRate;
+  const length = Math.floor(rate * seconds);
+  const buffer = ctx.createBuffer(2, length, rate);
+  const fadeIn = rate * 0.03; // не резкий удар, а мягкое нарастание
+  for (let channel = 0; channel < 2; channel++) {
+    const data = buffer.getChannelData(channel);
+    for (let i = 0; i < length; i++) {
+      const tail = Math.pow(1 - i / length, 2.6);
+      data[i] = (Math.random() * 2 - 1) * tail * Math.min(1, i / fadeIn);
+    }
+  }
+  const convolver = ctx.createConvolver();
+  convolver.buffer = buffer;
+  return convolver;
+}
+
+/**
  * Аудио-адаптер на WebAudio (план 9.1).
  * AudioContext создаётся по user gesture. Если wav-ассеты недоступны —
  * fallback: синтез коротких звуков через OscillatorNode (см. правки плана, п.12).
  * Звуки: 'swipe' — движение кубиков, 'place' — кубик встал на свою площадку,
  * 'message-appear' — диалог завершения.
+ * Музыка — генеративный эмбиент: аккорды, бас и редкая мелодия планируются
+ * заранее по времени AudioContext, поэтому нет щелчков и дрейфа ритма.
  */
 export class WebAudioPlayer implements IAudio {
   private ctx: AudioContext | null = null;
   private sfxVolume = 0.5;
   private musicVolume = MUSIC_VOLUME;
-  private musicNodes: OscillatorNode[] = [];
-  private musicGain: GainNode | null = null;
+  private musicTimer: number | null = null;
+  private musicVoices = new Set<AudioScheduledSourceNode>();
+  private musicBus: GainNode | null = null;
+  private musicDry: AudioNode | null = null;
+  private musicSend: AudioNode | null = null;
+  private chordIndex = 0;
+  private nextChord = 0;
+  private nextBell = 0;
 
   async init(): Promise<void> {
     if (this.ctx) return;
     this.ctx = new AudioContext();
+    this.ctx.onstatechange = () => {
+      // Контекст усыпили извне (сворачивание вкладки) — сетку подхватим заново.
+      if (this.ctx?.state === 'running' && this.musicBus) this.scheduleLoop();
+    };
   }
 
   private ensureContext(): AudioContext | null {
@@ -71,59 +119,70 @@ export class WebAudioPlayer implements IAudio {
   }
 
   playMusic(_name: string, volume?: number): void {
-    // Фоновая музыка (план 9.2): без треков-ассетов — спокойный синтезированный
-    // эмбиент. Тихий аккорд с расстроенными парами голосов даёт медленное
-    // «дыхание» без резких атак, низкий low-pass убирает звон.
     const ctx = this.ensureContext();
-    if (!ctx || this.musicNodes.length > 0) return;
+    if (!ctx || this.musicBus) return;
 
-    const master = ctx.createGain();
-    const target = (volume ?? this.musicVolume) * 0.35;
-    master.gain.setValueAtTime(0, ctx.currentTime);
-    master.gain.linearRampToValueAtTime(target, ctx.currentTime + 5);
+    const bus = ctx.createGain();
+    const target = Math.max(0.001, volume ?? this.musicVolume);
+    bus.gain.setValueAtTime(0.0001, ctx.currentTime);
+    bus.gain.exponentialRampToValueAtTime(target, ctx.currentTime + 5);
+    bus.connect(ctx.destination);
 
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 820;
-    filter.Q.value = 0.4;
-    filter.connect(master);
-    master.connect(ctx.destination);
+    const dry = ctx.createGain();
+    dry.gain.value = 0.75;
+    dry.connect(bus);
 
-    // A2 / E3 / A3 / C#4 — спокойный мажорный аккорд.
-    const chord = [110, 164.81, 220, 277.18];
-    const nodes: OscillatorNode[] = [];
-    chord.forEach((freq, i) => {
-      for (const detune of [-6, 6]) {
-        const osc = ctx.createOscillator();
-        osc.type = i < 2 ? 'sine' : 'triangle';
-        osc.frequency.value = freq;
-        osc.detune.value = detune;
-        const voice = ctx.createGain();
-        voice.gain.value = i < 2 ? 0.055 : 0.03;
-        osc.connect(voice).connect(filter);
-        osc.start();
-        nodes.push(osc);
-      }
-    });
+    // Мягкий верх: пэд не шипит, но и не звучит глухо.
+    const tone = ctx.createBiquadFilter();
+    tone.type = 'lowpass';
+    tone.frequency.value = 2400;
+    tone.Q.value = 0.3;
+    tone.connect(dry);
 
-    // Медленное «дыхание» даёт расстройка пар голосов (биения), а не LFO
-    // громкости: так нулевая громкость действительно выключает музыку.
+    const reverb = createReverb(ctx);
+    const wet = ctx.createGain();
+    wet.gain.value = 0.62;
+    reverb.connect(wet).connect(bus);
 
-    this.musicNodes = nodes;
-    this.musicGain = master;
+    const send = ctx.createGain();
+    send.gain.value = 0.5;
+    send.connect(reverb);
+
+    this.musicBus = bus;
+    this.musicDry = tone;
+    this.musicSend = send;
+    this.musicVoices.clear();
+    this.chordIndex = 0;
+    this.nextChord = ctx.currentTime + 0.2;
+    this.nextBell = ctx.currentTime + 7 + Math.random() * 4;
+    this.scheduleLoop();
+    this.musicTimer = window.setInterval(() => this.scheduleLoop(), 500);
   }
 
   stopMusic(): void {
-    for (const node of this.musicNodes) {
-      try {
-        node.stop();
-      } catch {
-        // повторный stop после остановки контекста безопасно игнорируем
-      }
+    if (this.musicTimer !== null) {
+      window.clearInterval(this.musicTimer);
+      this.musicTimer = null;
     }
-    this.musicNodes = [];
-    this.musicGain?.disconnect();
-    this.musicGain = null;
+    const ctx = this.ctx;
+    const bus = this.musicBus;
+    const voices = [...this.musicVoices];
+    this.musicBus = null;
+    this.musicDry = null;
+    this.musicSend = null;
+    this.musicVoices.clear();
+    if (!ctx || !bus) {
+      for (const voice of voices) this.stopVoice(voice);
+      return;
+    }
+    // Сначала гасим шину, чтобы уход был плавным, и только потом режем голоса.
+    const now = ctx.currentTime;
+    bus.gain.cancelScheduledValues(now);
+    bus.gain.setTargetAtTime(0.0001, now, 0.3);
+    window.setTimeout(() => {
+      for (const voice of voices) this.stopVoice(voice);
+      bus.disconnect();
+    }, 1200);
   }
 
   setSfxVolume(volume: number): void {
@@ -132,13 +191,9 @@ export class WebAudioPlayer implements IAudio {
 
   setMusicVolume(volume: number): void {
     this.musicVolume = volume;
-    if (!this.musicGain || !this.ctx) return;
-    this.musicGain.gain.cancelScheduledValues(this.ctx.currentTime);
-    this.musicGain.gain.setTargetAtTime(
-      this.musicVolume * 0.35,
-      this.ctx.currentTime,
-      0.15,
-    );
+    if (!this.musicBus || !this.ctx) return;
+    this.musicBus.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.musicBus.gain.setTargetAtTime(Math.max(0.0001, volume), this.ctx.currentTime, 0.2);
   }
 
   pause(): void {
@@ -147,5 +202,122 @@ export class WebAudioPlayer implements IAudio {
 
   resume(): void {
     void this.ctx?.resume();
+  }
+
+  /** Планировщик: держит впереди SCHEDULE_AHEAD секунд готовых событий. */
+  private scheduleLoop(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.musicBus) return;
+    const now = ctx.currentTime;
+    while (this.nextChord < now + SCHEDULE_AHEAD) {
+      const at = Math.max(this.nextChord, now + 0.05);
+      this.playChord(ctx, at, this.chordIndex);
+      this.chordIndex = (this.chordIndex + 1) % CHORDS.length;
+      this.nextChord = at + CHORD_SECONDS;
+    }
+    if (this.nextBell < now + SCHEDULE_AHEAD) {
+      const at = Math.max(this.nextBell, now + 0.5);
+      this.playBell(ctx, at, PENTATONIC[Math.floor(Math.random() * PENTATONIC.length)]);
+      this.nextBell = at + 5 + Math.random() * 7;
+    }
+  }
+
+  private playChord(ctx: AudioContext, at: number, index: number): void {
+    const chord = CHORDS[index % CHORDS.length];
+    // Хвост длиннее шага сетки почти на треть: аккорды перекрываются десять
+    // секунд, поэтому смена гармонии слышна как смена цвета, а не как вдох-выдох.
+    const dur = CHORD_SECONDS + 10;
+    chord.pad.forEach((freq, i) => {
+      const pan = chord.pad.length > 1 ? (i / (chord.pad.length - 1)) * 2 - 1 : 0;
+      this.padVoice(ctx, freq, at, dur, pan * 0.7, 0.05);
+      // Тихое удвоение октавой ниже — тело аккорда без лишней густоты сверху.
+      this.padVoice(ctx, freq / 2, at, dur, -pan * 0.35, 0.018);
+    });
+    this.padVoice(ctx, chord.bass, at, dur, 0, 0.055, 'sine');
+  }
+
+  /**
+   * Голос пэда: пара расстроенных треугольников на ноту. Медленное всплытие,
+   * ровное удержание и долгий спад дают «дыхание» аккорда, а расстройка пары
+   * добавляет медленное биение — движение без LFO и без щелчков.
+   */
+  private padVoice(
+    ctx: AudioContext,
+    freq: number,
+    at: number,
+    dur: number,
+    pan: number,
+    level: number,
+    type: OscillatorType = 'triangle',
+  ): void {
+    for (const detune of [-7, 7]) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.value = freq;
+      osc.detune.value = detune;
+
+      // Всплытие — экспонентой (медленный вдох), спад — линейно: экспонента
+      // гасит голос за пару секунд и оставляет дырку между аккордами.
+      const attack = 4;
+      const release = 10;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(level, at + attack);
+      gain.gain.setValueAtTime(level, at + dur - release);
+      gain.gain.linearRampToValueAtTime(0, at + dur);
+
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = pan;
+
+      osc.connect(gain).connect(panner);
+      this.routeVoice(panner);
+      osc.start(at);
+      osc.stop(at + dur + 0.1);
+      this.trackVoice(osc);
+    }
+  }
+
+  /** «Капля» мелодии: короткая атака, долгий хвост, больше реверба, чем сухого. */
+  private playBell(ctx: AudioContext, at: number, freq: number): void {
+    for (const [ratio, level] of [
+      [1, 0.05],
+      [2, 0.012],
+    ] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq * ratio;
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(level, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 3.5);
+
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = Math.random() * 1.2 - 0.6;
+
+      osc.connect(gain).connect(panner);
+      this.routeVoice(panner);
+      osc.start(at);
+      osc.stop(at + 3.6);
+      this.trackVoice(osc);
+    }
+  }
+
+  private routeVoice(node: AudioNode): void {
+    if (this.musicDry) node.connect(this.musicDry);
+    if (this.musicSend) node.connect(this.musicSend);
+  }
+
+  private trackVoice(node: AudioScheduledSourceNode): void {
+    this.musicVoices.add(node);
+    node.onended = () => this.musicVoices.delete(node);
+  }
+
+  private stopVoice(node: AudioScheduledSourceNode): void {
+    try {
+      node.stop();
+    } catch {
+      // повторный stop после остановки контекста безопасно игнорируем
+    }
   }
 }
