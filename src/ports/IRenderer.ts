@@ -30,6 +30,34 @@ export interface IRenderer {
 
   /** Текущие углы камеры (радианы). */
   getCameraAngles(): { yaw: number; pitch: number };
+
+  /** Показать стрелки подсказки: скользят от кубиков до упора и гаснут. */
+  showHint(arrows: HintArrow[]): void;
+
+  /** Убрать стрелки подсказки сразу. */
+  hideHint(): void;
+
+  /** Подсказка осей для клавиатуры (плоскость L/D) видна только в игре. */
+  setKeyGuideVisible(visible: boolean): void;
+
+  /** Проекция сцены (отладочное меню). */
+  setProjection(mode: ProjectionMode): void;
+
+  /** Счётчик кадров в левом нижнем углу. */
+  setFpsVisible(visible: boolean): void;
+}
+
+/**
+ * Проекция уровня: обычная ортокамера, классическая изометрия и её «обратный»
+ * вариант — с вывернутой перспективой (дальние части кажутся больше).
+ */
+export type ProjectionMode = 'ortho' | 'iso' | 'isoReverse';
+
+/** Стрелка подсказки: от клетки кубика до клетки упора. */
+export interface HintArrow {
+  color: ColorType;
+  from: Position;
+  to: Position;
 }
 
 /** Всё, что нужно отрисовщику на кадр. */

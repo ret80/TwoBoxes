@@ -1,5 +1,6 @@
 import type { Locale, LocaleManager } from '../i18n/LocaleManager';
 import type { EpisodeManager } from '../../core/services/episode-mng';
+import type { ProjectionMode } from '../../ports/IRenderer';
 
 /** DOM-генераторы экранов (план 11.1 — TS-модули вместо .html, SPA/Vite). */
 
@@ -77,6 +78,13 @@ const ICONS = {
     evenodd: true,
     paths: ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-2 5.5 7 4.5-7 4.5v-9Z'],
   },
+  // Отладка: жук (debug)
+  debug: {
+    style: 'fill',
+    paths: [
+      'M20 8h-2.81a5.985 5.985 0 0 0-1.82-1.96L17 4.41 15.59 3l-2.17 2.17a5.947 5.947 0 0 0-2.84 0L8.41 3 7 4.41l1.62 1.63A5.985 5.985 0 0 0 6.81 8H4v2h2.09c-.05.33-.09.66-.09 1v1H4v2h2v1c0 .34.04.67.09 1H4v2h2.81a6 6 0 0 0 10.38 0H20v-2h-2.09c.05-.33.09-.66.09-1v-1h2v-2h-2v-1c0-.34-.04-.67-.09-1H20V8Zm-6 8h-4v-2h4v2Zm0-4h-4v-2h4v2Z',
+    ],
+  },
   // Настройки: три ползунка (tune)
   settings: {
     style: 'fill',
@@ -87,7 +95,7 @@ const ICONS = {
 } as const satisfies Record<string, IconDef>;
 
 /** Пункты главного меню-карусели. */
-export type MenuItemId = 'continue' | 'play' | 'settings' | 'help' | 'about';
+export type MenuItemId = 'continue' | 'play' | 'settings' | 'help' | 'about' | 'debug';
 
 type IconName = keyof typeof ICONS | 'help' | 'about';
 
@@ -152,6 +160,7 @@ export interface MainMenuRefs {
 export function buildMenuScreen(
   i18n: LocaleManager,
   canResume: boolean,
+  debug: boolean,
   cb: { onActivate: (item: MenuItemId) => void },
 ): MainMenuRefs {
   const root = el('div', 'screen screen--menu');
@@ -196,6 +205,10 @@ export function buildMenuScreen(
   makeItem('play', 'play', i18n.t('PLAY'), 0);
   makeItem('help', 'help', i18n.t('HELP'), 1);
   makeItem('about', 'about', i18n.t('ABOUT'), 2);
+  // Отладочная иконка — только с параметром `?debug` в адресе, слева от настроек.
+  const dbg = makeItem('debug', 'debug', i18n.t('DEBUG'), -2);
+  dbg.hidden = !debug;
+  dbg.disabled = !debug;
 
   root.append(title, stage, caption, hideLayer('bottom'));
   return { root, items, caption };
@@ -260,6 +273,58 @@ export function buildSettingsScreen(
   addLang('en', 'English');
   langRow.appendChild(langSwitch);
   panel.appendChild(langRow);
+
+  const back = el('button', 'btn btn--back', i18n.t('BACK'));
+  back.addEventListener('click', cb.onBack);
+  root.append(panel, back, hideLayer('bottom'));
+  return root;
+}
+
+/**
+ * Отладочное меню (открывается иконкой-жуком слева от настроек при `?debug`):
+ * счётчик FPS и выбор проекции уровня.
+ */
+export function buildDebugScreen(
+  i18n: LocaleManager,
+  values: { showFps: boolean; projection: ProjectionMode },
+  cb: {
+    onBack: () => void;
+    onFpsChange: (value: boolean) => void;
+    onProjectionChange: (mode: ProjectionMode) => void;
+  },
+): HTMLElement {
+  const root = el('div', 'screen screen--info screen--debug');
+  root.dataset.screen = 'debug';
+  root.append(hideLayer('title'));
+  root.appendChild(el('h2', 'screen__title', i18n.t('DEBUG')));
+  const panel = el('div', 'panel panel--screen settings-panel');
+
+  const fpsRow = el('label', 'settings-row settings-row--check');
+  fpsRow.appendChild(el('span', 'settings-row__label', i18n.t('DEBUG_FPS')));
+  const fps = el<HTMLInputElement>('input', 'settings-row__check');
+  fps.type = 'checkbox';
+  fps.checked = values.showFps;
+  fps.addEventListener('change', () => cb.onFpsChange(fps.checked));
+  fpsRow.appendChild(fps);
+  panel.appendChild(fpsRow);
+
+  const projRow = el('label', 'settings-row');
+  projRow.appendChild(el('span', 'settings-row__label', i18n.t('DEBUG_PROJECTION')));
+  const select = el<HTMLSelectElement>('select', 'settings-row__select');
+  const options: [ProjectionMode, string][] = [
+    ['ortho', i18n.t('PROJ_ORTHO')],
+    ['iso', i18n.t('PROJ_ISO')],
+    ['isoReverse', i18n.t('PROJ_ISO_REVERSE')],
+  ];
+  for (const [value, label] of options) {
+    const option = el<HTMLOptionElement>('option', undefined, label);
+    option.value = value;
+    select.appendChild(option);
+  }
+  select.value = values.projection;
+  select.addEventListener('change', () => cb.onProjectionChange(select.value as ProjectionMode));
+  projRow.appendChild(select);
+  panel.appendChild(projRow);
 
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);

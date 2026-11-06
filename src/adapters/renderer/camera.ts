@@ -1,10 +1,17 @@
 import { mat4, vec3 } from 'gl-matrix';
+import type { ProjectionMode } from '../../ports/IRenderer';
 
 /** Пределы наклона: камера не уходит под уровень и не задирается за «вид сверху». */
 export const MIN_PITCH = (16 * Math.PI) / 180;
 export const MAX_PITCH = (86 * Math.PI) / 180;
 export const DEFAULT_YAW = Math.PI / 4;
 export const DEFAULT_PITCH = Math.PI / 5;
+/**
+ * Классический изометрический наклон: atan(1/√2) ≈ 35.264°. При нём все три оси
+ * мира проецируются одинаково (одинаковое укорочение) — «правильная» изометрия,
+ * без двусмысленности, из-за которой ортокамера читается как обратная перспектива.
+ */
+export const ISO_PITCH = Math.atan(1 / Math.SQRT2);
 
 /**
  * Ортографическая изометрическая камера (док. раздел 12.4).
@@ -20,6 +27,11 @@ export class Camera {
 
   private yaw = DEFAULT_YAW;
   private pitch = DEFAULT_PITCH;
+  /**
+   * Режим проекции (отладка). `ortho` — свободная ортокамера, `iso`/`isoReverse`
+   * держат изометрический наклон; обратный ещё и «выворачивает» перспективу.
+   */
+  private mode: ProjectionMode = 'ortho';
   /**
    * Точка, вокруг которой вращается уровень. Без неё орбита крутила форму
    * вокруг центра всей карты, и уровни со смещённым путём (например 1-6)
@@ -43,9 +55,29 @@ export class Camera {
   setAngles(yaw: number, pitch: number): void {
     const twoPi = Math.PI * 2;
     this.yaw = (((yaw % twoPi) + twoPi) % twoPi);
-    this.pitch = Math.min(MAX_PITCH, Math.max(MIN_PITCH, pitch));
+    // В изометрических режимах наклон зафиксирован: крутить можно только вокруг
+    // вертикали, иначе «изометрия» перестаёт быть изометрией.
+    this.pitch =
+      this.mode === 'ortho'
+        ? Math.min(MAX_PITCH, Math.max(MIN_PITCH, pitch))
+        : ISO_PITCH;
     this.updateView();
     this.rebuildViewProj();
+  }
+
+  /** Переключить режим проекции (отладочное меню). */
+  setProjection(mode: ProjectionMode): void {
+    this.mode = mode;
+    this.setAngles(this.yaw, mode === 'ortho' ? this.pitch : ISO_PITCH);
+  }
+
+  getProjection(): ProjectionMode {
+    return this.mode;
+  }
+
+  /** Сила «обратной перспективы» для вершинных шейдеров (0 — выключена). */
+  getWarp(): number {
+    return this.mode === 'isoReverse' ? 0.42 : 0;
   }
 
   getAngles(): { yaw: number; pitch: number } {
@@ -81,7 +113,7 @@ export class Camera {
     safeTop = 0,
     safeBottom = 0,
   ): void {
-    const rx = mat4.fromXRotation(mat4.create(), DEFAULT_PITCH);
+    const rx = mat4.fromXRotation(mat4.create(), this.mode === 'ortho' ? DEFAULT_PITCH : ISO_PITCH);
     const ry = mat4.fromYRotation(mat4.create(), DEFAULT_YAW);
     mat4.multiply(this.refView, rx, ry);
 
@@ -96,6 +128,10 @@ export class Camera {
     let maxX = Number.NEGATIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
     let maxY = Number.NEGATIVE_INFINITY;
+    // Глубина сцены в пространстве взгляда: нужна, чтобы near/far шли вплотную
+    // по уровню — от этого зависит разброс ndc-z для «обратной перспективы».
+    let minD = Number.POSITIVE_INFINITY;
+    let maxD = Number.NEGATIVE_INFINITY;
 
     for (const sx of [bounds.minX, bounds.maxX]) {
       for (const sz of [bounds.minZ, bounds.maxZ]) {
@@ -106,9 +142,15 @@ export class Camera {
           if (this.corner[0] > maxX) maxX = this.corner[0];
           if (this.corner[1] < minY) minY = this.corner[1];
           if (this.corner[1] > maxY) maxY = this.corner[1];
+          const d = -this.corner[2];
+          if (d < minD) minD = d;
+          if (d > maxD) maxD = d;
         }
       }
     }
+    // Запас под ореолы и стрелки, которые выходят за габариты плит.
+    const near = minD - 2.5;
+    const far = maxD + 2.5;
 
     const width = Math.max(1, viewportW);
     const height = Math.max(1, viewportH);
@@ -133,7 +175,7 @@ export class Camera {
     const shiftPx = (safeTop - safeBottom) / 2;
     const cy = (minY + maxY) / 2 - shiftPx / scale;
 
-    mat4.ortho(this.proj, cx - halfW, cx + halfW, cy - halfH, cy + halfH, -100, 100);
+    mat4.ortho(this.proj, cx - halfW, cx + halfW, cy - halfH, cy + halfH, near, far);
     this.updateView();
     this.rebuildViewProj();
   }
@@ -142,7 +184,7 @@ export class Camera {
     mat4.multiply(this.viewProj, this.proj, this.view);
   }
 
-  getViewProj(): Float32Array {
-    return this.viewProj as Float32Array;
+  getViewProj(): mat4 {
+    return this.viewProj;
   }
 }

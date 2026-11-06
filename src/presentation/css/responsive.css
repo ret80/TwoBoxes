@@ -11,14 +11,8 @@
     font-size: clamp(2.6rem, 9.5vh, 4rem);
   }
 
-  .panel--screen {
-    max-height: min(74vh, 520px);
-  }
-
-  /* Панель выбора уровня и в альбоме не доходит до кнопки «Назад» */
-  .selector-panel {
-    max-height: min(74vh, calc(100vh - 2 * (var(--screen-pad-bottom) + 76px)));
-  }
+  /* Панель экрана в альбоме тоже не доходит до заголовка и «Назад»:
+     высоту задаёт общее правило через --menu-title-space / --menu-back-space. */
 
   /* Карусель в альбоме: компактнее, чтобы иконки не упирались в подпись */
   .xmb {

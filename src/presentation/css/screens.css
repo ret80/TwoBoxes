@@ -11,6 +11,10 @@
   /* Единые отступы: заголовок и «Назад» стоят на одном уровне во всех меню */
   --screen-pad-top: clamp(24px, 8vh, 84px);
   --screen-pad-bottom: clamp(24px, 8vh, 84px);
+  /* Полосы, занятые заголовком сверху и кнопкой «Назад» снизу: панель
+     со скроллом живёт только в свободной середине и не заезжает под них. */
+  --menu-title-space: calc(var(--screen-pad-top) + var(--title-size) * 1.25 + 12px);
+  --menu-back-space: calc(var(--screen-pad-bottom) + 52px + 12px);
   position: absolute;
   inset: 0;
   display: flex;
@@ -52,17 +56,24 @@
   display: none;
 }
 
-/* Заголовок — на одном и том же расстоянии от верхнего края на всех экранах */
+/*
+ * Заголовок — на одном и том же расстоянии от верхнего края на всех экранах.
+ * Растягиваем его на всю ширину (left/right), а не центрируем через
+ * left:50% + translateX: у fixed-блока ширина ограничивалась половиной экрана,
+ * и длинный заголовок («Выбор уровня») переносился на вторую строку.
+ */
 .screen__title {
   position: fixed;
   top: var(--screen-pad-top);
-  left: 50%;
+  right: 0;
+  left: 0;
   margin: 0;
+  padding: 0 16px;
   color: var(--color-coffee);
   font-size: var(--title-size);
   text-align: center;
   text-shadow: none;
-  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 /* Большой заголовок главного меню */
@@ -123,6 +134,8 @@
     background 0.2s ease,
     box-shadow 0.3s ease;
   pointer-events: auto;
+  /* Горизонтальный свайп — листание карусели, а не прокрутка страницы */
+  touch-action: pan-y;
   user-select: none;
 }
 
@@ -231,6 +244,53 @@
   cursor: pointer;
 }
 
+/* Отладочное меню: переключатель FPS и выбор проекции */
+.screen--debug .settings-row {
+  grid-template-columns: 1fr;
+}
+
+.screen--debug .settings-row--check {
+  grid-template-columns: 1fr auto;
+  cursor: pointer;
+}
+
+.settings-row__check {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--color-dark-blue);
+  cursor: pointer;
+}
+
+.settings-row__select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(74, 53, 39, 0.18);
+  border-radius: 10px;
+  background: var(--color-cream-strong);
+  color: var(--color-coffee);
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+/* Счётчик кадров (отладочное меню): левый нижний угол поверх сцены */
+.fps-counter {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  z-index: 60;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(251, 248, 243, 0.85);
+  box-shadow: var(--shadow-btn);
+  color: var(--color-text);
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 /* Переключатель языка: две компактные кнопки вместо выпадающего списка */
 .lang-switch {
   display: flex;
@@ -256,13 +316,18 @@
   box-shadow: var(--shadow-btn);
 }
 
-/* Информационные экраны (help/about), настройки и выбор уровня — панель по центру */
+/*
+ * Информационные экраны (help/about), настройки и выбор уровня — панель по
+ * центру свободной полосы между заголовком и «Назад». Высота ограничена
+ * именно этой полосой, поэтому список со скроллом не заползает на них.
+ */
 .screen--info .panel--screen,
 .screen--selector .panel--screen {
   position: fixed;
-  top: 50%;
+  top: calc(50% + (var(--menu-title-space) - var(--menu-back-space)) / 2);
   left: 50%;
   margin: 0;
+  max-height: calc(100vh - var(--menu-title-space) - var(--menu-back-space));
   transform: translate(-50%, -50%);
 }
 
@@ -281,10 +346,9 @@
   line-height: 1.6;
 }
 
-/* Селектор уровней; высота не доходит до кнопки «Назад» */
+/* Селектор уровней: высоту ограничивает общее правило выше */
 .selector-panel {
   width: min(520px, 92vw);
-  max-height: min(64vh, calc(100vh - 2 * (var(--screen-pad-bottom) + 76px)));
   padding: 18px 18px 20px;
 }
 
@@ -354,7 +418,7 @@
   gap: 4px;
   width: max-content;
   max-width: calc(100% - 24px);
-  padding: 8px 10px 8px 20px;
+  padding: 6px 10px 6px 20px;
   border-radius: 18px;
   background: var(--color-cream);
   box-shadow: var(--shadow);
@@ -367,11 +431,13 @@
 
 .game-topbar__label {
   min-width: 0;
-  max-width: 46vw;
+  max-width: 52vw;
   margin-right: 10px;
   overflow: hidden;
   color: var(--color-coffee);
-  font-size: clamp(1rem, 4.4vw, 1.2rem);
+  /* Кегль подписан под увеличенную иконку паузы; ширина панели — max-content,
+     поэтому она расширяется по горизонтали под новый размер шрифта. */
+  font-size: clamp(1.12rem, 4.9vw, 1.32rem);
   font-weight: 600;
   letter-spacing: 0.01em;
   text-overflow: ellipsis;
@@ -379,18 +445,24 @@
   white-space: nowrap;
 }
 
-/* Кнопки внутри плавающих панелей: только иконки, без своей плашки */
+/*
+ * Кнопки внутри плавающих панелей: только иконки, без своей плашки.
+ * Размер плашки фиксирован (44×44), поэтому растут именно иконки — а высота
+ * панели остаётся прежней за счёт уменьшенного вертикального padding.
+ */
 .game-topbar .btn,
 .game-bottombar .btn {
   flex: 0 0 auto;
-  min-height: 40px;
-  min-width: 40px;
-  padding: 8px;
+  width: 44px;
+  height: 44px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
   border-radius: 12px;
   color: var(--color-coffee);
   background: none;
   box-shadow: none;
-  font-size: 1rem;
+  font-size: 1.45rem;
 }
 
 .game-topbar .btn:hover,
@@ -418,7 +490,7 @@
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 8px 20px;
+  padding: 6px 20px;
   border-radius: 18px;
   background: var(--color-cream);
   box-shadow: var(--shadow);

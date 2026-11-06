@@ -23,7 +23,8 @@ export type MenuEvent =
   | { type: 'HELP' } // mmenu → help
   | { type: 'ABOUT' } // mmenu → about
   | { type: 'SETTINGS' } // mmenu → settings
-  | { type: 'BACK' } // selector/help/about/settings → mmenu; game → selector (пауза «Level select»)
+  | { type: 'DEBUG' } // mmenu → debug (отладочное меню, только с ?debug)
+  | { type: 'BACK' } // selector/help/about/settings/debug → mmenu; game → selector (пауза «Level select»)
   | { type: 'SELECT_LEVEL'; episodeId: number; levelId: number } // selector → game
   | { type: 'HOME' } // game → mmenu (диалоги паузы/завершения)
   | { type: 'NEXT_LEVEL' } // game → game (self-переход, следующий уровень)
@@ -63,6 +64,7 @@ export const menuMachine = setup({
         HELP: 'help',
         ABOUT: 'about',
         SETTINGS: 'settings',
+        DEBUG: 'debug',
       },
     },
     selector: {
@@ -92,6 +94,10 @@ export const menuMachine = setup({
       on: { BACK: 'mmenu' },
     },
     settings: {
+      entry: 'enterDemo',
+      on: { BACK: 'mmenu' },
+    },
+    debug: {
       entry: 'enterDemo',
       on: { BACK: 'mmenu' },
     },

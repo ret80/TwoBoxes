@@ -30,6 +30,12 @@ class FakeRenderer implements IRenderer {
   animateCreate(_state: RenderState, onComplete: () => void): void {
     onComplete();
   }
+
+  showHint(): void {}
+  hideHint(): void {}
+  setKeyGuideVisible(): void {}
+  setProjection(): void {}
+  setFpsVisible(): void {}
 }
 
 const audio: IAudio = {

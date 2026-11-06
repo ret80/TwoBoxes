@@ -11,6 +11,7 @@ import { InputAggregator } from '@adapters/input/InputAggregator';
 import { OrbitInput } from '@adapters/input/OrbitInput';
 import { LocalStorageSave } from '@adapters/storage/LocalStorageSave';
 import { InputAction } from '@ports/IInput';
+import type { ProjectionMode } from '@ports/IRenderer';
 import { LocaleManager } from '@presentation/i18n/LocaleManager';
 import { MenuController, type MenuDirection } from '@presentation/controllers/MenuController';
 import { GameController } from '@presentation/controllers/GameController';
@@ -56,10 +57,13 @@ const renderer = new PicoglRenderer();
 const audio = new WebAudioPlayer();
 const input = new InputAggregator(() => renderer.getCameraAngles());
 
-// Громкость из настроек применяется к аудио-адаптеру сразу.
+// Громкость из настроек применяется к аудио-адаптеру сразу, отладочные
+// переключатели — к рендеру (счётчик кадров и проекция уровня).
 config.subscribe((key, value) => {
   if (key === 'sfxVolume') audio.setSfxVolume(value as number);
   if (key === 'musicVolume') audio.setMusicVolume(value as number);
+  if (key === 'projection') renderer.setProjection(value as ProjectionMode);
+  if (key === 'showFps') renderer.setFpsVisible(value === true);
 });
 
 // 9. FSM-машины
@@ -100,18 +104,24 @@ gameScreen.pause.addEventListener('click', () => game.pause());
 const ARROWS: Record<string, string> = { '1,0': '→', '-1,0': '←', '0,1': '↓', '0,-1': '↑' };
 let hintTimer = 0;
 gameScreen.hint.addEventListener('click', () => {
-  const dir = game.hint();
-  gameScreen.hintToast.textContent = dir
-    ? `${i18n.t('HINT')}: ${ARROWS[`${dir.x},${dir.y}`] ?? ''}`
+  const plan = game.hintPlan();
+  gameScreen.hintToast.textContent = plan
+    ? `${i18n.t('HINT')}: ${ARROWS[`${plan.dir.x},${plan.dir.y}`] ?? ''}`
     : i18n.t('HINT_NONE');
   gameScreen.hintToast.hidden = false;
+  // Стрелки скользят по полу от кубиков до упора в выбранном направлении.
+  if (plan) renderer.showHint(plan.slides);
+  else renderer.hideHint();
   window.clearTimeout(hintTimer);
   hintTimer = window.setTimeout(() => {
     gameScreen.hintToast.hidden = true;
+    renderer.hideHint();
   }, 2200);
 });
 
 renderer.init(gameScreen.canvas);
+renderer.setProjection(config.get('projection') as ProjectionMode);
+renderer.setFpsVisible(config.get('showFps') === true);
 const onResize = () => renderer.resize(window.innerWidth, window.innerHeight);
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);
@@ -173,6 +183,8 @@ gameActor.subscribe((snapshot) => {
   if (!entered) return;
   if (state === 'create') revealHud();
   if (state === 'completed') hudRoot.classList.add('hud--hidden');
+  // Подсказки нет — «?» гаснет так же, как недоступный откат хода.
+  if (state === 'input') gameScreen.hint.disabled = game.hint() === null;
 });
 
 const completedDialog = new CompletedDialogController(dialogRoot, i18n, audio, {
@@ -234,7 +246,13 @@ input.on(InputAction.RESUME, () => {
 });
 input.on(InputAction.BACK, () => {
   const state = menuActor.getSnapshot().value as string;
-  if (state === 'help' || state === 'about' || state === 'settings' || state === 'selector') {
+  if (
+    state === 'help' ||
+    state === 'about' ||
+    state === 'settings' ||
+    state === 'debug' ||
+    state === 'selector'
+  ) {
     menuActor.send({ type: 'BACK' });
   }
 });
@@ -255,6 +273,7 @@ const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): voi
   input.setDemoMode(demo);
   game.setDemo(demo);
   menuCtrl.show(state);
+  renderer.setKeyGuideVisible(state === 'game');
   gameScreen.root.classList.toggle('screen--game-idle', state !== 'game');
   if (state !== 'game') hudRoot.classList.add('hud--hidden');
   orbit.setEnabled(state === 'game');

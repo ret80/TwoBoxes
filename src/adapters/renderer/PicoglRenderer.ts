@@ -2,16 +2,27 @@ import { App, DrawCall, Program, VertexArray, VertexBuffer, PicoGL } from 'picog
 import { mat4 } from 'gl-matrix';
 import { ColorType } from '../../core/types/color';
 import { CellType, isBoxCell, isEndCell } from '../../core/types/cell';
-import type { IRenderer, MoveAnimation, RenderState } from '../../ports/IRenderer';
+import type {
+  HintArrow,
+  IRenderer,
+  MoveAnimation,
+  ProjectionMode,
+  RenderState,
+} from '../../ports/IRenderer';
 import {
   buildGridLines,
   CUBE_NORMALS,
   CUBE_VERTICES,
   QUAD_NORMALS,
+  QUAD_UVS,
+  QUAD_XY_NORMALS,
+  QUAD_XY_VERTICES,
   QUAD_XZ_VERTICES,
 } from './geometry';
 import {
   FRAGMENT_SHADER,
+  GLOW_FRAGMENT_SHADER,
+  GLOW_VERTEX_SHADER,
   LINE_FRAGMENT_SHADER,
   LINE_VERTEX_SHADER,
   VERTEX_SHADER,
@@ -36,6 +47,21 @@ const COLOR_GOAL_TWO = [0.925, 0.788, 0.404]; // контур цели жёлт�
 const COLOR_RECESS = [0.404, 0.529, 0.51]; // углубление целевой площадки
 const COLOR_GRID = [0.72, 0.83, 0.8]; // светлая сетка на плитах
 const COLOR_BG = [0.914, 0.894, 0.863]; // кремовый фон сцены
+
+// Свечение кубика на своей площадке — насыщенный цвет кубика (не белый).
+const GLOW_ONE = [1.0, 0.42, 0.17]; // коралловый ореол
+const GLOW_TWO = [1.0, 0.66, 0.18]; // золотой ореол
+// Стрелки-подсказки на полу: чуть светлее кубиков, чтобы читались на плитах.
+const ARROW_ONE = [0.93, 0.44, 0.26];
+const ARROW_TWO = [0.93, 0.71, 0.24];
+// Компас клавиатуры (L/D): без подложки, оси и буквы лежат на полу —
+// серый как у недоступной кнопки отката (кофейный икон а при 45% на кремовом).
+const COLOR_KEY_MARK = [0.6, 0.57, 0.53];
+
+/** Стрелки подсказки: доехали до упора → держатся → гаснут (как плашка HUD). */
+const HINT_SLIDE_MS = 560;
+const HINT_FADE_START_MS = 1750;
+const HINT_TOTAL_MS = 2200;
 
 /** Полосы, резервируемые под плавающие панели HUD (CSS-пиксели). */
 const HUD_INSET_TOP = 76;
@@ -72,16 +98,41 @@ export class PicoglRenderer implements IRenderer {
   private app: App | null = null;
   private program: Program | null = null;
   private lineProgram: Program | null = null;
+  private glowProgram: Program | null = null;
   private cubeVao: VertexArray | null = null;
   private quadVao: VertexArray | null = null;
+  private quadXYVao: VertexArray | null = null;
+  private glowVao: VertexArray | null = null;
   private gridVao: VertexArray | null = null;
 
   private cubeDraw: DrawCall | null = null;
   private quadDraw: DrawCall | null = null;
+  private quadXYDraw: DrawCall | null = null;
+  private glowDraw: DrawCall | null = null;
   private gridDraw: DrawCall | null = null;
 
   private camera = new Camera();
   private tweens = new TweenManager();
+
+  // Матрицы-скретч: декали (стрелки, буквы) собираются из них каждый кадр.
+  private viewProj: mat4 = mat4.create();
+  private gizmoViewProj: mat4 = mat4.create();
+  private readonly gizmoProj = mat4.create();
+  private readonly basisMatrix = mat4.create();
+  private readonly decalModel = mat4.create();
+  private readonly scratchRot = mat4.create();
+
+  // Стрелки подсказки и компас клавиатуры (плоскость L/D)
+  private hint: { arrows: HintArrow[]; start: number } | null = null;
+  private keyGuide = true;
+  /** Сила «обратной перспективы» в шейдерах (носится в uniform uWarp). */
+  private warp = 0;
+
+  // Счётчик кадров (отладочное меню)
+  private fpsVisible = false;
+  private fpsEl: HTMLElement | null = null;
+  private fpsFrames = 0;
+  private fpsSince = 0;
 
   private state: RenderState | null = null;
   private boxPos: RenderBoxPos[] = [];
@@ -108,7 +159,10 @@ export class PicoglRenderer implements IRenderer {
   private loopRunning = false;
 
   init(canvas: HTMLCanvasElement): void {
-    this.app = PicoGL.createApp(canvas)
+    // Canvas без альфа-канала: полупрозрачные пиксели (ореолы, стрелки) не
+    // смешиваются с фоном страницы. Иначе premultiplied-композитинг браузера
+    // подмешивал кремовый фон поверх и свечение выгорало в белое.
+    this.app = PicoGL.createApp(canvas, { alpha: false, antialias: true })
       .enable(PicoGL.DEPTH_TEST)
       // Отсечение задних граней: без него совпадающие грани соседних клеток
       // (пол/стена, стена/стена) дают z-fighting с мерцающими швами.
@@ -116,9 +170,10 @@ export class PicoglRenderer implements IRenderer {
       .clearColor(COLOR_BG[0], COLOR_BG[1], COLOR_BG[2], 1);
     // Грани куба/квада обходятся по часовой стрелке снаружи.
     this.app.gl.frontFace(this.app.gl.CW);
-    // Синхронная компиляция — программ две, источник мал
+    // Синхронная компиляция — программ три, источник мал
     this.program = this.app.createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
     this.lineProgram = this.app.createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER);
+    this.glowProgram = this.app.createProgram(GLOW_VERTEX_SHADER, GLOW_FRAGMENT_SHADER);
 
     const cubePositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_VERTICES);
     const cubeNormals = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_NORMALS);
@@ -136,6 +191,24 @@ export class PicoglRenderer implements IRenderer {
 
     this.cubeDraw = this.app.createDrawCall(this.program, this.cubeVao);
     this.quadDraw = this.app.createDrawCall(this.program, this.quadVao);
+
+    // Декали (стрелки подсказки, буквы L/D): плоский квад в плоскости XY.
+    const quadXYPositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XY_VERTICES);
+    const quadXYNormals = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XY_NORMALS);
+    this.quadXYVao = this.app
+      .createVertexArray()
+      .vertexAttributeBuffer(0, quadXYPositions)
+      .vertexAttributeBuffer(1, quadXYNormals);
+    this.quadXYDraw = this.app.createDrawCall(this.program, this.quadXYVao);
+
+    // Ореол-свечение: тот же квад, но с UV вместо нормалей (радиальное затухание).
+    const glowUvs = this.app.createVertexBuffer(PicoGL.FLOAT, 2, QUAD_UVS);
+    const glowPositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XY_VERTICES);
+    this.glowVao = this.app
+      .createVertexArray()
+      .vertexAttributeBuffer(0, glowPositions)
+      .vertexAttributeBuffer(2, glowUvs);
+    this.glowDraw = this.app.createDrawCall(this.glowProgram, this.glowVao);
   }
 
   resize(width: number, height: number): void {
@@ -174,6 +247,7 @@ export class PicoglRenderer implements IRenderer {
    * поле не уезжает под них и не дёргается при анимации панелей.
    */
   private updateCamera(): void {
+    this.warp = this.camera.getWarp();
     if (!this.state) return;
     this.camera.frame(
       this.visibleBounds(this.state),
@@ -182,6 +256,11 @@ export class PicoglRenderer implements IRenderer {
       HUD_INSET_TOP,
       HUD_INSET_BOTTOM,
     );
+  }
+
+  /** Общие матрица камеры и сила искажения — один вызов на любой draw call. */
+  private applyViewProj(draw: DrawCall): DrawCall {
+    return draw.uniform('uViewProj', this.viewProj).uniform('uWarp', this.warp);
   }
 
   /**
@@ -287,6 +366,8 @@ export class PicoglRenderer implements IRenderer {
 
   animateCreate(state: RenderState, onComplete: () => void): void {
     this.render(state);
+    // Новый уровень — старые стрелки подсказки больше не применимы.
+    this.hint = null;
     const { width, height } = state;
     const cellAt = (x: number, y: number) => state.grid[y * width + x];
     this.createMask = createWaveMask(width, height, (x, y) => cellAt(x, y) !== CellType.UNKNOWN);
@@ -309,6 +390,58 @@ export class PicoglRenderer implements IRenderer {
     return this.camera.getAngles();
   }
 
+  /** Стрелки подсказки: от кубиков по свободным клеткам до упора. */
+  showHint(arrows: HintArrow[]): void {
+    if (arrows.length === 0) {
+      this.hint = null;
+      return;
+    }
+    this.hint = { arrows: arrows.map((a) => ({ ...a })), start: performance.now() };
+  }
+
+  hideHint(): void {
+    this.hint = null;
+  }
+
+  /** Компас клавиатуры (плоскость с осями L/D) нужен только в самой игре. */
+  setKeyGuideVisible(visible: boolean): void {
+    this.keyGuide = visible;
+  }
+
+  /** Проекция сцены: ортогональная, изометрическая или обратная изометрическая. */
+  setProjection(mode: ProjectionMode): void {
+    this.camera.setProjection(mode);
+    this.warp = this.camera.getWarp();
+    this.updateCamera();
+  }
+
+  /** Счётчик кадров: маленькая плашка в левом нижнем углу. */
+  setFpsVisible(visible: boolean): void {
+    this.fpsVisible = visible;
+    if (!this.fpsEl) {
+      const el = document.createElement('div');
+      el.className = 'fps-counter';
+      el.hidden = true;
+      document.body.appendChild(el);
+      this.fpsEl = el;
+    }
+    this.fpsEl.hidden = !visible;
+    this.fpsFrames = 0;
+    this.fpsSince = performance.now();
+  }
+
+  /** Пересчёт FPS раз в полсекунды — чаще цифры дёргаются и не читаются. */
+  private updateFps(now: number): void {
+    if (!this.fpsEl) return;
+    this.fpsFrames++;
+    const elapsed = now - this.fpsSince;
+    if (elapsed < 500) return;
+    const fps = Math.round((this.fpsFrames * 1000) / elapsed);
+    this.fpsEl.textContent = `${fps} FPS`;
+    this.fpsFrames = 0;
+    this.fpsSince = now;
+  }
+
   startLoop(): void {
     if (this.loopRunning) return;
     this.loopRunning = true;
@@ -322,6 +455,7 @@ export class PicoglRenderer implements IRenderer {
       this.tweens.update();
       this.updateCreateAnim(dt);
       this.drawFrame();
+      if (this.fpsVisible) this.updateFps(now);
       this.rafId = requestAnimationFrame(frame);
     };
     this.rafId = requestAnimationFrame(frame);
@@ -375,7 +509,7 @@ export class PicoglRenderer implements IRenderer {
     // Обычные грани рисуются непрозрачно; режим смешивания включается только
     // на время прохода ореола-подсветки (см. ниже).
     app.disable(PicoGL.BLEND);
-    const viewProj = this.camera.getViewProj();
+    this.viewProj = this.camera.getViewProj();
     const model = mat4.create();
     const animating = this.createMask !== null;
 
@@ -392,9 +526,7 @@ export class PicoglRenderer implements IRenderer {
     ) => {
       mat4.fromTranslation(model, [x, y, z]);
       mat4.scale(model, model, [sx, sy, sz]);
-      this.cubeDraw!
-        .uniform('uModel', model)
-        .uniform('uViewProj', viewProj)
+      this.applyViewProj(this.cubeDraw!.uniform('uModel', model))
         .uniform('uColor', color)
         .uniform('uAlpha', alpha)
         .uniform('uGlow', glow);
@@ -418,9 +550,7 @@ export class PicoglRenderer implements IRenderer {
       mat4.fromTranslation(model, [x, y, z]);
       mat4.rotateY(model, model, rotY);
       mat4.scale(model, model, [size, 1, size]);
-      this.quadDraw!
-        .uniform('uModel', model)
-        .uniform('uViewProj', viewProj)
+      this.applyViewProj(this.quadDraw!.uniform('uModel', model))
         .uniform('uColor', color)
         .uniform('uAlpha', alpha)
         .uniform('uGlow', 0);
@@ -473,16 +603,17 @@ export class PicoglRenderer implements IRenderer {
     }
     if (this.gridDraw) {
       mat4.identity(model);
-      this.gridDraw
-        .uniform('uModel', model)
-        .uniform('uViewProj', viewProj)
-        .uniform('uColor', COLOR_GRID);
+      this.applyViewProj(this.gridDraw.uniform('uModel', model)).uniform(
+        'uColor',
+        COLOR_GRID,
+      );
       this.gridDraw.draw();
     }
 
-    // Кубики на своих площадках светятся ровным ореолом (без пульсации —
-    // мигание читалось как мерцание) и лёгкой подсветкой самого кубика (uGlow).
-    // Ключ площадки — позиция и цвет, поэтому чужой кубик не подсвечивается.
+    // Кубики на своих площадках светятся ровным ореолом своего цвета
+    // (без пульсации — мигание читалось как мерцание) и лёгкой подсветкой
+    // самого кубика (uGlow). Ключ площадки — позиция и цвет, поэтому чужой
+    // кубик не подсвечивается.
     const goals = new Set(state.ends.map((e) => `${e.pos.x},${e.pos.y},${e.color}`));
     const onGoal = (b: RenderBoxPos): boolean =>
       goals.has(`${Math.round(b.x - 0.5)},${Math.round(b.z - 0.5)},${b.color}`);
@@ -491,48 +622,34 @@ export class PicoglRenderer implements IRenderer {
     if (glowing.length > 0 && !animating) {
       const gl = app.gl;
       app.enable(PicoGL.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // аддитивное свечение
+      // Обычное альфа-смешивание: ореол остаётся цвета кубика. Альфа приёмника
+      // принудительно держится на 1 — иначе прозрачные пиксели попадают в canvas.
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE);
       // Ореолы рисуются друг поверх друга на одной высоте — глубина не пишется.
       gl.depthMask(false);
+      const { yaw, pitch } = this.camera.getAngles();
+      const cosYaw = Math.cos(yaw);
+      const sinYaw = Math.sin(yaw);
+      const sinPitch = Math.sin(pitch);
+      const cosPitch = Math.cos(pitch);
       for (const b of glowing) {
         const bx = Math.round(b.x - 0.5);
         const bz = Math.round(b.z - 0.5);
-        const color = b.color === ColorType.ONE ? COLOR_BOX : COLOR_BOX_TWO;
-        // Мягкое пятно на площадке вокруг кубика.
-        for (const [size, alpha] of [
-          [1.6, 0.06],
-          [1.3, 0.09],
-          [1.05, 0.12],
-        ] as const) {
-          drawQuad(
-            worldX(bx),
-            PLATFORM_TOP + 0.05,
-            worldZ(bz),
-            size,
-            color,
-            0,
-            alpha,
-          );
-        }
-        // Объёмный ореол вокруг силуэта кубика: несколько раздутых копий
-        // аддитивно, реальный кубик рисуется поверх и остаётся чётким.
-        for (const [scale, alpha] of [
-          [1.28, 0.05],
-          [1.14, 0.08],
-          [1.05, 0.11],
-        ] as const) {
-          drawCube(
-            b.x - state.width / 2,
-            b.y,
-            b.z - state.height / 2,
-            0.9 * scale,
-            scale,
-            0.9 * scale,
-            color,
-            0,
-            alpha,
-          );
-        }
+        const color = b.color === ColorType.ONE ? GLOW_ONE : GLOW_TWO;
+        // Мягкое пятно на самой площадке вокруг кубика.
+        this.floorBasis(this.basisMatrix, worldX(bx), worldZ(bz), PLATFORM_TOP + 0.03, 0);
+        mat4.scale(this.decalModel, this.basisMatrix, [2.1, 2.1, 1]);
+        this.drawGlow(this.decalModel, color, 0.55);
+        // Объёмный ореол: билборд к камере вокруг центра кубика. Так свечение
+        // мягко расходится во все стороны и не читается как «раздутый куб».
+        PicoglRenderer.setBasis(
+          this.basisMatrix,
+          [b.x - state.width / 2, b.y, b.z - state.height / 2],
+          [cosYaw, 0, sinYaw],
+          [sinPitch * sinYaw, cosPitch, -sinPitch * cosYaw],
+        );
+        mat4.scale(this.decalModel, this.basisMatrix, [2.7, 2.7, 1]);
+        this.drawGlow(this.decalModel, color, 1.0);
       }
       gl.depthMask(true);
       app.disable(PicoGL.BLEND);
@@ -557,6 +674,227 @@ export class PicoglRenderer implements IRenderer {
         b.color === ColorType.ONE ? COLOR_BOX : COLOR_BOX_TWO,
         onGoal(b) ? 1 : 0,
       );
+    }
+
+    // Стрелки подсказки — поверх сцены: кубик закрывает собой клетку упора,
+    // и без этого половина стрелок оставалась за ним.
+    this.drawHintArrows(state);
+
+    // Компас клавиатуры — в своём маленьком вьюпорте, поверх сцены.
+    this.drawKeyGuide();
+  }
+
+  /** Матрица базиса декали: локальные +X/+Y кладутся на `right`/`up`, нормаль вверх. */
+  private static setBasis(
+    out: mat4,
+    origin: [number, number, number],
+    right: [number, number, number],
+    up: [number, number, number],
+  ): void {
+    out[0] = right[0];
+    out[1] = right[1];
+    out[2] = right[2];
+    out[3] = 0;
+    out[4] = up[0];
+    out[5] = up[1];
+    out[6] = up[2];
+    out[7] = 0;
+    // Третья колонка — нормаль (right × up): декаль должна смотреть вверх,
+    // иначе при включённом CULL_FACE её грани отсекаются как задние.
+    out[8] = right[1] * up[2] - right[2] * up[1];
+    out[9] = right[2] * up[0] - right[0] * up[2];
+    out[10] = right[0] * up[1] - right[1] * up[0];
+    out[11] = 0;
+    out[12] = origin[0];
+    out[13] = origin[1];
+    out[14] = origin[2];
+    out[15] = 1;
+  }
+
+  /**
+   * Базис декали на полу уровня: локальный +X — направление `angle` в плоскости
+   * XZ, локальный +Y — перпендикуляр к нему, нормаль — строго вверх.
+   */
+  private floorBasis(out: mat4, wx: number, wz: number, y: number, angle: number): void {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    PicoglRenderer.setBasis(out, [wx, y, wz], [c, 0, s], [s, 0, -c]);
+  }
+
+  /** Штрих внутри базиса: отрезок (x0,y0)→(x1,y1) толщиной `thick`. */
+  private drawBar(
+    base: mat4,
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    thick: number,
+    color: number[],
+    alpha = 1,
+  ): void {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    if (len <= 0.0001 || !this.quadXYDraw) return;
+    mat4.fromTranslation(this.decalModel, [(x0 + x1) / 2, (y0 + y1) / 2, 0]);
+    mat4.rotateZ(this.decalModel, this.decalModel, Math.atan2(dy, dx));
+    mat4.scale(this.decalModel, this.decalModel, [len, thick, 1]);
+    mat4.multiply(this.decalModel, base, this.decalModel);
+    this.drawDecal(this.decalModel, color, alpha);
+  }
+
+  private drawDecal(model: mat4, color: number[], alpha = 1): void {
+    if (!this.quadXYDraw) return;
+    this.applyViewProj(this.quadXYDraw.uniform('uModel', model))
+      .uniform('uColor', color)
+      .uniform('uAlpha', alpha)
+      .uniform('uGlow', 0)
+      .draw();
+  }
+
+  private drawGlow(model: mat4, color: number[], intensity: number): void {
+    if (!this.glowDraw) return;
+    this.applyViewProj(this.glowDraw.uniform('uModel', model))
+      .uniform('uColor', color)
+      .uniform('uIntensity', intensity)
+      .draw();
+  }
+
+  /**
+   * Стрелки подсказки: двойной шеврон «»» на полу, который скользит от клетки
+   * кубика до клетки упора, а затем плавно гаснет.
+   */
+  private drawHintArrows(state: RenderState): void {
+    const hint = this.hint;
+    const app = this.app;
+    if (!hint || !app || !this.quadXYDraw) return;
+    const elapsed = performance.now() - hint.start;
+    if (elapsed >= HINT_TOTAL_MS) {
+      this.hint = null;
+      return;
+    }
+    const slide = easeOutCubic(Math.min(1, elapsed / HINT_SLIDE_MS));
+    const fade =
+      elapsed <= HINT_FADE_START_MS
+        ? 1
+        : Math.max(0, 1 - (elapsed - HINT_FADE_START_MS) / (HINT_TOTAL_MS - HINT_FADE_START_MS));
+    if (fade <= 0) return;
+
+    const gl = app.gl;
+    app.enable(PicoGL.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE);
+    gl.depthMask(false);
+    app.disable(PicoGL.DEPTH_TEST);
+    for (const arrow of hint.arrows) {
+      const dx = arrow.to.x - arrow.from.x;
+      const dz = arrow.to.y - arrow.from.y;
+      // Кубик, которому некуда ехать, стрелку не показывает.
+      if (dx === 0 && dz === 0) continue;
+      // Стрелка доезжает до самой клетки упора — там, куда встанет кубик.
+      const cx = arrow.from.x + dx * slide + 0.5 - state.width / 2;
+      const cz = arrow.from.y + dz * slide + 0.5 - state.height / 2;
+      const color = arrow.color === ColorType.ONE ? ARROW_ONE : ARROW_TWO;
+      this.floorBasis(this.basisMatrix, cx, cz, PLATFORM_TOP + 0.035, Math.atan2(dz, dx));
+      for (const tip of [0.16, -0.14]) {
+        this.drawBar(this.basisMatrix, tip - 0.26, -0.26, tip, 0, 0.1, color, fade);
+        this.drawBar(this.basisMatrix, tip - 0.26, 0.26, tip, 0, 0.1, color, fade);
+      }
+    }
+    gl.depthMask(true);
+    app.enable(PicoGL.DEPTH_TEST);
+    app.disable(PicoGL.BLEND);
+  }
+
+  /**
+   * Компас клавиатуры: плоскость в осях XZ, повёрнутая так же, как уровень.
+   * На ней две оси с кнопками «L» (влево) и «D» (вниз): при повороте уровня
+   * сразу видно, какая стрелка клавиатуры куда двигает кубики.
+   */
+  private drawKeyGuide(): void {
+    const app = this.app;
+    if (!app || !this.keyGuide || !this.quadXYDraw) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const sizeCss = Math.round(
+      Math.max(84, Math.min(168, Math.min(this.viewportW, this.viewportH) * 0.32)),
+    );
+    // Над нижней панелью HUD, у правого края — как в макете.
+    const left = Math.round(this.viewportW - sizeCss - 14);
+    const bottom = Math.round(96);
+    if (left < 0 || bottom + sizeCss > this.viewportH) return;
+
+    app.viewport(Math.round(left * dpr), Math.round(bottom * dpr), Math.round(sizeCss * dpr), Math.round(sizeCss * dpr));
+    const { yaw, pitch } = this.camera.getAngles();
+    mat4.fromXRotation(this.scratchRot, pitch);
+    mat4.multiply(this.scratchRot, this.scratchRot, mat4.fromYRotation(mat4.create(), yaw));
+    mat4.ortho(this.gizmoProj, -1.6, 1.6, -1.6, 1.6, -20, 20);
+    mat4.multiply(this.gizmoViewProj, this.gizmoProj, this.scratchRot);
+    this.viewProj = this.gizmoViewProj;
+
+    app.disable(PicoGL.DEPTH_TEST);
+    app.disable(PicoGL.BLEND);
+
+    // Подсказка рисуется без искажения проекции: оси — не часть уровня.
+    const warp = this.warp;
+    this.warp = 0;
+
+    // Плоскость XZ: локальные +X/+Y — мировые X/−Z, нормаль вверх. Подложки нет:
+    // только штрихи, чтобы компас не закрывал поле цветной плашкой.
+    PicoglRenderer.setBasis(this.basisMatrix, [0, 0, 0], [1, 0, 0], [0, 0, -1]);
+
+    // Оси из общего угла: «L» — мировая −X, «D» — мировая +Z (локальная −Y).
+    const ox = 0.5;
+    const oz = 0.5; // локальные координаты угла (мир: x=0.5, z=−0.5)
+    const reach = 0.86;
+    const thick = 0.07;
+    this.drawBar(this.basisMatrix, ox, oz, ox - reach, oz, thick, COLOR_KEY_MARK);
+    this.drawBar(this.basisMatrix, ox, oz, ox, oz - reach, thick, COLOR_KEY_MARK);
+    // Наконечники осей.
+    const head = 0.13;
+    const spread = 0.085;
+    this.drawBar(this.basisMatrix, ox - reach, oz, ox - reach + head, oz + spread, thick, COLOR_KEY_MARK);
+    this.drawBar(this.basisMatrix, ox - reach, oz, ox - reach + head, oz - spread, thick, COLOR_KEY_MARK);
+    this.drawBar(this.basisMatrix, ox, oz - reach, ox + spread, oz - reach + head, thick, COLOR_KEY_MARK);
+    this.drawBar(this.basisMatrix, ox, oz - reach, ox - spread, oz - reach + head, thick, COLOR_KEY_MARK);
+
+    // Буквы лежат в той же плоскости, что и оси: без разворота к камере и без
+    // компенсации ракурса — это надписи на полу, а не билборды.
+    this.drawGlyphL(ox - reach - 0.32, oz);
+    this.drawGlyphD(ox, oz - reach - 0.3);
+
+    this.warp = warp;
+    app.enable(PicoGL.DEPTH_TEST);
+    app.defaultViewport();
+    this.viewProj = this.camera.getViewProj();
+  }
+
+  /** Буква «L» на полу: подпись оси левой стрелки. */
+  private drawGlyphL(cx: number, cy: number): void {
+    const h = 0.21;
+    const w = 0.19;
+    const t = 0.062;
+    const x0 = cx - w / 2;
+    this.drawBar(this.basisMatrix, x0, cy - h, x0, cy + h, t, COLOR_KEY_MARK);
+    this.drawBar(this.basisMatrix, x0, cy - h, x0 + w, cy - h, t, COLOR_KEY_MARK);
+  }
+
+  /** Буква «D» на полу: подпись оси нижней стрелки. */
+  private drawGlyphD(cx: number, cy: number): void {
+    const h = 0.21;
+    const r = 0.21;
+    const t = 0.062;
+    const x0 = cx - r * 0.45;
+    this.drawBar(this.basisMatrix, x0, cy - h, x0, cy + h, t, COLOR_KEY_MARK);
+    const steps = 6;
+    let px = x0;
+    let py = cy + h;
+    for (let i = 1; i <= steps; i++) {
+      const a = Math.PI / 2 - (Math.PI * i) / steps;
+      const nx = x0 + r * Math.cos(a);
+      const ny = cy + h * Math.sin(a);
+      this.drawBar(this.basisMatrix, px, py, nx, ny, t, COLOR_KEY_MARK);
+      px = nx;
+      py = ny;
     }
   }
 }

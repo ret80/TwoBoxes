@@ -5,6 +5,7 @@ import { menuMachine } from '../../core/state/menu';
 import type { Locale, LocaleManager } from '../i18n/LocaleManager';
 import {
   buildAboutScreen,
+  buildDebugScreen,
   buildHelpScreen,
   buildMenuScreen,
   buildSelectorScreen,
@@ -12,14 +13,16 @@ import {
   type MainMenuRefs,
   type MenuItemId,
 } from '../html/screens';
+import type { ProjectionMode } from '../../ports/IRenderer';
 
 export type MenuDirection = 'up' | 'down' | 'left' | 'right';
 
 /** Горизонтальный ряд иконок главного меню (слева направо). */
-const MENU_ORDER: MenuItemId[] = ['settings', 'play', 'help', 'about'];
+const MENU_ORDER: MenuItemId[] = ['debug', 'settings', 'play', 'help', 'about'];
 /** Колонка иконки в карусели: 0 — центральная («Играть»), -1/+1/+2 — соседние. */
 const MENU_SLOT: Record<MenuItemId, number> = {
   continue: 0,
+  debug: -2,
   settings: -1,
   play: 0,
   help: 1,
@@ -31,7 +34,11 @@ const MENU_LABEL: Record<MenuItemId, string> = {
   settings: 'OPTIONS',
   help: 'HELP',
   about: 'ABOUT',
+  debug: 'DEBUG',
 };
+
+/** Сколько пикселей свайпа — на одну иконку карусели. */
+const SWIPE_STEP = 46;
 
 /**
  * Контроллер меню (план 11.3): управление экранами mmenu/selector/help/about/settings,
@@ -50,6 +57,12 @@ export class MenuController {
   private current = '';
   private menu: MainMenuRefs | null = null;
   private activeItem: MenuItemId = 'play';
+  /** Отладочное меню доступно только с параметром `?debug` в адресе. */
+  private readonly debugEnabled =
+    new URLSearchParams(window.location.search).has('debug') ||
+    window.location.hash.includes('debug');
+  /** Свайп уже отработал — клик после него не должен открывать пункт. */
+  private suppressClickUntil = 0;
 
   constructor(
     container: HTMLElement,
@@ -66,6 +79,7 @@ export class MenuController {
     this.menuActor = menuActor;
     this.onGameSelected = onGameSelected;
     this.buildScreens();
+    this.attachSwipe();
     this.menuActor.subscribe((s) => this.show(s.value as string));
     // Смена языка перестраивает все экраны с новыми подписями.
     this.i18n.subscribe(() => this.rebuildScreens());
@@ -75,7 +89,7 @@ export class MenuController {
   private buildScreens(): void {
     const { episodes, i18n } = this;
 
-    const menu = buildMenuScreen(i18n, episodes.isResume(), {
+    const menu = buildMenuScreen(i18n, episodes.isResume(), this.debugEnabled, {
       onActivate: (item) => this.activateItem(item),
     });
     this.menu = menu;
@@ -106,6 +120,21 @@ export class MenuController {
       onBack: () => this.menuActor.send({ type: 'BACK' }),
     });
     this.screens.set('about', about);
+
+    // Отладочный экран собирается всегда, но иконка в меню — только с ?debug.
+    const debug = buildDebugScreen(
+      i18n,
+      {
+        showFps: this.config.get('showFps') === true,
+        projection: this.config.get('projection') as ProjectionMode,
+      },
+      {
+        onBack: () => this.menuActor.send({ type: 'BACK' }),
+        onFpsChange: (value) => this.config.set('showFps', value),
+        onProjectionChange: (mode) => this.config.set('projection', mode),
+      },
+    );
+    this.screens.set('debug', debug);
 
     this.rebuildSelector();
 
@@ -153,12 +182,54 @@ export class MenuController {
       return;
     }
     const current = this.activeItem === 'continue' ? 'play' : this.activeItem;
-    const index = MENU_ORDER.indexOf(current);
+    // Скрытые иконки (отладка без ?debug, «Продолжить») в ряд не входят.
+    const order = MENU_ORDER.filter((id) => !this.menu?.items.get(id)?.hidden);
+    const index = Math.max(0, order.indexOf(current));
     const next =
-      dir === 'right'
-        ? Math.min(index + 1, MENU_ORDER.length - 1)
-        : Math.max(index - 1, 0);
-    this.selectItem(MENU_ORDER[next]);
+      dir === 'right' ? Math.min(index + 1, order.length - 1) : Math.max(index - 1, 0);
+    this.selectItem(order[next] ?? 'play');
+  }
+
+  /**
+   * Свайп пальцем по экрану листает карусель: на тач-устройствах попадать
+   * по соседним иконкам неудобно, а подписи у них нет.
+   */
+  private attachSwipe(): void {
+    let pointerId = -1;
+    let startX = 0;
+    let startY = 0;
+    let lastX = 0;
+
+    const onDown = (e: PointerEvent) => {
+      if (this.current !== 'mmenu' || pointerId !== -1 || !e.isPrimary) return;
+      pointerId = e.pointerId;
+      startX = lastX = e.clientX;
+      startY = e.clientY;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== pointerId) return;
+      const totalX = e.clientX - startX;
+      const totalY = e.clientY - startY;
+      // Вертикальный жест — не листание карусели.
+      if (Math.abs(totalY) > 60 && Math.abs(totalY) > Math.abs(totalX)) {
+        pointerId = -1;
+        return;
+      }
+      const step = e.clientX - lastX;
+      if (Math.abs(step) < SWIPE_STEP) return;
+      this.suppressClickUntil = performance.now() + 500;
+      this.navigate(step < 0 ? 'right' : 'left');
+      // Длинный свайп продолжается с текущей точки: несколько шагов за жест.
+      lastX = e.clientX;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId === pointerId) pointerId = -1;
+    };
+
+    window.addEventListener('pointerdown', onDown, { passive: true });
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerup', onUp, { passive: true });
+    window.addEventListener('pointercancel', onUp, { passive: true });
   }
 
   /** Активировать текущую иконку (Enter / A / клик). */
@@ -175,6 +246,8 @@ export class MenuController {
 
   private activateItem(item: MenuItemId): void {
     if (this.current !== 'mmenu') return;
+    // Свайп закончился отпусканием пальца — клик после него игнорируем.
+    if (performance.now() < this.suppressClickUntil) return;
     this.selectItem(item);
     switch (this.activeItem) {
       case 'continue':
@@ -191,6 +264,9 @@ export class MenuController {
         break;
       case 'about':
         this.menuActor.send({ type: 'ABOUT' });
+        break;
+      case 'debug':
+        this.menuActor.send({ type: 'DEBUG' });
         break;
     }
   }

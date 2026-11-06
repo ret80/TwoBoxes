@@ -9,7 +9,7 @@ import type { IAudio } from '../../ports/IAudio';
 import type { ISaveStorage } from '../../ports/ISaveStorage';
 import type { Statistics } from '../../core/services/statistics';
 import { InputAction } from '../../ports/IInput';
-import { findHint } from '../../core/rules/hint';
+import { findHint, planSlides, type HintSlide } from '../../core/rules/hint';
 
 const SAVE_KEY = 'save';
 
@@ -146,6 +146,21 @@ export class GameController {
     const snapshot = this.gameActor.getSnapshot();
     if ((snapshot.value as string) === 'completed') return null;
     return findHint(snapshot.context.level, snapshot.context.boxes);
+  }
+
+  /**
+   * Подсказка с путями кубиков: направление первого хода и то, до какой
+   * клетки доедет каждый кубик — по этим путям на поле скользят стрелки.
+   */
+  hintPlan(): { dir: Position; slides: HintSlide[] } | null {
+    const snapshot = this.gameActor.getSnapshot();
+    if ((snapshot.value as string) === 'completed') return null;
+    const dir = findHint(snapshot.context.level, snapshot.context.boxes);
+    if (!dir) return null;
+    return {
+      dir,
+      slides: planSlides(snapshot.context.level, snapshot.context.boxes, dir),
+    };
   }
 
   pause(): void {

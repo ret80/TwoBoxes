@@ -90,6 +90,62 @@ function firstDir(
   return dir;
 }
 
+/** Куда доедет кубик при ходе в `dir` (для стрелок-подсказок на полу). */
+export interface HintSlide {
+  color: ColorType;
+  from: Position;
+  to: Position;
+}
+
+/**
+ * План хода для визуальной подсказки: путь каждого кубика при сдвиге в `dir`.
+ * Правила те же, что в `slideAll`: ведущий (с наибольшей проекцией на
+ * направление) едет первым и становится препятствием для остальных.
+ */
+export function planSlides(level: Level, boxes: Box[], dir: Position): HintSlide[] {
+  const w = level.width;
+  const h = level.height;
+  const occupied = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      occupied[y * w + x] = isWalkable(level.grid.get(new Position(x, y))) ? 0 : 1;
+    }
+  }
+  for (const box of boxes) occupied[box.pos.y * w + box.pos.x] = 1;
+
+  const order = boxes
+    .map((box, index) => ({
+      index,
+      proj: box.pos.x * dir.x + box.pos.y * dir.y,
+    }))
+    .sort((a, b) => b.proj - a.proj);
+
+  const result: HintSlide[] = boxes.map((box) => ({
+    color: box.color,
+    from: box.pos.clone(),
+    to: box.pos.clone(),
+  }));
+
+  for (const { index } of order) {
+    const box = boxes[index];
+    let cx = box.pos.x;
+    let cy = box.pos.y;
+    occupied[cy * w + cx] = 0; // кубик освобождает свою клетку
+    for (;;) {
+      const nx = cx + dir.x;
+      const ny = cy + dir.y;
+      if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
+      if (occupied[ny * w + nx]) break;
+      cx = nx;
+      cy = ny;
+    }
+    occupied[cy * w + cx] = 1;
+    result[index].to = new Position(cx, cy);
+  }
+
+  return result;
+}
+
 /**
  * Один ход: все кубики скользят в `dir`. Возвращает новые индексы клеток
  * или null, если сдвинуться не смог никто.
