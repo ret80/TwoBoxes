@@ -167,7 +167,9 @@ function buildLogo(title: string, tagline: string): HTMLElement {
   root.setAttribute('aria-label', `${title} — ${tagline}`);
 
   const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 210 180');
+  // Холст обрезан по рисунку: прозрачные поля вокруг логотипа мешали бы
+  // отступу от верхнего края и делали бы знак визуально меньше своего размера.
+  svg.setAttribute('viewBox', '30 20 168 141');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
   svg.classList.add('logo__mark');
@@ -186,8 +188,24 @@ function buildLogo(title: string, tagline: string): HTMLElement {
   two.setAttribute('stroke-width', '10');
   two.textContent = '2';
 
-  // Кубики за цифрой: слева сверху золотой, справа снизу коралловый.
-  svg.append(svgCube(64, 40, 44, 50, LOGO_GOLD), svgCube(150, 92, 42, 48, LOGO_CORAL), two);
+  /*
+   * Кубики стоят на одной линии пола. Нижнее ребро кубика идёт по изометрии
+   * вниз-вправо с наклоном b / a (у svgCube b = a / 2, то есть 0.5). Золотой
+   * сдвигается к коралловому вдоль этой же линии, поэтому его нижнее ребро с
+   * неё не сходит, а коралловый ставится на её продолжение.
+   */
+  const slope = 0.5; // b / a — наклон нижнего ребра в изометрии
+  const slide = 16; // сдвиг золотого вдоль линии пола: x — на slide, y — на slide / 2
+  const gold = { x: 64 + slide, y: 40 + slide * slope, a: 44, h: 50 };
+  const coral = { x: 150, a: 42, h: 48 };
+  const floorX = gold.x - gold.a; // левый нижний угол золотого
+  const floorY = gold.y + gold.h;
+  const coralY = floorY + slope * (coral.x - coral.a - floorX) - coral.h;
+  svg.append(
+    svgCube(gold.x, gold.y, gold.a, gold.h, LOGO_GOLD),
+    svgCube(coral.x, coralY, coral.a, coral.h, LOGO_CORAL),
+    two,
+  );
   root.append(svg, el('div', 'logo__subtitle', tagline));
   return root;
 }

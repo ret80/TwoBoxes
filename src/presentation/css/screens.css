@@ -11,6 +11,8 @@
   /* Единые отступы: заголовок и «Назад» стоят на одном уровне во всех меню */
   --screen-pad-top: clamp(24px, 8vh, 84px);
   --screen-pad-bottom: clamp(24px, 8vh, 84px);
+  /* Логотип на главном меню выше остальных заголовков, но не вплотную к краю */
+  --logo-inset-top: clamp(10px, 3vh, 22px);
   position: absolute;
   inset: 0;
   display: flex;
@@ -86,8 +88,15 @@
   letter-spacing: 0.01em;
 }
 
+/* Название игры стоит выше заголовков меню: у самого верха, но с отступом. */
+.screen--menu .screen__title {
+  top: var(--logo-inset-top);
+}
+
+/* Контент логотипа — 156 × 129 условных единиц внутри viewBox 168 × 141,
+   поэтому ширина задана с запасом на эти поля. */
 .logo__mark {
-  width: clamp(126px, 40vw, 176px);
+  width: clamp(151px, 48vw, 211px);
   height: auto;
   overflow: visible;
   filter: drop-shadow(0 6px 12px rgba(74, 53, 39, 0.1));
