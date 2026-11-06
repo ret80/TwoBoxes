@@ -128,6 +128,70 @@ function icon(name: IconName): Element {
   return svg;
 }
 
+/** Грани изометрического кубика логотипа: верхняя, левая и правая. */
+type CubePalette = { top: string; left: string; right: string };
+
+const LOGO_GOLD: CubePalette = { top: '#e7ba52', left: '#f2cd72', right: '#d3a13c' };
+const LOGO_CORAL: CubePalette = { top: '#e98a66', left: '#f3a184', right: '#d2704f' };
+
+/** Грань куба: плоский многоугольник со скруглёнными углами (стык контуром). */
+function cubeFace(points: [number, number][], fill: string): SVGPolygonElement {
+  const poly = document.createElementNS(SVG_NS, 'polygon');
+  poly.setAttribute('points', points.map(([x, y]) => `${x},${y}`).join(' '));
+  poly.setAttribute('fill', fill);
+  poly.setAttribute('stroke', fill);
+  poly.setAttribute('stroke-width', '5');
+  poly.setAttribute('stroke-linejoin', 'round');
+  return poly;
+}
+
+/** Изометрический кубик логотипа: центр верхней грани (cx, cy), полуширина `a`. */
+function svgCube(cx: number, cy: number, a: number, h: number, c: CubePalette): SVGGElement {
+  const b = a / 2;
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.append(
+    cubeFace([[cx - a, cy], [cx, cy + b], [cx, cy + b + h], [cx - a, cy + h]], c.left),
+    cubeFace([[cx + a, cy], [cx, cy + b], [cx, cy + b + h], [cx + a, cy + h]], c.right),
+    cubeFace([[cx - a, cy], [cx, cy - b], [cx + a, cy], [cx, cy + b]], c.top),
+  );
+  return g;
+}
+
+/**
+ * Логотип главного меню: золотой и коралловый кубики, крупная «2» поверх них и
+ * серая подпись под ними. Это название игры, а не заголовок меню, поэтому
+ * увеличенный кегль заголовков на него не действует.
+ */
+function buildLogo(title: string, tagline: string): HTMLElement {
+  const root = el('h1', 'screen__title screen__title--main');
+  root.setAttribute('aria-label', `${title} — ${tagline}`);
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 210 180');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.classList.add('logo__mark');
+
+  // «2» рисуется толстым контуром того же цвета, что и заливка: так у цифры
+  // появляется жирный округлый штрих, как на референсе.
+  const two = document.createElementNS(SVG_NS, 'text');
+  two.setAttribute('x', '105');
+  two.setAttribute('y', '150');
+  two.setAttribute('text-anchor', 'middle');
+  two.setAttribute('font-size', '150');
+  two.setAttribute('font-weight', '800');
+  two.setAttribute('stroke-linejoin', 'round');
+  two.setAttribute('fill', '#4a3527');
+  two.setAttribute('stroke', '#4a3527');
+  two.setAttribute('stroke-width', '10');
+  two.textContent = '2';
+
+  // Кубики за цифрой: слева сверху золотой, справа снизу коралловый.
+  svg.append(svgCube(64, 40, 44, 50, LOGO_GOLD), svgCube(150, 92, 42, 48, LOGO_CORAL), two);
+  root.append(svg, el('div', 'logo__subtitle', tagline));
+  return root;
+}
+
 /**
  * Пустой слой-распорка у края экрана. Заголовок и кнопка «Назад»
  * позиционируются от этих краёв, поэтому стоят на одном уровне во всех меню.
@@ -164,7 +228,7 @@ export function buildMenuScreen(
 ): MainMenuRefs {
   const root = el('div', 'screen screen--menu');
   root.dataset.screen = 'mmenu';
-  const title = el('h1', 'screen__title screen__title--main', i18n.t('TITLE'));
+  const title = buildLogo(i18n.t('TITLE'), i18n.t('TAGLINE'));
   const caption = el('div', 'xmb__caption', i18n.t('PLAY'));
   const stage = el('div', 'xmb');
   const items = new Map<MenuItemId, HTMLButtonElement>();

@@ -58,7 +58,7 @@ const ARROW_TWO = [0.93, 0.71, 0.24];
 // Компас: оси — им же, но с прозрачностью недоступной кнопки отката (45%),
 // буквы «L»/«D» — полным цветом активной кнопки отката.
 const COLOR_INK = [0.29, 0.208, 0.153];
-const KEY_GUIDE_DIM_ALPHA = 0.45;
+const KEY_GUIDE_DIM_ALPHA = 0.32;
 
 /** Стрелки подсказки: доехали до упора → держатся → гаснут (как плашка HUD). */
 const HINT_SLIDE_MS = 560;
@@ -859,8 +859,9 @@ export class PicoglRenderer implements IRenderer {
     // только штрихи, чтобы компас не закрывал поле цветной плашкой.
     PicoglRenderer.setBasis(this.basisMatrix, [0, 0, 0], [1, 0, 0], [0, 0, -1]);
 
-    const reach = 0.74;
-    const thick = 0.062;
+    // Короткие и блёклые оси: подсказка не должна спорить с полем по акценту.
+    const reach = 0.61;
+    const thick = 0.058;
     const alpha = KEY_GUIDE_DIM_ALPHA;
     this.drawBar(this.basisMatrix, 0, 0, -reach, 0, thick, COLOR_INK, alpha);
     this.drawBar(this.basisMatrix, 0, 0, 0, -reach, thick, COLOR_INK, alpha);

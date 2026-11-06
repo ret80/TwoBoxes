@@ -3,7 +3,7 @@
 :root {
   --font-main: 'Murecho', 'Segoe UI', Roboto, Arial, sans-serif;
   /* Единый кегль заголовков меню и диалогов */
-  --title-size: clamp(1.85rem, 6.4vw, 2.6rem);
+  --title-size: clamp(2.775rem, 9.6vw, 3.9rem);
 }
 
 body {

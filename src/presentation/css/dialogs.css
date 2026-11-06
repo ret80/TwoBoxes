@@ -62,7 +62,7 @@
 @media (max-height: 560px) {
   .dialog__title--fixed {
     top: clamp(14px, 6vh, 40px);
-    font-size: 1.8rem;
+    font-size: 2.7rem;
   }
 
   .dialog[data-dialog='pause'] .dialog__box {

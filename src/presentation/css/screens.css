@@ -11,10 +11,6 @@
   /* Единые отступы: заголовок и «Назад» стоят на одном уровне во всех меню */
   --screen-pad-top: clamp(24px, 8vh, 84px);
   --screen-pad-bottom: clamp(24px, 8vh, 84px);
-  /* Полосы, занятые заголовком сверху и кнопкой «Назад» снизу: панель
-     со скроллом живёт только в свободной середине и не заезжает под них. */
-  --menu-title-space: calc(var(--screen-pad-top) + var(--title-size) * 1.25 + 12px);
-  --menu-back-space: calc(var(--screen-pad-bottom) + 52px + 12px);
   position: absolute;
   inset: 0;
   display: flex;
@@ -77,12 +73,33 @@
 }
 
 /*
- * Логотип главного меню — такой же заголовок, как в остальных меню:
- * единый кегль --title-size, без собственного увеличения.
+ * Логотип главного меню: два кубика, крупная «2» поверх них и серая подпись.
+ * Это название игры, а не заголовок меню, поэтому кегль заголовков к нему
+ * не применяется — размер задан самой картинке.
  */
 .screen__title--main {
-  line-height: 0.95;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
   letter-spacing: 0.01em;
+}
+
+.logo__mark {
+  width: clamp(126px, 40vw, 176px);
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 6px 12px rgba(74, 53, 39, 0.1));
+}
+
+.logo__subtitle {
+  margin-top: 2px;
+  color: #b3a99c;
+  font-size: clamp(0.72rem, 3.4vw, 0.95rem);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
 }
 
 /*
@@ -326,18 +343,39 @@
 }
 
 /*
- * Информационные экраны (help/about), настройки и выбор уровня — панель по
- * центру свободной полосы между заголовком и «Назад». Высота ограничена
- * именно этой полосой, поэтому список со скроллом не заползает на них.
+ * Информационные экраны (help/about), настройки и выбор уровня: заголовок,
+ * панель со списком и «Назад» стоят в обычном потоке одной колонки, поэтому
+ * список физически не может наехать ни на заголовок, ни на кнопку — длинный
+ * список скроллится внутри своей полосы. Авто-поля панели держат её по центру
+ * свободного места.
  */
+.screen--info,
+.screen--selector {
+  gap: 16px;
+  overflow: hidden;
+}
+
+.screen--info .screen__title,
+.screen--selector .screen__title {
+  position: static;
+  flex: 0 0 auto;
+}
+
 .screen--info .panel--screen,
 .screen--selector .panel--screen {
-  position: fixed;
-  top: calc(50% + (var(--menu-title-space) - var(--menu-back-space)) / 2);
-  left: 50%;
+  position: static;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: none;
+  margin: auto 0;
+  transform: none;
+}
+
+.screen--info .btn--back,
+.screen--selector .btn--back {
+  position: static;
+  flex: 0 0 auto;
   margin: 0;
-  max-height: calc(100vh - var(--menu-title-space) - var(--menu-back-space));
-  transform: translate(-50%, -50%);
 }
 
 .panel--screen {

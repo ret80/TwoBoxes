@@ -77,7 +77,10 @@ describe('MenuController: карусель главного меню', () => {
     expect(caption(root)).toBe('Играть');
     i18n.setLocale('en');
     expect(caption(root)).toBe('Play');
-    expect(root.querySelector('.screen--menu .screen__title')?.textContent).toBe('2Box');
+    // Название игры рисуется логотипом и не переводится
+    expect(root.querySelector('.screen--menu .screen__title')?.getAttribute('aria-label')).toBe(
+      '2Box — a puzzle game',
+    );
   });
 
   it('«Продолжить» и «Играть» открывают игру', () => {
