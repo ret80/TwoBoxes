@@ -1,6 +1,8 @@
 import { DIRS, Position } from '../types/position';
 import { createLevelFromData } from '../rules/create';
 import { findShortestSolution, solveLevel } from './solver';
+import { scoreDifficulty } from './difficulty';
+import { assembleField, type PatternKind } from './patterns';
 
 /**
  * Генератор уровней для эпизода 2 — переработанный прототип
@@ -19,6 +21,13 @@ import { findShortestSolution, solveLevel } from './solver';
  * - уровни с тупиками отбрасываются: из любого достижимого состояния
  *   всё ещё можно дойти до победы, поэтому игрок не запрётся навсегда.
  *
+ * Сложность задаётся профилем (см. `episodeProfiles`): длина решения, доля
+ * разрешённых тупиков, размер поля и набор паттернов. Поле можно собирать из
+ * паттернов эпизода 1 (`patterns.ts`) — тогда у уровня появляются коридоры и
+ * карманы, как в ручных картах, — или простыми случайными стенками, как раньше.
+ * Из нескольких подходящих кандидатов выбирается тот, чья оценка сложности
+ * (`difficulty.ts`) ближе к цели профиля.
+ *
  * Генерация детерминирована сидом: эпизод одинаков между перезагрузками,
  * поэтому сохранения и подсказки остаются стабильными.
  */
@@ -27,6 +36,10 @@ export interface GeneratedLevel {
   rows: string[];
   /** Проверенная последовательность ходов от стартов до целей. */
   solution: Position[];
+  /** Оценка сложности 0..100 (см. `difficulty.ts`). */
+  score: number;
+  /** Доля достижимых состояний, из которых победа недостижима. */
+  deadEndRatio: number;
 }
 
 export interface GenerateLevelOptions {
@@ -35,6 +48,20 @@ export interface GenerateLevelOptions {
   moves: number;
   /** Сторона квадратного поля (включая стены по краям). */
   size?: number;
+  /** Допустимая доля тупиков: 0 — уровень прощает любую ошибку. */
+  deadEnds?: number;
+  /** Требуемая доля тупиков: поздние уровни должны наказывать за ошибку. */
+  minDeadEnds?: number;
+  /** Паттерны поля; пусто — случайные стенки в комнате, как раньше. */
+  patterns?: PatternKind[];
+  /** Потолок клеток пола при паттерновой сборке. */
+  budget?: number;
+  /** Целевая оценка сложности: из кандидатов выбирается ближайший. */
+  score?: number;
+  /** Верхняя граница длины решения (по умолчанию `moves + 3`). */
+  maxMoves?: number;
+  /** Сколько подходящих кандидатов сравнивать (по умолчанию 1). */
+  candidates?: number;
 }
 
 const OPPOSITE: Record<string, string> = {
@@ -56,6 +83,23 @@ function createRng(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * Перемешать сид с номером попытки. Без этого попытки шли арифметической
+ * прогрессией (`seed + attempt * 7919`), и разные стартовые сиды попадали в ту
+ * же самую последовательность — то есть разные уровни получали одинаковые карты.
+ */
+function mixSeed(seed: number, attempt: number, salt: number): number {
+  // Каждый вход смешивается и прибавляется отдельно. Простое `h ^ number`
+  // склеивает пары: (сид 1, попытка 3) и (сид 2, попытка 0) дают одно число.
+  let h = (seed >>> 0) ^ 0x9e3779b9;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+  h = (h + Math.imul(attempt | 0, 0x27d4eb2d)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  h = (h + Math.imul(salt | 0, 0x165667b1)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d) >>> 0;
+  return (h ^ (h >>> 15)) >>> 0;
 }
 
 function shuffle<T>(items: T[], rng: () => number): T[] {
@@ -244,19 +288,39 @@ function parse(rows: string[]) {
 export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | null {
   const size = options.size ?? 10;
   if (size < 7 || options.moves < 2) return null;
-  // Путь генератора длиннее целевого решения: после проверки BFS лишние
-  // циклы отбрасываются, а оставшаяся длина должна совпасть с заявленной.
-  const walkMoves = options.moves + 2;
+  // Путь генератора длиннее целевого решения: запас даёт BFS место найти
+  // короткие обходы, иначе узкий диапазон отбраковывает почти всё.
+  const maxMoves = Math.max(options.moves, options.maxMoves ?? options.moves + 3);
+  const walkMoves = maxMoves + 1;
+  const allowedDeadEnds = options.deadEnds ?? 0;
+  const targetCandidates = Math.max(1, options.candidates ?? 1);
+  const patterns = options.patterns ?? [];
+  const accepted: GeneratedLevel[] = [];
 
   for (let attempt = 0; attempt < 400; attempt++) {
-    const rng = createRng(options.seed + attempt * 7919);
-    const floor = createField(size, rng);
+    const rng = createRng(mixSeed(options.seed, attempt, 0x51ed));
+    // Поле либо собирается из паттернов (коридоры, комнаты, карманы), либо
+    // остаётся прежней комнатой со случайными стенками.
+    let floor: Uint8Array | null;
+    let side = size;
+    if (patterns.length > 0) {
+      const assembled = assembleField({
+        size,
+        budget: options.budget ?? Math.round(size * size * 0.55),
+        patterns,
+        rng,
+      });
+      floor = assembled?.mask ?? null;
+      side = assembled?.size ?? size;
+    } else {
+      floor = createField(size, rng);
+    }
     if (!floor) continue;
 
     const free: Position[] = [];
-    for (let y = 1; y < size - 1; y++) {
-      for (let x = 1; x < size - 1; x++) {
-        if (floor[y * size + x]) free.push(new Position(x, y));
+    for (let y = 1; y < side - 1; y++) {
+      for (let x = 1; x < side - 1; x++) {
+        if (floor[y * side + x]) free.push(new Position(x, y));
       }
     }
     if (free.length < 4) continue;
@@ -280,7 +344,7 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
           if (key(dir) === key(last)) continue;
           if (key(dir) === OPPOSITE[key(last)]) continue;
         }
-        const next = slide(floor, size, boxes, dir);
+        const next = slide(floor, side, boxes, dir);
         if (!next || visited.has(boxesKey(next))) continue;
         let distance = 0;
         next.forEach((p, i) => {
@@ -293,7 +357,7 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
       if (candidates.length === 0 && last) {
         for (const dir of [DIRS.up, DIRS.down, DIRS.left, DIRS.right]) {
           if (key(dir) === OPPOSITE[key(last)]) continue;
-          const next = slide(floor, size, boxes, dir);
+          const next = slide(floor, side, boxes, dir);
           if (!next || visited.has(boxesKey(next))) continue;
           let distance = 0;
           next.forEach((p, i) => {
@@ -320,14 +384,14 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
     // Старты и цели не должны делить клетку: иначе маркеры перекроются.
     if (new Set(all.map(key)).size !== all.length) continue;
 
-    const rows = render(floor, size, starts, ends);
+    const rows = render(floor, side, starts, ends);
     const level = parse(rows);
     if (level.boxes.length !== 2 || level.ends.length !== 2) continue;
 
     // Сначала дешёвый BFS с ранним выходом: полный анализ нужен только
     // кандидатам, у которых уже совпала заявленная сложность.
     const shortest = findShortestSolution(level);
-    if (!shortest || shortest.length < options.moves || shortest.length > options.moves + 2) {
+    if (!shortest || shortest.length < options.moves || shortest.length > maxMoves) {
       continue;
     }
 
@@ -335,39 +399,119 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
     if (!solved) continue;
     // Кратчайшее решение, найденное независимо от пути генерации, должно
     // попадать в заявленный диапазон — без «лишних» ходов-циклов.
-    if (solved.solution.length < options.moves || solved.solution.length > options.moves + 2) {
+    if (solved.solution.length < options.moves || solved.solution.length > maxMoves) {
       continue;
     }
     // Оба кубика реально участвуют в решении.
     if (solved.movesByBox[0] < 2 || solved.movesByBox[1] < 2) continue;
-    // Из любого достижимого состояния должен оставаться путь к победе.
-    if (solved.deadEnds !== 0) continue;
+    // Тупики разрешены только в пределах квоты профиля: ранние уровни эпизода
+    // должны прощать ошибку, поздние — наказывать за неё.
+    const deadEndRatio = solved.states > 0 ? solved.deadEnds / solved.states : 0;
+    if (deadEndRatio > allowedDeadEnds) continue;
+    if (deadEndRatio < (options.minDeadEnds ?? 0)) continue;
 
-    return { rows, solution: solved.solution };
+    accepted.push({
+      rows,
+      solution: solved.solution,
+      score: scoreDifficulty({
+        moves: solved.solution.length,
+        states: solved.states,
+        deadEndRatio,
+        branching: solved.branching,
+      }),
+      deadEndRatio,
+    });
+    if (accepted.length >= targetCandidates) break;
   }
 
-  return null;
+  if (accepted.length === 0) return null;
+  // Без цели по сложности подходит первый кандидат; с целью — ближайший к ней.
+  if (accepted.length === 1 || options.score === undefined) return accepted[0];
+  const target = options.score;
+  return accepted.reduce((best, candidate) =>
+    Math.abs(candidate.score - target) < Math.abs(best.score - target) ? candidate : best,
+  );
+}
+
+/** Профиль одного уровня эпизода: чем он сложнее, тем больше ходов,
+ * пространства, тупиков и структурных элементов поля. */
+export interface LevelProfile {
+  moves: number;
+  size: number;
+  budget: number;
+  patterns: PatternKind[];
+  deadEnds: number;
+  score: number;
 }
 
 /**
- * Сгенерировать эпизод: сложность растёт по числу ходов и размеру поля.
- * Сид фиксирован, поэтому эпизод детерминирован.
+ * Набор паттернов по месту уровня в эпизоде: сначала простая комната, затем
+ * коридоры с карманами, в конце — гребёнки, змейки и кресты.
+ */
+function patternsForProgress(t: number): PatternKind[] {
+  if (t < 0.2) return ['room'];
+  if (t < 0.45) return ['room', 'room', 'corridor', 'chamber'];
+  if (t < 0.7) return ['room', 'corridor', 'chamber', 'snake', 'room'];
+  // В конце — лабиринт, но с комнатами и перекрёстками: одни коридоры дают
+  // тонкую «змейку» без единой развилки.
+  return ['room', 'corridor', 'comb', 'chamber', 'cross', 'snake'];
+}
+
+/**
+ * Кривая сложности эпизода: от простых уровней к сложным.
+ *
+ * Первая треть — комната без тупиков и короткое решение: игрок осваивает
+ * механику и ничем не наказывается. Дальше включаются коридоры и карманы,
+ * разрешённая доля тупиков растёт с 0 до 0.35, длина решения — с 3 до 13,
+ * поле — с 8 до 13 клеток.
+ */
+export function episodeProfiles(count: number): LevelProfile[] {
+  const profiles: LevelProfile[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = count === 1 ? 1 : i / (count - 1);
+    profiles.push({
+      moves: Math.round(3 + 8 * t),
+      size: Math.round(8 + 5 * t),
+      budget: Math.round(34 + 70 * t),
+      patterns: patternsForProgress(t),
+      // Тупики появляются только после первой трети эпизода.
+      deadEnds: t < 0.34 ? 0 : Math.round(((0.35 * (t - 0.34)) / 0.66) * 100) / 100,
+      score: Math.round(28 + 40 * t),
+    });
+  }
+  return profiles;
+}
+
+/**
+ * Сгенерировать эпизод по кривой сложности. Сид фиксирован, поэтому эпизод
+ * детерминирован.
  */
 export function generateEpisode(seed: number, count: number): string[][] {
   const levels: string[][] = [];
+  const profiles = episodeProfiles(count);
+
   for (let i = 0; i < count; i++) {
-    const moves = 5 + Math.floor(i / 2);
-    const size = 9 + Math.min(2, Math.floor(i / 4));
+    const profile = profiles[i];
     let generated: GeneratedLevel | null = null;
     for (let attempt = 0; attempt < 200 && !generated; attempt++) {
       generated = generateLevel({
         seed: seed + i * 104729 + attempt * 15485863,
-        moves,
-        size,
+        moves: profile.moves,
+        maxMoves: profile.moves + (profile.moves <= 5 ? 1 : 3),
+        size: profile.size,
+        budget: profile.budget,
+        patterns: profile.patterns,
+        deadEnds: profile.deadEnds,
+        score: profile.score,
+        candidates: 4,
       });
     }
     if (!generated) {
-      throw new Error(`Не удалось сгенерировать уровень ${i + 1} (${moves} ходов, ${size}×${size})`);
+      throw new Error(
+        `Не удалось сгенерировать уровень ${i + 1} ` +
+          `(${profile.moves} ходов, ${profile.size}×${profile.size}, ` +
+          `тупики ≤ ${profile.deadEnds}, оценка ≈ ${profile.score})`,
+      );
     }
     levels.push(generated.rows);
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { generateEpisode, generateLevel } from './level-generator';
+import { episodeProfiles, generateEpisode, generateLevel } from './level-generator';
 import { findShortestSolution, solveLevel } from './solver';
+import { measureLevel } from './difficulty';
 import { createLevelFromData } from '../rules/create';
 import { moveBoxes } from '../rules/move';
 import { checkWin } from '../rules/check';
@@ -27,46 +28,85 @@ function levelCells(rows: string[]): string[] {
 }
 
 describe('level generator', () => {
-  it('generates 20 distinct levels that are solvable without dead ends', () => {
+  it('builds an episode whose difficulty grows from the first level to the last', () => {
     const seed = 0x2b0b2;
-    const episode = generateEpisode(seed, 20);
+    const count = 12;
+    const episode = generateEpisode(seed, count);
+    const profiles = episodeProfiles(count);
 
-    expect(episode).toHaveLength(20);
-    expect(new Set(episode.map((rows) => rows.join('\n'))).size).toBe(20);
+    expect(episode).toHaveLength(count);
+    expect(new Set(episode.map((rows) => rows.join('\n'))).size).toBe(count);
 
+    const scores: number[] = [];
     episode.forEach((rows, index) => {
       const level = createLevelFromData(0, 0, rows);
-      const target = 5 + Math.floor(index / 2);
       const solved = solveLevel(level);
+      const profile = profiles[index];
+      const label = `level ${index + 1}`;
 
-      expect(solved, `level ${index + 1}`).not.toBeNull();
+      expect(solved, label).not.toBeNull();
       if (!solved) return;
 
       // Решение найдено независимым BFS, а не взято из пути генератора.
-      expect(replay(rows, solved.solution), `level ${index + 1} replay`).toBe(true);
-      expect(solved.solution.length, `level ${index + 1} difficulty`).toBeGreaterThanOrEqual(target);
-      expect(solved.solution.length, `level ${index + 1} difficulty`).toBeLessThanOrEqual(target + 2);
-      expect(findShortestSolution(level)?.length, `level ${index + 1} shortest`).toBe(
-        solved.solution.length,
+      expect(replay(rows, solved.solution), `${label} replay`).toBe(true);
+      expect(findShortestSolution(level)?.length, `${label} shortest`).toBe(solved.solution.length);
+      expect(findHint(level, level.boxes), `${label} hint`).not.toBeNull();
+
+      // Профиль уровня соблюдён: он не проще заявленного и не длиннее допуска.
+      expect(solved.solution.length, `${label} min moves`).toBeGreaterThanOrEqual(profile.moves);
+      expect(solved.solution.length, `${label} max moves`).toBeLessThanOrEqual(
+        profile.moves + (profile.moves <= 5 ? 1 : 3),
       );
-      expect(findHint(level, level.boxes), `level ${index + 1} hint`).not.toBeNull();
 
       // Оба кубика должны поучаствовать в решении.
-      expect(solved.movesByBox[0], `level ${index + 1} red moves`).toBeGreaterThanOrEqual(2);
-      expect(solved.movesByBox[1], `level ${index + 1} yellow moves`).toBeGreaterThanOrEqual(2);
+      expect(solved.movesByBox[0], `${label} red moves`).toBeGreaterThanOrEqual(2);
+      expect(solved.movesByBox[1], `${label} yellow moves`).toBeGreaterThanOrEqual(2);
 
-      // Из любого достижимого состояния всё ещё можно дойти до победы.
-      expect(solved.deadEnds, `level ${index + 1} dead ends`).toBe(0);
+      // Тупики — только в пределах квоты профиля.
+      const deadEndRatio = solved.deadEnds / solved.states;
+      expect(deadEndRatio, `${label} dead ends`).toBeLessThanOrEqual(profile.deadEnds + 1e-9);
 
       // Старты и цели — четыре разные клетки, маркеры не перекрываются.
-      expect(new Set(levelCells(rows)).size, `level ${index + 1} cells`).toBe(4);
+      expect(new Set(levelCells(rows)).size, `${label} cells`).toBe(4);
+
+      scores.push(measureLevel(level)?.score ?? 0);
     });
-  }, 20_000);
+
+    // Главное требование: эпизод действительно усложняется.
+    const head = scores.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+    const tail = scores.slice(-3).reduce((a, b) => a + b, 0) / 3;
+    expect(scores[scores.length - 1] - scores[0]).toBeGreaterThanOrEqual(25);
+    expect(tail - head).toBeGreaterThanOrEqual(20);
+  }, 60_000);
 
   it('is deterministic', () => {
     const first = generateEpisode(0x2b0b2, 12);
     const second = generateEpisode(0x2b0b2, 12);
     expect(first).toEqual(second);
+  });
+
+  it('spreads seeds: different seeds give different levels', () => {
+    const levels = [1, 2, 3, 4].map((seed) =>
+      generateLevel({ seed, moves: 6, size: 10, patterns: ['room', 'corridor', 'chamber'] }),
+    );
+    const rows = levels.map((level) => level?.rows.join('\n') ?? 'failed');
+    expect(new Set(rows).size).toBe(rows.length);
+  }, 20_000);
+
+  it('profiles grow monotonically', () => {
+    const profiles = episodeProfiles(12);
+    for (let i = 1; i < profiles.length; i++) {
+      expect(profiles[i].moves).toBeGreaterThanOrEqual(profiles[i - 1].moves);
+      expect(profiles[i].size).toBeGreaterThanOrEqual(profiles[i - 1].size);
+      expect(profiles[i].budget).toBeGreaterThanOrEqual(profiles[i - 1].budget);
+      expect(profiles[i].score).toBeGreaterThanOrEqual(profiles[i - 1].score);
+      expect(profiles[i].deadEnds).toBeGreaterThanOrEqual(profiles[i - 1].deadEnds);
+    }
+    // Первый уровень эпизода — самый простой, последний — с тупиками.
+    expect(profiles[0].moves).toBeLessThanOrEqual(4);
+    expect(profiles[0].deadEnds).toBe(0);
+    expect(profiles[profiles.length - 1].deadEnds).toBeGreaterThan(0.2);
+    expect(profiles[0].score).toBeLessThan(profiles[profiles.length - 1].score);
   });
 
   it('creates compact single levels with a replayable shortest solution', () => {
@@ -78,14 +118,14 @@ describe('level generator', () => {
       const level = createLevelFromData(0, 0, generated.rows);
       expect(level.boxes).toHaveLength(2);
       expect(level.ends).toHaveLength(2);
-      expect(level.width).toBeLessThanOrEqual(10);
-      expect(level.height).toBeLessThanOrEqual(10);
+      expect(level.width).toBeLessThanOrEqual(13);
+      expect(level.height).toBeLessThanOrEqual(13);
       expect(level.width).toBeGreaterThanOrEqual(4);
       expect(replay(generated.rows, generated.solution)).toBe(true);
       expect(findHint(level, level.boxes)).not.toBeNull();
       expect(new Set(levelCells(generated.rows)).size).toBe(4);
     }
-  }, 10_000);
+  }, 20_000);
 });
 
 describe('level solver', () => {
@@ -108,6 +148,7 @@ describe('level solver', () => {
     expect(solved).not.toBeNull();
     expect(solved?.solution.length).toBe(5);
     expect(solved?.deadEnds).toBeGreaterThan(0);
+    expect(solved?.branching).toBeGreaterThan(1);
     expect(replay(rows, solved?.solution ?? [])).toBe(true);
   });
 });

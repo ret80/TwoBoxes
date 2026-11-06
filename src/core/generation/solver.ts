@@ -22,6 +22,12 @@ export interface SolvedLevel {
   deadEnds: number;
   /** Сколько раз в кратчайшем решении сдвинулся каждый кубик. */
   movesByBox: [number, number];
+  /** Среднее число доступных ходов из достижимого состояния. */
+  branching: number;
+  /** Сколько разных клеток в сумме посещают кубики по всему графу. */
+  boxCells: number;
+  /** Сколько достижимых состояний уже являются победой. */
+  winStates: number;
 }
 
 const DIRECTIONS = [DIRS.up, DIRS.down, DIRS.left, DIRS.right];
@@ -104,15 +110,18 @@ export function solveLevel(
   const parents = new Map<string, { prev: string | null; dir: Position | null }>();
   const edges = new Map<string, string[]>();
   const winKeys = new Set<string>();
+  const boxCells = new Set<string>();
   const queue: Box[][] = [start];
   let head = 0;
   let firstWin: string | null = null;
+  let edgeCount = 0;
 
   parents.set(startKey, { prev: null, dir: null });
 
   while (head < queue.length) {
     const boxes = queue[head++];
     const key = stateKey(boxes);
+    for (const box of boxes) boxCells.add(`${box.pos.x},${box.pos.y}`);
 
     if (checkWin(boxes, level.ends)) {
       winKeys.add(key);
@@ -132,6 +141,7 @@ export function solveLevel(
         queue.push(next.boxes);
       }
     }
+    edgeCount += nextKeys.length;
     edges.set(key, nextKeys);
   }
 
@@ -179,5 +189,8 @@ export function solveLevel(
     states: parents.size,
     deadEnds: parents.size - canStillWin.size,
     movesByBox,
+    branching: parents.size > 0 ? edgeCount / parents.size : 0,
+    boxCells: boxCells.size,
+    winStates: winKeys.size,
   };
 }
