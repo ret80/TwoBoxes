@@ -57,7 +57,7 @@ describe('Меню FSM (mmenu→selector→game→help→about)', () => {
     expect(actor.getSnapshot().value).toBe('game');
   });
 
-  it('help и about → BACK → mmenu', () => {
+  it('help, about и settings → BACK → mmenu', () => {
     const actor = createActor(menuMachine);
     actor.start();
     actor.send({ type: 'HELP' });
@@ -65,6 +65,9 @@ describe('Меню FSM (mmenu→selector→game→help→about)', () => {
     actor.send({ type: 'BACK' });
     actor.send({ type: 'ABOUT' });
     expect(actor.getSnapshot().value).toBe('about');
+    actor.send({ type: 'BACK' });
+    actor.send({ type: 'SETTINGS' });
+    expect(actor.getSnapshot().value).toBe('settings');
     actor.send({ type: 'BACK' });
     expect(actor.getSnapshot().value).toBe('mmenu');
     expect(actor.getSnapshot().context.demoMode).toBe(true);

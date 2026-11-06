@@ -6,13 +6,14 @@ const MUSIC_VOLUME = 0.3;
  * Аудио-адаптер на WebAudio (план 9.1).
  * AudioContext создаётся по user gesture. Если wav-ассеты недоступны —
  * fallback: синтез коротких звуков через OscillatorNode (см. правки плана, п.12).
- * Звуки: 'swipe' — движение кубиков, 'message-appear' — диалог завершения.
+ * Звуки: 'swipe' — движение кубиков, 'place' — кубик встал на свою площадку,
+ * 'message-appear' — диалог завершения.
  */
 export class WebAudioPlayer implements IAudio {
   private ctx: AudioContext | null = null;
   private sfxVolume = 0.5;
   private musicVolume = MUSIC_VOLUME;
-  private musicNode: AudioBufferSourceNode | null = null;
+  private musicNodes: OscillatorNode[] = [];
   private musicGain: GainNode | null = null;
 
   async init(): Promise<void> {
@@ -33,6 +34,10 @@ export class WebAudioPlayer implements IAudio {
     if (name === 'swipe') {
       // Свайп: короткий pitch-slide (fallback вместо wav-файла)
       this.tone(ctx, 320, 160, 0.12, vol, 'triangle');
+    } else if (name === 'place') {
+      // Кубик на месте: короткий высокий «динь» с мягким обертоном.
+      this.tone(ctx, 880, 1180, 0.1, vol, 'triangle');
+      this.tone(ctx, 1320, 1320, 0.16, vol * 0.35, 'sine', 0.05);
     } else if (name === 'message-appear') {
       // Сообщение: двухтоновый сигнал
       this.tone(ctx, 523, 523, 0.09, vol, 'sine');
@@ -66,29 +71,58 @@ export class WebAudioPlayer implements IAudio {
   }
 
   playMusic(_name: string, volume?: number): void {
-    // Фоновая музыка (план 9.2): без треков-ассетов — тихий эмбиент-гул.
+    // Фоновая музыка (план 9.2): без треков-ассетов — спокойный синтезированный
+    // эмбиент. Тихий аккорд с расстроенными парами голосов даёт медленное
+    // «дыхание» без резких атак, низкий low-pass убирает звон.
     const ctx = this.ensureContext();
-    if (!ctx || this.musicNode) return;
-    const gain = ctx.createGain();
-    gain.gain.value = (volume ?? this.musicVolume) * 0.05;
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = 110;
-    const osc2 = ctx.createOscillator();
-    osc2.type = 'sine';
-    osc2.frequency.value = 164.8; // квинта
-    osc.connect(gain);
-    osc2.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc2.start();
-    this.musicNode = osc as unknown as AudioBufferSourceNode;
-    this.musicGain = gain;
+    if (!ctx || this.musicNodes.length > 0) return;
+
+    const master = ctx.createGain();
+    const target = (volume ?? this.musicVolume) * 0.35;
+    master.gain.setValueAtTime(0, ctx.currentTime);
+    master.gain.linearRampToValueAtTime(target, ctx.currentTime + 5);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 820;
+    filter.Q.value = 0.4;
+    filter.connect(master);
+    master.connect(ctx.destination);
+
+    // A2 / E3 / A3 / C#4 — спокойный мажорный аккорд.
+    const chord = [110, 164.81, 220, 277.18];
+    const nodes: OscillatorNode[] = [];
+    chord.forEach((freq, i) => {
+      for (const detune of [-6, 6]) {
+        const osc = ctx.createOscillator();
+        osc.type = i < 2 ? 'sine' : 'triangle';
+        osc.frequency.value = freq;
+        osc.detune.value = detune;
+        const voice = ctx.createGain();
+        voice.gain.value = i < 2 ? 0.055 : 0.03;
+        osc.connect(voice).connect(filter);
+        osc.start();
+        nodes.push(osc);
+      }
+    });
+
+    // Медленное «дыхание» даёт расстройка пар голосов (биения), а не LFO
+    // громкости: так нулевая громкость действительно выключает музыку.
+
+    this.musicNodes = nodes;
+    this.musicGain = master;
   }
 
   stopMusic(): void {
-    this.musicNode?.stop();
-    this.musicNode = null;
+    for (const node of this.musicNodes) {
+      try {
+        node.stop();
+      } catch {
+        // повторный stop после остановки контекста безопасно игнорируем
+      }
+    }
+    this.musicNodes = [];
+    this.musicGain?.disconnect();
     this.musicGain = null;
   }
 
@@ -98,7 +132,13 @@ export class WebAudioPlayer implements IAudio {
 
   setMusicVolume(volume: number): void {
     this.musicVolume = volume;
-    if (this.musicGain) this.musicGain.gain.value = this.musicVolume * 0.05;
+    if (!this.musicGain || !this.ctx) return;
+    this.musicGain.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.musicGain.gain.setTargetAtTime(
+      this.musicVolume * 0.35,
+      this.ctx.currentTime,
+      0.15,
+    );
   }
 
   pause(): void {

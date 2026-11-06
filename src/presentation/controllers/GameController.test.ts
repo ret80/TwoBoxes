@@ -60,10 +60,11 @@ function setup(demo: boolean) {
   actor.start();
   const label = document.createElement('div');
   const showCompleted = vi.fn();
+  const playSfx = vi.fn();
   const storage = makeStorage();
   const game = new GameController(
     new FakeRenderer(),
-    audio,
+    { ...audio, playSfx },
     episodes,
     new Statistics(),
     storage,
@@ -73,7 +74,7 @@ function setup(demo: boolean) {
   game.attachDialogs({ showPause: vi.fn(), showCompleted, hideDialogs: vi.fn() });
   game.setDemo(demo);
   game.startLevel(level);
-  return { game, actor, label, showCompleted, storage };
+  return { game, actor, label, showCompleted, storage, playSfx };
 }
 
 /** Проходить уровень по подсказкам, пока не выполнится `done`. */
@@ -92,17 +93,23 @@ describe('GameController: завершение уровня', () => {
   });
 
   it('в обычной игре показывает диалог и остаётся на уровне', () => {
-    const { game, actor, label, showCompleted } = setup(false);
+    const { game, actor, label, showCompleted, playSfx } = setup(false);
     playUntil(game, () => (actor.getSnapshot().value as string) === 'completed');
     expect(showCompleted).toHaveBeenCalledTimes(1);
     expect(label.textContent).toBe('Level #1-1');
+    // Кубик встал на свою площадку — есть отдельный звук «щелчка».
+    expect(playSfx.mock.calls.some(([name]) => name === 'place')).toBe(true);
   });
 
-  it('в демо не показывает диалог, а подгружает следующую карту', () => {
+  it('в демо не показывает диалог, а листает первые две карты по кругу', () => {
     const { game, label, showCompleted, storage } = setup(true);
     playUntil(game, () => label.textContent === 'Level #1-2');
     expect(showCompleted).not.toHaveBeenCalled();
     expect(label.textContent).toBe('Level #1-2');
+    // вторая карта пройдена — снова первая, без диалога
+    playUntil(game, () => label.textContent === 'Level #1-1');
+    expect(showCompleted).not.toHaveBeenCalled();
+    expect(label.textContent).toBe('Level #1-1');
     // прогресс и сохранение игрока демо не трогает
     expect(storage.saved).toHaveLength(0);
   });

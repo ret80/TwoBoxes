@@ -1,15 +1,16 @@
 /**
  * Конфигурация (аналог `script/global/config.gd`).
- * Переменные: `sfxVolume` (по умолчанию 0.5), `demoMode`.
+ * Переменные: `sfxVolume`, `musicVolume` (по умолчанию 0.5/0.3), `demoMode`.
  * Событие `change` — подписка адаптеров (например, WebAudio на изменение громкости).
  */
-export type ConfigKey = 'sfxVolume' | 'demoMode';
+export type ConfigKey = 'sfxVolume' | 'musicVolume' | 'demoMode';
 
 type ChangeListener = (key: ConfigKey, value: number | boolean) => void;
 
 export class Config {
   private vars: Record<ConfigKey, number | boolean> = {
     sfxVolume: 0.5,
+    musicVolume: 0.3,
     demoMode: true,
   };
 

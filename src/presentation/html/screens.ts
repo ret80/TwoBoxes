@@ -1,4 +1,4 @@
-import type { LocaleManager } from '../i18n/LocaleManager';
+import type { Locale, LocaleManager } from '../i18n/LocaleManager';
 import type { EpisodeManager } from '../../core/services/episode-mng';
 
 /** DOM-генераторы экранов (план 11.1 — TS-модули вместо .html, SPA/Vite). */
@@ -33,42 +33,70 @@ function lockIcon(): SVGSVGElement {
   return svg;
 }
 
-/** Геометрия иконок кнопок: 24×24, один цвет (currentColor) — плоский стиль. */
+/**
+ * Геометрия иконок: 24×24, один цвет (currentColor) — плоский стиль.
+ * `style: 'stroke'` рисует контуром, `fill` — заливкой; `evenodd` нужен для
+ * выреза внутри фигуры (например, play в круге у «Продолжить»).
+ */
+type IconDef = { style: 'fill' | 'stroke'; evenodd?: boolean; paths: string[] };
+
 const ICONS = {
   // Закрученная стрелка (сброс уровня)
   reset: {
-    stroke: false,
+    style: 'fill',
     paths: [
       'M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35Z',
     ],
   },
   // Две вертикальные полоски (пауза)
-  pause: { stroke: false, paths: ['M6 19h4V5H6v14Zm8-14v14h4V5h-4Z'] },
+  pause: { style: 'fill', paths: ['M6 19h4V5H6v14Zm8-14v14h4V5h-4Z'] },
   // Плоский домик (в главное меню)
-  home: { stroke: false, paths: ['M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5Z'] },
+  home: { style: 'fill', paths: ['M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5Z'] },
   // Две стрелки вправо (играть / следующий уровень)
-  next: { stroke: true, paths: ['M5 4l8 8-8 8', 'M12 4l8 8-8 8'] },
+  next: { style: 'stroke', paths: ['M5 4l8 8-8 8', 'M12 4l8 8-8 8'] },
   // Стрелка отката назад (undo)
   undo: {
-    stroke: false,
+    style: 'fill',
     paths: [
       'M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.62-3.62A7.5 7.5 0 0 1 12.5 11c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8Z',
     ],
   },
   // Лампочка (подсказка)
   hint: {
-    stroke: false,
+    style: 'fill',
     paths: [
       'M12 2a7 7 0 0 0-4.2 12.6c.5.4.8 1 .9 1.6l.1.8h6.4l.1-.8c.1-.6.4-1.2.9-1.6A7 7 0 0 0 12 2Z',
       'M9 19h6v1.2a1.8 1.8 0 0 1-1.8 1.8h-2.4A1.8 1.8 0 0 1 9 20.2V19Z',
     ],
   },
-} as const;
+  // Играть: залитый треугольник (центральная иконка главного меню)
+  play: { style: 'fill', paths: ['M8 5v14l11-7-11-7Z'] },
+  // Продолжить: play в круге (вырез треугольника — fill-rule evenodd)
+  resume: {
+    style: 'fill',
+    evenodd: true,
+    paths: ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-2 5.5 7 4.5-7 4.5v-9Z'],
+  },
+  // Настройки: три ползунка (tune)
+  settings: {
+    style: 'fill',
+    paths: [
+      'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z',
+    ],
+  },
+} as const satisfies Record<string, IconDef>;
 
-type IconName = keyof typeof ICONS;
+/** Пункты главного меню-карусели. */
+export type MenuItemId = 'continue' | 'play' | 'settings' | 'help' | 'about';
+
+type IconName = keyof typeof ICONS | 'help' | 'about';
 
 /** Иконки-символы: проще и чётче, чем путь (например, знак вопроса). */
-const TEXT_ICONS: Partial<Record<IconName, string>> = { hint: '?' };
+const TEXT_ICONS: Partial<Record<IconName, string>> = {
+  hint: '?',
+  help: '?',
+  about: 'i',
+};
 
 /** Плоская иконка (без объёма и тени), цвет наследуется от кнопки. */
 function icon(name: IconName): Element {
@@ -78,15 +106,16 @@ function icon(name: IconName): Element {
     span.setAttribute('aria-hidden', 'true');
     return span;
   }
-  const def = ICONS[name];
+  const def: IconDef = ICONS[name as keyof typeof ICONS];
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
-  svg.classList.add('btn__icon', def.stroke ? 'btn__icon--stroke' : 'btn__icon--fill');
+  svg.classList.add('btn__icon', def.style === 'stroke' ? 'btn__icon--stroke' : 'btn__icon--fill');
   for (const d of def.paths) {
     const path = document.createElementNS(SVG_NS, 'path');
     path.setAttribute('d', d);
+    if ('evenodd' in def && def.evenodd) path.setAttribute('fill-rule', 'evenodd');
     svg.appendChild(path);
   }
   return svg;
@@ -109,41 +138,132 @@ function iconButton(btn: HTMLButtonElement, name: IconName, label: string): HTML
   return btn;
 }
 
-/** Главное меню: Resume (если есть сохранение), Play, Help, About. */
+export interface MainMenuRefs {
+  root: HTMLElement;
+  items: Map<MenuItemId, HTMLButtonElement>;
+  caption: HTMLElement;
+}
+
+/**
+ * Главное меню в стиле PSP XMB: ряд иконок-плиток, активная — в центре.
+ * «Продолжить» появляется над «Играть» в той же колонке, когда игра начата.
+ * Подпись под меню показывает название активной иконки.
+ */
 export function buildMenuScreen(
   i18n: LocaleManager,
   canResume: boolean,
-  cb: { onResume: () => void; onPlay: () => void; onHelp: () => void; onAbout: () => void },
-): HTMLElement {
+  cb: { onActivate: (item: MenuItemId) => void },
+): MainMenuRefs {
   const root = el('div', 'screen screen--menu');
   root.dataset.screen = 'mmenu';
   const title = el('h1', 'screen__title screen__title--main', i18n.t('TITLE'));
+  const caption = el('div', 'xmb__caption', i18n.t('PLAY'));
+  const stage = el('div', 'xmb');
+  const items = new Map<MenuItemId, HTMLButtonElement>();
 
-  const card = el('div', 'menu-card');
-  const buttons = el('div', 'screen__buttons');
-  const resume = el<HTMLButtonElement>('button', 'btn', i18n.t('RESUME'));
-  resume.dataset.action = 'resume';
+  const makeItem = (
+    id: MenuItemId,
+    iconName: IconName,
+    label: string,
+    slot: number,
+  ): HTMLButtonElement => {
+    const btn = el<HTMLButtonElement>('button', 'xmb__item');
+    btn.dataset.item = id;
+    // Горизонтальное смещение от активной колонки; вертикальное (--dy)
+    // пересчитывает MenuController — сдвигается только пара «Продолжить/Играть».
+    btn.style.setProperty('--slot', String(slot));
+    btn.style.setProperty('--dy', '0');
+    btn.appendChild(icon(iconName));
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    // Клик сразу открывает пункт. Наведение не двигает карусель: иначе только что
+    // сдвинутая иконка уезжала из-под курсора и выбор «дрожал» между соседями.
+    btn.addEventListener('click', () => cb.onActivate(id));
+    items.set(id, btn);
+    stage.appendChild(btn);
+    return btn;
+  };
+
+  // Порядок как в PSP: настройки слева, «Играть» в центре, помощь и «О игре» справа.
+  // «Продолжить» — над «Играть» в той же колонке (stack = -1).
+  const resume = makeItem('continue', 'resume', i18n.t('RESUME'), 0);
   // Пока игра ни разу не начиналась, «Продолжить» вообще не показываем
   if (!canResume) {
     resume.hidden = true;
     resume.disabled = true;
   }
-  resume.setAttribute('aria-label', i18n.t('RESUME'));
-  resume.addEventListener('click', cb.onResume);
-  const play = el<HTMLButtonElement>('button', 'btn', i18n.t('PLAY'));
-  play.setAttribute('aria-label', i18n.t('PLAY'));
-  play.addEventListener('click', cb.onPlay);
-  const help = el<HTMLButtonElement>('button', 'btn', i18n.t('HELP'));
-  help.setAttribute('aria-label', i18n.t('HELP'));
-  help.addEventListener('click', cb.onHelp);
-  // Options и About скрыты/отключены как в оригинале (раздел 17.3) — About оставляем
-  const about = el<HTMLButtonElement>('button', 'btn', i18n.t('ABOUT'));
-  about.setAttribute('aria-label', i18n.t('ABOUT'));
-  about.addEventListener('click', cb.onAbout);
-  buttons.append(resume, play, help, about);
-  card.appendChild(buttons);
+  makeItem('settings', 'settings', i18n.t('OPTIONS'), -1);
+  makeItem('play', 'play', i18n.t('PLAY'), 0);
+  makeItem('help', 'help', i18n.t('HELP'), 1);
+  makeItem('about', 'about', i18n.t('ABOUT'), 2);
 
-  root.append(hideLayer('title'), title, card, hideLayer('bottom'));
+  root.append(title, stage, caption, hideLayer('bottom'));
+  return { root, items, caption };
+}
+
+/** Настройки: громкость эффектов и фоновой музыки. */
+export function buildSettingsScreen(
+  i18n: LocaleManager,
+  values: { sfx: number; music: number },
+  cb: {
+    onBack: () => void;
+    onSfxChange: (value: number) => void;
+    onMusicChange: (value: number) => void;
+    onLocaleChange: (locale: Locale) => void;
+  },
+): HTMLElement {
+  const root = el('div', 'screen screen--info screen--settings');
+  root.dataset.screen = 'settings';
+  root.append(hideLayer('title'));
+  root.appendChild(el('h2', 'screen__title', i18n.t('OPTIONS')));
+  const panel = el('div', 'panel panel--screen settings-panel');
+
+  const addSlider = (
+    labelKey: string,
+    value: number,
+    onChange: (value: number) => void,
+  ): void => {
+    const row = el('label', 'settings-row');
+    row.appendChild(el('span', 'settings-row__label', i18n.t(labelKey)));
+    const input = el<HTMLInputElement>('input', 'settings-row__range');
+    input.type = 'range';
+    input.min = '0';
+    input.max = '1';
+    input.step = '0.05';
+    input.value = String(value);
+    const out = el('span', 'settings-row__value', `${Math.round(value * 100)}%`);
+    input.addEventListener('input', () => {
+      const v = Number(input.value);
+      out.textContent = `${Math.round(v * 100)}%`;
+      onChange(v);
+    });
+    row.append(input, out);
+    panel.appendChild(row);
+  };
+
+  addSlider('SFX_VOLUME', values.sfx, cb.onSfxChange);
+  addSlider('MUSIC_VOLUME', values.music, cb.onMusicChange);
+
+  // Язык интерфейса: подписи всегда на своём языке, чтобы было понятно без перевода.
+  const langRow = el('div', 'settings-row');
+  langRow.appendChild(el('span', 'settings-row__label', i18n.t('LANGUAGE')));
+  const langSwitch = el('div', 'lang-switch');
+  const addLang = (locale: Locale, label: string): void => {
+    const btn = el<HTMLButtonElement>('button', 'lang-switch__btn', label);
+    const active = i18n.getLocale() === locale;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+    btn.addEventListener('click', () => cb.onLocaleChange(locale));
+    langSwitch.appendChild(btn);
+  };
+  addLang('ru', 'Русский');
+  addLang('en', 'English');
+  langRow.appendChild(langSwitch);
+  panel.appendChild(langRow);
+
+  const back = el('button', 'btn btn--back', i18n.t('BACK'));
+  back.addEventListener('click', cb.onBack);
+  root.append(panel, back, hideLayer('bottom'));
   return root;
 }
 
@@ -295,8 +415,10 @@ export function buildPauseDialog(
 ): { root: HTMLElement } {
   const root = el('div', 'dialog dialog--hidden');
   root.dataset.dialog = 'pause';
+  // Заголовок — отдельно от панели: он стоит на месте заголовка экрана,
+  // а кнопки остаются по центру.
+  const title = el('div', 'dialog__title dialog__title--fixed', i18n.t('PAUSE'));
   const box = el('div', 'dialog__box panel');
-  box.appendChild(el('div', 'dialog__title', i18n.t('PAUSE')));
   const resume = el('button', 'btn', i18n.t('RESUME'));
   resume.addEventListener('click', cb.onResume);
   const select = el('button', 'btn', i18n.t('LVL_SELECTOR'));
@@ -304,7 +426,7 @@ export function buildPauseDialog(
   const mmenu = el('button', 'btn', i18n.t('MMENU'));
   mmenu.addEventListener('click', cb.onMainMenu);
   box.append(resume, select, mmenu);
-  root.appendChild(box);
+  root.append(title, box);
   return { root };
 }
 

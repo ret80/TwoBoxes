@@ -12,7 +12,7 @@ import { OrbitInput } from '@adapters/input/OrbitInput';
 import { LocalStorageSave } from '@adapters/storage/LocalStorageSave';
 import { InputAction } from '@ports/IInput';
 import { LocaleManager } from '@presentation/i18n/LocaleManager';
-import { MenuController } from '@presentation/controllers/MenuController';
+import { MenuController, type MenuDirection } from '@presentation/controllers/MenuController';
 import { GameController } from '@presentation/controllers/GameController';
 import { PauseDialogController } from '@presentation/controllers/PauseDialogController';
 import { CompletedDialogController } from '@presentation/controllers/CompletedDialogController';
@@ -30,6 +30,17 @@ const screensRoot = document.createElement('div');
 screensRoot.id = 'screens';
 app.appendChild(screensRoot);
 
+/*
+ * Размытие сцены под интерфейсом: CSS-фильтр получает сам канвас. Так эффект
+ * работает и в браузерах, где backdrop-filter не размывает WebGL-содержимое.
+ */
+type SceneBlur = 'none' | 'menu' | 'screen' | 'dialog';
+let baseSceneBlur: SceneBlur = 'menu';
+let dialogVisible = false;
+const applySceneBlur = (): void => {
+  app.dataset.sceneBlur = dialogVisible ? 'dialog' : baseSceneBlur;
+};
+
 // 1–3. Ядро
 const config = new Config();
 const episodes = new EpisodeManager();
@@ -44,7 +55,12 @@ if (saved) episodes.deserialize(saved as SaveData);
 const renderer = new PicoglRenderer();
 const audio = new WebAudioPlayer();
 const input = new InputAggregator(() => renderer.getCameraAngles());
-void config; // громкость/демо — конфиг подключён через подписки контроллеров
+
+// Громкость из настроек применяется к аудио-адаптеру сразу.
+config.subscribe((key, value) => {
+  if (key === 'sfxVolume') audio.setSfxVolume(value as number);
+  if (key === 'musicVolume') audio.setMusicVolume(value as number);
+});
 
 // 9. FSM-машины
 const menuActor = createActor(menuMachine);
@@ -72,6 +88,7 @@ const game = new GameController(
   storage,
   gameScreen.levelLabel,
   gameActor,
+  (level) => i18n.t('LVL_NUM', level.episodeId + 1, level.levelId + 1),
 );
 
 // Панели HUD: верхняя (сброс/пауза) и нижняя (сброс/подсказка)
@@ -108,14 +125,25 @@ const orbit = new OrbitInput((dx, dy) =>
 );
 orbit.attach(gameScreen.canvasWrap);
 
-const menuCtrl = new MenuController(screensRoot, i18n, episodes, menuActor, (ep, lvl) => {
-  episodes.setCurLevel(ep, lvl);
-});
+const menuCtrl = new MenuController(
+  screensRoot,
+  i18n,
+  episodes,
+  menuActor,
+  (ep, lvl) => {
+    episodes.setCurLevel(ep, lvl);
+  },
+  config,
+);
 
 const pauseDialog = new PauseDialogController(dialogRoot, i18n, audio, input, {
   onResume: () => game.resume(),
   onLevelSelect: () => menuActor.send({ type: 'BACK' }),
   onMainMenu: () => menuActor.send({ type: 'HOME' }),
+  onVisibility: (visible) => {
+    dialogVisible = visible;
+    applySceneBlur();
+  },
 });
 
 /*
@@ -150,6 +178,10 @@ const completedDialog = new CompletedDialogController(dialogRoot, i18n, audio, {
   },
   onHome: () => menuActor.send({ type: 'HOME' }),
   onReset: () => game.reset(),
+  onVisibility: (visible) => {
+    dialogVisible = visible;
+    applySceneBlur();
+  },
 });
 
 game.attachDialogs({
@@ -163,9 +195,30 @@ game.attachDialogs({
 
 // 11–12. Ввод и запуск
 input.attach();
-for (const dirAction of [InputAction.UP, InputAction.DOWN, InputAction.LEFT, InputAction.RIGHT]) {
-  input.on(dirAction, (payload) => {
-    if (payload?.dir) game.handleDirection(payload.dir);
+// Демо-подсказка: компьютер в фоне идёт к решению, а не только случайно.
+input.setDemoDirectionProvider(() => game.hint());
+
+const DIRECTION_ACTIONS: [InputAction, MenuDirection][] = [
+  [InputAction.UP, 'up'],
+  [InputAction.DOWN, 'down'],
+  [InputAction.LEFT, 'left'],
+  [InputAction.RIGHT, 'right'],
+];
+for (const [action, menuDir] of DIRECTION_ACTIONS) {
+  input.on(action, (payload) => {
+    if (!payload?.dir) return;
+    // Ходы демо-компьютера всегда идут в игру, а не в навигацию меню.
+    if (payload.demo) {
+      game.handleDirection(payload.dir);
+      return;
+    }
+    const state = menuActor.getSnapshot().value as string;
+    if (state === 'mmenu') {
+      menuCtrl.navigate(menuDir);
+      return;
+    }
+    // Вне игры кубиками управляет только демо-компьютер, а не игрок.
+    if (state === 'game') game.handleDirection(payload.dir);
   });
 }
 input.on(InputAction.RESET, () => {
@@ -174,14 +227,27 @@ input.on(InputAction.RESET, () => {
 input.on(InputAction.PAUSE, () => {
   if (menuActor.getSnapshot().value === 'game') game.pause();
 });
+input.on(InputAction.RESUME, () => {
+  // Enter / A/×: в главном меню активируют выбранную иконку.
+  if (menuActor.getSnapshot().value === 'mmenu') menuCtrl.activate();
+});
+input.on(InputAction.BACK, () => {
+  const state = menuActor.getSnapshot().value as string;
+  if (state === 'help' || state === 'about' || state === 'settings' || state === 'selector') {
+    menuActor.send({ type: 'BACK' });
+  }
+});
 input.setEnabled(true);
 
 // Демо-режим: активен во всех состояниях menuFSM, кроме `game` (фон меню)
 let prevMenuState = menuActor.getSnapshot().value as string;
-menuActor.subscribe((snapshot) => {
+const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): void => {
   const state = snapshot.value as string;
   const enteringGame = state === 'game' && prevMenuState !== 'game';
   prevMenuState = state;
+
+  baseSceneBlur = state === 'game' ? 'none' : state === 'mmenu' ? 'menu' : 'screen';
+  applySceneBlur();
 
   const demo = state !== 'game';
   config.set('demoMode', demo);
@@ -199,7 +265,11 @@ menuActor.subscribe((snapshot) => {
   }
   if (state === 'selector') menuCtrl.refreshSelector();
   if (state === 'mmenu') menuCtrl.refreshResume();
-});
+};
+menuActor.subscribe(applyMenuState);
+// XState не вызывает подписчика для текущего состояния: синхронизируем стартовое
+// меню вручную, иначе демо-фон и активная иконка не включались при загрузке.
+applyMenuState(menuActor.getSnapshot());
 
 // AudioContext — по user gesture (политика автозапуска)
 const initAudio = () => {

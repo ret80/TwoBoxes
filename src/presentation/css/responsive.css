@@ -20,24 +20,34 @@
     max-height: min(74vh, calc(100vh - 2 * (var(--screen-pad-bottom) + 76px)));
   }
 
-  .menu-card {
-    width: min(360px, 60vw);
+  /* Карусель в альбоме: компактнее, чтобы иконки не упирались в подпись */
+  .xmb {
+    --xmb-step-x: clamp(84px, 17vw, 124px);
+    --xmb-step-y: clamp(62px, 24vh, 92px);
+    --xmb-size: clamp(54px, 12vh, 76px);
+    --xmb-center-y: 74%;
+  }
+
+  .xmb__caption {
+    bottom: calc(var(--screen-pad-bottom) - 8px);
+    padding: 8px 22px;
   }
 }
 
-/* Низкие экраны: кнопки меню прижаты вниз, но не залезают на заголовок */
+/* Низкие экраны: карусель и подпись не должны пересекаться */
 @media (max-height: 520px) {
-  .menu-card {
-    max-height: calc(100vh - var(--screen-pad-top) - 96px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
+  .xmb {
+    --xmb-step-y: 58px;
+    --xmb-size: 52px;
+    --xmb-center-y: 74%;
   }
 
-  .screen__buttons {
-    gap: 8px;
+  .xmb__item {
+    border-radius: 16px;
   }
 
-  .menu-card .btn {
-    min-height: 44px;
+  .xmb__caption {
+    padding: 6px 18px;
+    font-size: 1rem;
   }
 }

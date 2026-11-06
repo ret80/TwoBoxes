@@ -14,6 +14,15 @@ import { findHint } from '../../core/rules/hint';
 const SAVE_KEY = 'save';
 
 /**
+ * Уровни демо-фона в главном меню: первые две карты игры. Компьютер проходит
+ * их по кругу; прогресс и сохранение игрока при этом не меняются.
+ */
+const DEMO_LEVELS: readonly { episodeId: number; levelId: number }[] = [
+  { episodeId: 0, levelId: 0 },
+  { episodeId: 0, levelId: 1 },
+];
+
+/**
  * Контроллер игры (план 11.5): связывает игровой FSM, рендер, ввод,
  * статистику и диалоги. Ядро остаётся чистым — анимации запускаются
  * по переходам FSM-актора.
@@ -28,10 +37,10 @@ export class GameController {
   private levelLabel: HTMLElement;
   private isDemo = false;
   private paused = false;
-  /** Текущий уровень демо-фона: цикл по всем картам без затрагивания прогресса. */
-  private demoEpisode = 0;
-  private demoLevel = 0;
+  /** Индекс текущей карты демо-фона в DEMO_LEVELS. */
+  private demoIndex = 0;
 
+  private formatLevel: (level: Level) => string;
   private lastSeenBoxes: Box[] = [];
   private lastState = '';
   private rafId = 0;
@@ -50,6 +59,7 @@ export class GameController {
     storage: ISaveStorage,
     levelLabel: HTMLElement,
     gameActor: ActorRefFrom<ReturnType<typeof createGameMachine>>,
+    formatLevel?: (level: Level) => string,
   ) {
     this.renderer = renderer;
     this.audio = audio;
@@ -58,8 +68,7 @@ export class GameController {
     this.storage = storage;
     this.levelLabel = levelLabel;
     this.gameActor = gameActor;
-    this.demoEpisode = episodes.curEpisodeId;
-    this.demoLevel = episodes.curLevelId;
+    this.formatLevel = formatLevel ?? ((level) => `Level #${level.label}`);
 
     this.gameActor.subscribe((snapshot) => this.onTransition(snapshot));
     this.startLoop();
@@ -79,7 +88,13 @@ export class GameController {
   }
 
   setDemo(demo: boolean): void {
+    if (demo === this.isDemo) return;
     this.isDemo = demo;
+    // Возврат в меню всегда начинает демо с первой карты (1-1).
+    if (demo) {
+      this.demoIndex = 0;
+      this.startDemoLevel();
+    }
   }
 
   /** Запуск уровня (NEXT_LEVEL/RESET/SELECT_LEVEL/RESUME). */
@@ -92,7 +107,7 @@ export class GameController {
     }
     this.paused = false;
     this.lastSeenBoxes = level.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
-    this.levelLabel.textContent = `Level #${level.label}`;
+    this.levelLabel.textContent = this.formatLevel(level);
     // Сброс уровня при уже активном create должен заново запустить анимацию
     this.lastState = '';
     this.gameActor.send({ type: 'START', level });
@@ -185,9 +200,20 @@ export class GameController {
           moves.push({ color: box.color, from: prev.pos, to: box.pos });
         }
       });
+      // Кубик встал на свою площадку именно этим ходом — отдельный звук
+      // «щелчка», когда анимация движения доедет до места.
+      const goalKeys = new Set(ctx.level.ends.map((e) => `${e.pos.x},${e.pos.y},${e.color}`));
+      const boxKey = (b: Box): string => `${b.pos.x},${b.pos.y},${b.color}`;
+      const justPlaced = ctx.boxes.some((box, i) => {
+        const prev = this.lastSeenBoxes[i];
+        return !!prev && goalKeys.has(boxKey(box)) && !goalKeys.has(boxKey(prev));
+      });
       this.lastSeenBoxes = ctx.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
       if (!this.isDemo) this.audio.playSfx('swipe');
-      this.renderer.animateMove(moves, () => this.gameActor.send({ type: 'MOVE_DONE' }));
+      this.renderer.animateMove(moves, () => {
+        if (justPlaced && !this.isDemo) this.audio.playSfx('place', 0.8);
+        this.gameActor.send({ type: 'MOVE_DONE' });
+      });
       return;
     }
 
@@ -205,12 +231,16 @@ export class GameController {
     }
   }
 
-  /** Следующая карта для демо-фона (по кругу, прогресс игрока не меняется). */
+  /** Запуск текущей карты демо-фона. */
+  private startDemoLevel(): void {
+    const demo = DEMO_LEVELS[this.demoIndex];
+    this.startLevel(this.episodes.getLevel(demo.episodeId, demo.levelId));
+  }
+
+  /** Следующая карта демо-фона (1-1 ↔ 1-2, прогресс игрока не меняется). */
   private nextDemoLevel(): void {
-    const next = this.episodes.nextCyclicLevel(this.demoEpisode, this.demoLevel);
-    this.demoEpisode = next.episodeId;
-    this.demoLevel = next.levelId;
-    this.startLevel(this.episodes.getLevel(next.episodeId, next.levelId));
+    this.demoIndex = (this.demoIndex + 1) % DEMO_LEVELS.length;
+    this.startDemoLevel();
   }
 
   private buildRenderState(ctx: ReturnType<typeof this.gameActor.getSnapshot>['context']): RenderState {

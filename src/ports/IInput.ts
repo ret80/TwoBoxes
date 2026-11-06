@@ -19,6 +19,8 @@ export interface InputPayload {
   dir?: Position; // для направлений
   episodeId?: number; // для SELECT_LEVEL
   levelId?: number;
+  /** Событие сгенерировано демо-автоигрой, а не игроком. */
+  demo?: boolean;
 }
 
 export type InputHandler = (payload?: InputPayload) => void;

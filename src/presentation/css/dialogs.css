@@ -6,10 +6,8 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  /* Подложка диалога — только лёгкая дымка и размытие всей сцены под ним */
+  /* Подложка диалога — лёгкая дымка; сцену под ним размывает filter канваса */
   background: rgba(233, 228, 220, 0.2);
-  backdrop-filter: blur(7px) saturate(1.05);
-  -webkit-backdrop-filter: blur(7px) saturate(1.05);
   z-index: 10;
 }
 
@@ -18,9 +16,6 @@
 }
 
 .dialog__box {
-  /* Сцена уже размыта оверлеем: у самой панели подложки и размытия нет */
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -35,21 +30,74 @@
   width: 100%;
 }
 
+/* Заголовок диалога — того же стандарта, что заголовки экранов меню */
 .dialog__title {
-  margin-bottom: 4px;
-  font-size: clamp(1.4rem, 6vw, 1.8rem);
+  margin-bottom: 6px;
+  font-size: var(--title-size);
   font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
   text-align: center;
+}
+
+/*
+ * Пауза: заголовок стоит на месте заголовков меню (сверху), а панель кнопок
+ * центрирована по вертикали, как обычный диалог.
+ */
+/*
+ * Заголовок паузы стоит под верхним HUD: сами панели остаются на месте
+ * (не уезжают и не исчезают), поэтому пауза не «раздвигает» их.
+ */
+.dialog__title--fixed {
+  position: absolute;
+  top: clamp(84px, 12vh, 108px);
+  left: 50%;
+  margin: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.dialog[data-dialog='pause'] {
+  align-items: center;
+}
+
+/* Низкие экраны: компактная колонка между верхним и нижним HUD. */
+@media (max-height: 560px) {
+  .dialog__title--fixed {
+    top: 80px;
+    font-size: 1.8rem;
+  }
+
+  .dialog[data-dialog='pause'] {
+    align-items: flex-start;
+    padding-top: 120px;
+  }
+
+  .dialog[data-dialog='pause'] .dialog__box {
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .dialog[data-dialog='pause'] .btn {
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+}
+
+/* Победа: главная надпись диалога заметно крупнее */
+.dialog[data-dialog='completed'] .dialog__title {
+  font-size: clamp(2.4rem, 9.5vw, 3.4rem);
 }
 
 .dialog__stats {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   margin-bottom: 8px;
-  color: var(--color-text-dim);
-  font-size: 1.05rem;
-  line-height: 1.5;
+  color: var(--color-coffee);
+  font-size: clamp(1.15rem, 4.8vw, 1.5rem);
+  font-weight: 600;
+  line-height: 1.55;
   opacity: 0.92;
   text-align: center;
 }

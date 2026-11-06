@@ -2,7 +2,7 @@ import { assign, setup } from 'xstate';
 
 /**
  * Меню FSM (аналог menuFSM — глобальное состояние приложения).
- * Состояния: mmenu (стартовое) → selector / game / help / about.
+ * Состояния: mmenu (стартовое) → selector / game / help / about / settings.
  *
  * Демо-режим: активен во всех состояниях, кроме `game`
  * (даёт анимированный фон, раздел 17.6 документации).
@@ -22,7 +22,8 @@ export type MenuEvent =
   | { type: 'RESUME' } // mmenu → game (сохранённый уровень)
   | { type: 'HELP' } // mmenu → help
   | { type: 'ABOUT' } // mmenu → about
-  | { type: 'BACK' } // selector/help/about → mmenu; game → selector (пауза «Level select»)
+  | { type: 'SETTINGS' } // mmenu → settings
+  | { type: 'BACK' } // selector/help/about/settings → mmenu; game → selector (пауза «Level select»)
   | { type: 'SELECT_LEVEL'; episodeId: number; levelId: number } // selector → game
   | { type: 'HOME' } // game → mmenu (диалоги паузы/завершения)
   | { type: 'NEXT_LEVEL' } // game → game (self-переход, следующий уровень)
@@ -61,6 +62,7 @@ export const menuMachine = setup({
         RESUME: 'game',
         HELP: 'help',
         ABOUT: 'about',
+        SETTINGS: 'settings',
       },
     },
     selector: {
@@ -86,6 +88,10 @@ export const menuMachine = setup({
       on: { BACK: 'mmenu' },
     },
     about: {
+      entry: 'enterDemo',
+      on: { BACK: 'mmenu' },
+    },
+    settings: {
       entry: 'enterDemo',
       on: { BACK: 'mmenu' },
     },

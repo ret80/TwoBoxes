@@ -1,6 +1,6 @@
 import type { IInput, InputHandler, InputPayload } from '../../ports/IInput';
 import { InputAction } from '../../ports/IInput';
-import { DIRS } from '../../core/types/position';
+import { DIRS, Position } from '../../core/types/position';
 import { KeyboardInput } from './KeyboardInput';
 import { TouchInput, type ViewAnglesProvider } from './TouchInput';
 import { GamepadInput } from './GamepadInput';
@@ -43,13 +43,19 @@ export class InputAggregator implements IInput {
   private touch: TouchInput;
   private gamepad: GamepadInput;
   private demoInput: DemoInput;
+  private demoDirProvider: (() => Position | null) | null = null;
 
   constructor(getAngles?: ViewAnglesProvider) {
     this.keyboard = new KeyboardInput((a) => this.dispatch(a, dirPayload(a)));
     // Свайп переводится в локальные оси уровня по текущим углам камеры.
     this.touch = new TouchInput((a, dir) => this.dispatch(a, { dir }), getAngles);
     this.gamepad = new GamepadInput((a) => this.dispatch(a, dirPayload(a)));
-    this.demoInput = new DemoInput((a, dir) => this.dispatch(a, { dir }));
+    // Демо-ходы помечаются флагом `demo`: интерфейс не должен на них реагировать
+    // (навигация в меню), а игровое поле — должно.
+    this.demoInput = new DemoInput(
+      (a, dir) => this.dispatch(a, { dir, demo: true }),
+      () => this.demoDirProvider?.() ?? null,
+    );
   }
 
   attach(): void {
@@ -75,6 +81,11 @@ export class InputAggregator implements IInput {
     this.demo = demo;
     if (demo) this.demoInput.start();
     else this.demoInput.stop();
+  }
+
+  /** Источник подсказки для демо (обычно `GameController.hint`). */
+  setDemoDirectionProvider(provider: (() => Position | null) | null): void {
+    this.demoDirProvider = provider;
   }
 
   dispose(): void {

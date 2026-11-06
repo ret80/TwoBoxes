@@ -372,6 +372,9 @@ export class PicoglRenderer implements IRenderer {
     if (!app || !state || !this.cubeDraw || !this.quadDraw) return;
 
     app.clear();
+    // Обычные грани рисуются непрозрачно; режим смешивания включается только
+    // на время прохода ореола-подсветки (см. ниже).
+    app.disable(PicoGL.BLEND);
     const viewProj = this.camera.getViewProj();
     const model = mat4.create();
     const animating = this.createMask !== null;
@@ -384,23 +387,43 @@ export class PicoglRenderer implements IRenderer {
       sy: number,
       sz: number,
       color: number[],
+      glow = 0,
+      alpha = 1,
     ) => {
       mat4.fromTranslation(model, [x, y, z]);
       mat4.scale(model, model, [sx, sy, sz]);
-      this.cubeDraw!.uniform('uModel', model).uniform('uViewProj', viewProj).uniform('uColor', color);
+      this.cubeDraw!
+        .uniform('uModel', model)
+        .uniform('uViewProj', viewProj)
+        .uniform('uColor', color)
+        .uniform('uAlpha', alpha)
+        .uniform('uGlow', glow);
       this.cubeDraw!.draw();
     };
 
     const worldX = (x: number) => x - state.width / 2 + 0.5;
     const worldZ = (y: number) => y - state.height / 2 + 0.5;
 
-    /** Плоский квад на клетке: размер, поворот вокруг Y (ромб цели). */
-    const drawQuad = (x: number, y: number, z: number, size: number, color: number[], rotY = 0) => {
+    /** Плоский квад на клетке: размер, поворот вокруг Y (ромб цели), прозрачность. */
+    const drawQuad = (
+      x: number,
+      y: number,
+      z: number,
+      size: number,
+      color: number[],
+      rotY = 0,
+      alpha = 1,
+    ) => {
       // Порядок важен: сначала перенос в центр клетки, потом поворот, потом масштаб.
       mat4.fromTranslation(model, [x, y, z]);
       mat4.rotateY(model, model, rotY);
       mat4.scale(model, model, [size, 1, size]);
-      this.quadDraw!.uniform('uModel', model).uniform('uViewProj', viewProj).uniform('uColor', color);
+      this.quadDraw!
+        .uniform('uModel', model)
+        .uniform('uViewProj', viewProj)
+        .uniform('uColor', color)
+        .uniform('uAlpha', alpha)
+        .uniform('uGlow', 0);
       this.quadDraw!.draw();
     };
 
@@ -457,6 +480,64 @@ export class PicoglRenderer implements IRenderer {
       this.gridDraw.draw();
     }
 
+    // Кубики на своих площадках светятся ровным ореолом (без пульсации —
+    // мигание читалось как мерцание) и лёгкой подсветкой самого кубика (uGlow).
+    // Ключ площадки — позиция и цвет, поэтому чужой кубик не подсвечивается.
+    const goals = new Set(state.ends.map((e) => `${e.pos.x},${e.pos.y},${e.color}`));
+    const onGoal = (b: RenderBoxPos): boolean =>
+      goals.has(`${Math.round(b.x - 0.5)},${Math.round(b.z - 0.5)},${b.color}`);
+
+    const glowing = this.boxPos.filter(onGoal);
+    if (glowing.length > 0 && !animating) {
+      const gl = app.gl;
+      app.enable(PicoGL.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // аддитивное свечение
+      // Ореолы рисуются друг поверх друга на одной высоте — глубина не пишется.
+      gl.depthMask(false);
+      for (const b of glowing) {
+        const bx = Math.round(b.x - 0.5);
+        const bz = Math.round(b.z - 0.5);
+        const color = b.color === ColorType.ONE ? COLOR_BOX : COLOR_BOX_TWO;
+        // Мягкое пятно на площадке вокруг кубика.
+        for (const [size, alpha] of [
+          [1.6, 0.06],
+          [1.3, 0.09],
+          [1.05, 0.12],
+        ] as const) {
+          drawQuad(
+            worldX(bx),
+            PLATFORM_TOP + 0.05,
+            worldZ(bz),
+            size,
+            color,
+            0,
+            alpha,
+          );
+        }
+        // Объёмный ореол вокруг силуэта кубика: несколько раздутых копий
+        // аддитивно, реальный кубик рисуется поверх и остаётся чётким.
+        for (const [scale, alpha] of [
+          [1.28, 0.05],
+          [1.14, 0.08],
+          [1.05, 0.11],
+        ] as const) {
+          drawCube(
+            b.x - state.width / 2,
+            b.y,
+            b.z - state.height / 2,
+            0.9 * scale,
+            scale,
+            0.9 * scale,
+            color,
+            0,
+            alpha,
+          );
+        }
+      }
+      gl.depthMask(true);
+      app.disable(PicoGL.BLEND);
+    }
+
     // Кубики: скрывать до появления клетки (аналог скрытых узлов в create_state.gd)
     for (const b of this.boxPos) {
       const bx = Math.round(b.x - 0.5);
@@ -474,6 +555,7 @@ export class PicoglRenderer implements IRenderer {
         scale,
         0.9 * scale,
         b.color === ColorType.ONE ? COLOR_BOX : COLOR_BOX_TWO,
+        onGoal(b) ? 1 : 0,
       );
     }
   }

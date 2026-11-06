@@ -18,6 +18,7 @@ const DICTS: Record<Locale, Strings> = { en, ru };
 export class LocaleManager {
   private locale: Locale = 'en';
   private storage: ISaveStorage;
+  private listeners = new Set<(locale: Locale) => void>();
 
   constructor(storage: ISaveStorage) {
     this.storage = storage;
@@ -28,6 +29,13 @@ export class LocaleManager {
       const lang = navigator.language.slice(0, 2);
       this.locale = lang in DICTS ? (lang as Locale) : 'en';
     }
+    this.syncDocumentLang();
+  }
+
+  /** Подписка на смену языка: экраны и диалоги перестраивают подписи. */
+  subscribe(listener: (locale: Locale) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /** Форматирование строки: %d/%s заменяются аргументами по порядку. */
@@ -38,10 +46,15 @@ export class LocaleManager {
   }
 
   setLocale(locale: Locale): void {
-    if (locale in DICTS) {
-      this.locale = locale;
-      this.storage.save(LOCALE_KEY, locale);
-    }
+    if (!(locale in DICTS) || locale === this.locale) return;
+    this.locale = locale;
+    this.storage.save(LOCALE_KEY, locale);
+    this.syncDocumentLang();
+    for (const listener of this.listeners) listener(locale);
+  }
+
+  private syncDocumentLang(): void {
+    if (typeof document !== 'undefined') document.documentElement.lang = this.locale;
   }
 
   getLocale(): Locale {
