@@ -28,9 +28,12 @@ export class TweenManager {
     return tween;
   }
 
-  /** Длительность движения в мс: speed (сек на клетку) * distance * 1000. */
-  static moveDuration(distance: number): number {
-    return MOVE_SPEED * distance * 1000;
+  /**
+   * Длительность движения в мс: speed (сек на клетку) * distance * 1000.
+   * `speedMultiplier` > 1 ускоряет ход (настройка «Быстро») без изменения плавности.
+   */
+  static moveDuration(distance: number, speedMultiplier = 1): number {
+    return (MOVE_SPEED * distance * 1000) / (speedMultiplier > 0 ? speedMultiplier : 1);
   }
 
   /**

@@ -1,5 +1,6 @@
 import type { LocaleManager } from '../i18n/LocaleManager';
-import { buildCompletedDialog } from '../html/screens';
+import type { GameResult } from '../../core/types/game-result';
+import { buildCompletedDialog, el } from '../html/screens';
 
 /**
  * Контроллер диалога завершения уровня (план 11.7).
@@ -9,6 +10,7 @@ import { buildCompletedDialog } from '../html/screens';
 export class CompletedDialogController {
   private root!: HTMLElement;
   private statsEl!: HTMLElement;
+  private starsEl!: HTMLElement;
   private titleEl!: HTMLElement;
   private container: HTMLElement;
   private i18n: LocaleManager;
@@ -43,27 +45,39 @@ export class CompletedDialogController {
 
   private build(): void {
     this.root?.remove();
-    const { root, stats, title } = buildCompletedDialog(this.i18n, {
+    const { root, stats, stars, title } = buildCompletedDialog(this.i18n, {
       onNext: () => this.onNextGame(),
       onHome: () => this.onHomeGame(),
       onReset: () => this.onResetGame(),
     });
     this.root = root;
     this.statsEl = stats;
+    this.starsEl = stars;
     this.titleEl = title;
     this.container.appendChild(root);
   }
 
-  show(moves: number, time: number): void {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
+  show(result: GameResult): void {
+    const minutes = Math.floor(result.time / 60);
+    const seconds = Math.floor(result.time % 60);
     const timeStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
+
+    // Три звезды: закрашены те, что заслужил игрок (3 — точно по минимуму).
+    this.starsEl.innerHTML = '';
+    this.starsEl.setAttribute('aria-label', `${result.stars}/3`);
+    for (let i = 0; i < 3; i++) {
+      const star = el('span', i < result.stars ? 'dialog__star is-on' : 'dialog__star', '★');
+      star.setAttribute('aria-hidden', 'true');
+      this.starsEl.appendChild(star);
+    }
+
     this.statsEl.innerHTML = '';
-    this.statsEl.appendChild(
-      document.createTextNode(this.i18n.t('MOVES_COUNT', moves)),
-    );
-    this.statsEl.appendChild(document.createElement('br'));
-    this.statsEl.appendChild(document.createTextNode(this.i18n.t('TIME', timeStr)));
+    const rows = [this.i18n.t('MOVES_COUNT', result.moves)];
+    if (result.minMoves > 0) rows.push(this.i18n.t('MIN_MOVES', result.minMoves));
+    rows.push(this.i18n.t('HINTS_USED', result.hints));
+    rows.push(this.i18n.t('TIME', timeStr));
+    for (const text of rows) this.statsEl.appendChild(el('div', 'dialog__stat', text));
+
     this.root.classList.remove('dialog--hidden');
     this.audio.playSfx('message-appear');
     this.onVisibility?.(true);

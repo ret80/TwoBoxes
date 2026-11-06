@@ -76,9 +76,11 @@
   white-space: nowrap;
 }
 
-/* Большой заголовок главного меню */
+/*
+ * Логотип главного меню — такой же заголовок, как в остальных меню:
+ * единый кегль --title-size, без собственного увеличения.
+ */
 .screen__title--main {
-  font-size: clamp(4.2rem, 22vw, 7.5rem);
   line-height: 0.95;
   letter-spacing: 0.01em;
 }
@@ -158,16 +160,15 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
-/* Подпись под каруселью: название активной иконки */
+/* Подпись под каруселью: название активной иконки — только текст, без плашки */
 .xmb__caption {
   position: fixed;
   left: 50%;
   bottom: calc(var(--screen-pad-bottom) - 6px);
-  min-width: 150px;
-  padding: 10px 26px;
-  border-radius: 999px;
-  background: var(--color-cream);
-  box-shadow: var(--shadow-btn);
+  margin: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
   color: var(--color-coffee);
   font-size: clamp(1.15rem, 4.6vw, 1.5rem);
   font-weight: 600;
@@ -261,6 +262,12 @@
   height: 22px;
   accent-color: var(--color-dark-blue);
   cursor: pointer;
+}
+
+/* Строка с выпадающим списком: подпись слева, компактный select справа */
+.settings-row--select .settings-row__select {
+  width: auto;
+  min-width: 132px;
 }
 
 .settings-row__select {

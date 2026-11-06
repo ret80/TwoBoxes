@@ -1,7 +1,14 @@
 import { EPISODES_DATA } from '../data';
+import { findShortestSolution } from '../generation/solver';
 import { createLevelFromData } from '../rules/create';
 import { Episode } from '../types/episode';
 import { Level } from '../types/level';
+
+/**
+ * Сколько уровней эпизода нужно пройти, чтобы открылся первый уровень
+ * следующего эпизода (раздел 13 документации: «7 из 12»).
+ */
+export const EPISODE_GATE_LEVELS = 7;
 
 export interface SaveData {
   version: number;
@@ -23,6 +30,8 @@ export class EpisodeManager {
   public curLevelId = 0;
 
   private saved = false;
+  /** Кэш минимального числа ходов по уровням (считается лениво, один раз). */
+  private minMovesCache = new Map<string, number>();
 
   constructor() {
     this.episodes = EPISODES_DATA.map((rows, i) => new Episode(i, rows));
@@ -89,8 +98,47 @@ export class EpisodeManager {
     return { episodeId: episode, levelId: flat };
   }
 
+  /**
+   * Проверка блокировки уровня.
+   *
+   * Внутри эпизода действует свой прогресс, но первый уровень любого
+   * следующего эпизода открывается только после EPISODE_GATE_LEVELS пройденных
+   * уровней в предыдущем: иначе эпизод 2 начинался бы сразу, минуя эпизод 1.
+   */
   isLocked(episodeId: number, levelId: number): boolean {
-    return this.getEpisode(episodeId).isLocked(levelId);
+    const ep = this.getEpisode(episodeId);
+    if (!ep.unlockedAll && levelId === 0 && episodeId > 0) {
+      const prev = this.episodes[episodeId - 1];
+      if (!prev.unlockedAll && prev.lastUnlockedLevel < EPISODE_GATE_LEVELS) return true;
+    }
+    return ep.isLocked(levelId);
+  }
+
+  /** Открыть все уровни всех эпизодов (отладочное меню). */
+  unlockAllLevels(): void {
+    for (const ep of this.episodes) {
+      ep.unlockedAll = true;
+      ep.lastUnlockedLevel = Math.max(ep.lastUnlockedLevel, ep.levelCount - 1);
+    }
+  }
+
+  /** Все уровни открыты — для состояния отладочного переключателя. */
+  isAllUnlocked(): boolean {
+    return this.episodes.every((ep) => ep.unlockedAll);
+  }
+
+  /**
+   * Минимальное число ходов: длина кратчайшего решения уровня.
+   * Считается полным перебором (уровни маленькие) и кэшируется.
+   */
+  minMoves(episodeId: number, levelId: number): number {
+    const key = `${episodeId}-${levelId}`;
+    const cached = this.minMovesCache.get(key);
+    if (cached !== undefined) return cached;
+    const solution = findShortestSolution(this.getLevel(episodeId, levelId));
+    const moves = solution ? solution.length : 0;
+    this.minMovesCache.set(key, moves);
+    return moves;
   }
 
   /** Разблокировка следующего уровня после победы на текущем. */

@@ -1,15 +1,24 @@
 /**
  * Конфигурация (аналог `script/global/config.gd`).
  * Переменные: `sfxVolume`, `musicVolume` (по умолчанию 0.5/0.3), `demoMode`,
- * а также отладочные `showFps` и `projection`.
+ * скорость анимации `moveSpeed`, режим компаса `compass`, а также отладочные
+ * `showFps` и `projection`.
  * Событие `change` — подписка адаптеров (например, WebAudio на изменение громкости).
  */
+/** Скорость анимации хода: штатная плавная или ускоренная. */
+export type MoveSpeed = 'smooth' | 'fast';
+
+/** Показ компаса L/D: авто (по последнему вводу) или всегда включён. */
+export type CompassMode = 'auto' | 'on';
+
 export type ConfigKey =
   | 'sfxVolume'
   | 'musicVolume'
   | 'demoMode'
   | 'showFps'
-  | 'projection';
+  | 'projection'
+  | 'moveSpeed'
+  | 'compass';
 
 type ConfigValue = number | boolean | string;
 type ChangeListener = (key: ConfigKey, value: ConfigValue) => void;
@@ -23,6 +32,8 @@ export class Config {
     // По умолчанию — изометрия с лёгкой прямой перспективой: чистая
     // аксонометрия читается как обратная перспектива (дальнее кажется крупнее).
     projection: 'iso',
+    moveSpeed: 'smooth',
+    compass: 'auto',
   };
 
   private listeners = new Set<ChangeListener>();

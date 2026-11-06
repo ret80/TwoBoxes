@@ -76,22 +76,42 @@
   }
 }
 
-/* Победа: главная надпись диалога заметно крупнее */
-.dialog[data-dialog='completed'] .dialog__title {
-  font-size: clamp(2.4rem, 9.5vw, 3.4rem);
+/* Победа: звёзды над статистикой (3 — точно по минимуму ходов) */
+.dialog__stars {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 2px 0 6px;
+  line-height: 1;
+}
+
+.dialog__star {
+  color: var(--color-coffee);
+  font-size: clamp(1.9rem, 8vw, 2.4rem);
+  opacity: 0.18;
+}
+
+.dialog__star.is-on {
+  opacity: 1;
+  color: var(--color-yellow);
+  text-shadow: 0 2px 8px rgba(232, 192, 94, 0.45);
 }
 
 .dialog__stats {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   margin-bottom: 8px;
   color: var(--color-coffee);
-  font-size: clamp(1.15rem, 4.8vw, 1.5rem);
+  font-size: clamp(1rem, 4.2vw, 1.2rem);
   font-weight: 600;
-  line-height: 1.55;
+  line-height: 1.45;
   opacity: 0.92;
   text-align: center;
+}
+
+.dialog__stat {
+  white-space: nowrap;
 }
 
 .dialog__actions {

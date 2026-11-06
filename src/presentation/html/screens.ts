@@ -1,5 +1,6 @@
 import type { Locale, LocaleManager } from '../i18n/LocaleManager';
 import type { EpisodeManager } from '../../core/services/episode-mng';
+import type { CompassMode, MoveSpeed } from '../../core/services/config';
 import type { ProjectionMode } from '../../ports/IRenderer';
 
 /** DOM-генераторы экранов (план 11.1 — TS-модули вместо .html, SPA/Vite). */
@@ -55,19 +56,18 @@ const ICONS = {
   home: { style: 'fill', paths: ['M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5Z'] },
   // Две стрелки вправо (играть / следующий уровень)
   next: { style: 'stroke', paths: ['M5 4l8 8-8 8', 'M12 4l8 8-8 8'] },
-  // Стрелка отката назад (undo)
+  // Стрелка отката назад (undo) — тонкий контур, как в макете
   undo: {
-    style: 'fill',
-    paths: [
-      'M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.62-3.62A7.5 7.5 0 0 1 12.5 11c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8Z',
-    ],
+    style: 'stroke',
+    paths: ['M9 14 4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11'],
   },
-  // Лампочка (подсказка)
+  // Лампочка (подсказка) — контур с двумя штрихами цоколя
   hint: {
-    style: 'fill',
+    style: 'stroke',
     paths: [
-      'M12 2a7 7 0 0 0-4.2 12.6c.5.4.8 1 .9 1.6l.1.8h6.4l.1-.8c.1-.6.4-1.2.9-1.6A7 7 0 0 0 12 2Z',
-      'M9 19h6v1.2a1.8 1.8 0 0 1-1.8 1.8h-2.4A1.8 1.8 0 0 1 9 20.2V19Z',
+      'M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5',
+      'M9 18h6',
+      'M10 22h4',
     ],
   },
   // Играть: залитый треугольник (центральная иконка главного меню)
@@ -101,7 +101,6 @@ type IconName = keyof typeof ICONS | 'help' | 'about';
 
 /** Иконки-символы: проще и чётче, чем путь (например, знак вопроса). */
 const TEXT_ICONS: Partial<Record<IconName, string>> = {
-  hint: '?',
   help: '?',
   about: 'i',
 };
@@ -214,15 +213,39 @@ export function buildMenuScreen(
   return { root, items, caption };
 }
 
-/** Настройки: громкость эффектов и фоновой музыки. */
+/** Выпадающий список в строке настроек: подпись слева, значение справа. */
+function addSelectRow<T extends string>(
+  panel: HTMLElement,
+  label: string,
+  value: T,
+  options: [T, string][],
+  onChange: (value: T) => void,
+  className = 'settings-row settings-row--select',
+): void {
+  const row = el('label', className);
+  row.appendChild(el('span', 'settings-row__label', label));
+  const select = el<HTMLSelectElement>('select', 'settings-row__select');
+  for (const [v, text] of options) {
+    const option = el<HTMLOptionElement>('option', undefined, text);
+    option.value = v;
+    select.appendChild(option);
+  }
+  select.value = value;
+  select.addEventListener('change', () => onChange(select.value as T));
+  row.appendChild(select);
+  panel.appendChild(row);
+}
+
+/** Настройки: громкость эффектов и музыки, язык и скорость кубиков. */
 export function buildSettingsScreen(
   i18n: LocaleManager,
-  values: { sfx: number; music: number },
+  values: { sfx: number; music: number; speed: MoveSpeed },
   cb: {
     onBack: () => void;
     onSfxChange: (value: number) => void;
     onMusicChange: (value: number) => void;
     onLocaleChange: (locale: Locale) => void;
+    onSpeedChange: (value: MoveSpeed) => void;
   },
 ): HTMLElement {
   const root = el('div', 'screen screen--info screen--settings');
@@ -257,6 +280,18 @@ export function buildSettingsScreen(
   addSlider('SFX_VOLUME', values.sfx, cb.onSfxChange);
   addSlider('MUSIC_VOLUME', values.music, cb.onMusicChange);
 
+  // Скорость хода кубиков: плавно (как раньше) или заметно быстрее.
+  addSelectRow<MoveSpeed>(
+    panel,
+    i18n.t('MOVE_SPEED'),
+    values.speed,
+    [
+      ['smooth', i18n.t('SPEED_SMOOTH')],
+      ['fast', i18n.t('SPEED_FAST')],
+    ],
+    cb.onSpeedChange,
+  );
+
   // Язык интерфейса: подписи всегда на своём языке, чтобы было понятно без перевода.
   const langRow = el('div', 'settings-row');
   langRow.appendChild(el('span', 'settings-row__label', i18n.t('LANGUAGE')));
@@ -282,15 +317,17 @@ export function buildSettingsScreen(
 
 /**
  * Отладочное меню (открывается иконкой-жуком слева от настроек при `?debug`):
- * счётчик FPS и выбор проекции уровня.
+ * счётчик FPS, проекция уровня, режим компаса и разблокировка всех уровней.
  */
 export function buildDebugScreen(
   i18n: LocaleManager,
-  values: { showFps: boolean; projection: ProjectionMode },
+  values: { showFps: boolean; projection: ProjectionMode; compass: CompassMode },
   cb: {
     onBack: () => void;
     onFpsChange: (value: boolean) => void;
     onProjectionChange: (mode: ProjectionMode) => void;
+    onCompassChange: (mode: CompassMode) => void;
+    onUnlockAll: () => void;
   },
 ): HTMLElement {
   const root = el('div', 'screen screen--info screen--debug');
@@ -325,6 +362,24 @@ export function buildDebugScreen(
   select.addEventListener('change', () => cb.onProjectionChange(select.value as ProjectionMode));
   projRow.appendChild(select);
   panel.appendChild(projRow);
+
+  // Компас L/D: «авто» — по последнему способу ввода, «включён» — всегда.
+  addSelectRow<CompassMode>(
+    panel,
+    i18n.t('DEBUG_COMPASS'),
+    values.compass,
+    [
+      ['auto', i18n.t('COMPASS_AUTO')],
+      ['on', i18n.t('COMPASS_ON')],
+    ],
+    cb.onCompassChange,
+    'settings-row',
+  );
+
+  // Чит: открыть все уровни всех эпизодов (прогресс сохраняется сразу).
+  const unlock = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_UNLOCK_ALL'));
+  unlock.addEventListener('click', cb.onUnlockAll);
+  panel.appendChild(unlock);
 
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
@@ -495,15 +550,16 @@ export function buildPauseDialog(
   return { root };
 }
 
-/** Диалог завершения: статистика + Reset / Home / Next. */
+/** Диалог завершения: звёзды, статистика + Reset / Home / Next. */
 export function buildCompletedDialog(
   i18n: LocaleManager,
   cb: { onNext: () => void; onHome: () => void; onReset: () => void },
-): { root: HTMLElement; stats: HTMLElement; title: HTMLElement } {
+): { root: HTMLElement; stats: HTMLElement; stars: HTMLElement; title: HTMLElement } {
   const root = el('div', 'dialog dialog--hidden');
   root.dataset.dialog = 'completed';
   const box = el('div', 'dialog__box panel');
   const title = el('div', 'dialog__title', i18n.t('COMPLETED'));
+  const stars = el('div', 'dialog__stars');
   const stats = el('div', 'dialog__stats');
   const reset = el<HTMLButtonElement>('button', 'btn btn--warning btn--icon');
   iconButton(reset, 'reset', i18n.t('RESET'));
@@ -516,7 +572,7 @@ export function buildCompletedDialog(
   next.addEventListener('click', cb.onNext);
   const row = el('div', 'dialog__actions');
   row.append(reset, home, next);
-  box.append(title, stats, row);
+  box.append(title, stars, stats, row);
   root.appendChild(box);
-  return { root, stats, title };
+  return { root, stats, stars, title };
 }

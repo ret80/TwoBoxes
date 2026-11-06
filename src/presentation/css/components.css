@@ -60,6 +60,11 @@
   padding: 10px 12px;
 }
 
+/* Кнопка во всю ширину панели (например, разблокировка уровней в отладке) */
+.btn--wide {
+  width: 100%;
+}
+
 /* Плоская иконка внутри кнопки: размер от кегля, цвет от кнопки */
 .btn__icon {
   display: block;
@@ -87,7 +92,7 @@
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.4;
+  stroke-width: 2;
 }
 
 /* Карточка уровня (селектор) */

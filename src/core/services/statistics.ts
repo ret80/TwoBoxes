@@ -8,6 +8,8 @@
 export class Statistics {
   private _moves = 0;
   private _time = 0; // секунды
+  /** Сколько раз игрок пользовался подсказкой на текущем уровне. */
+  private _hints = 0;
   private _running = false;
 
   start(): void {
@@ -21,6 +23,7 @@ export class Statistics {
   reset(): void {
     this._moves = 0;
     this._time = 0;
+    this._hints = 0;
     this._running = false;
   }
 
@@ -31,6 +34,14 @@ export class Statistics {
 
   incrementMoves(): void {
     this._moves++;
+  }
+
+  incrementHints(): void {
+    this._hints++;
+  }
+
+  getHints(): number {
+    return this._hints;
   }
 
   getMoves(): number {

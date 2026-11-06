@@ -115,6 +115,8 @@ export class PicoglRenderer implements IRenderer {
 
   private camera = new Camera();
   private tweens = new TweenManager();
+  /** Множитель скорости хода: 1 — штатная плавность, >1 — быстрее (настройка). */
+  private moveSpeed = 1;
 
   // Матрицы-скретч: декали (стрелки, буквы) собираются из них каждый кадр.
   private viewProj: mat4 = mat4.create();
@@ -350,7 +352,7 @@ export class PicoglRenderer implements IRenderer {
       this.tweens.add(
         item as unknown as Record<string, number>,
         { x: m.to.x + 0.5, z: m.to.y + 0.5, y: BOX_Y },
-        TweenManager.moveDuration(distance),
+        TweenManager.moveDuration(distance, this.moveSpeed),
         () => this.finishMove(),
       );
     }
@@ -408,6 +410,11 @@ export class PicoglRenderer implements IRenderer {
   /** Компас клавиатуры (плоскость с осями L/D) нужен только в самой игре. */
   setKeyGuideVisible(visible: boolean): void {
     this.keyGuide = visible;
+  }
+
+  /** Скорость хода кубиков (настройка «Плавно / Быстро»). */
+  setMoveSpeed(multiplier: number): void {
+    this.moveSpeed = multiplier > 0 ? multiplier : 1;
   }
 
   /** Проекция сцены: ортогональная, изометрическая или обратная изометрическая. */
@@ -589,11 +596,11 @@ export class PicoglRenderer implements IRenderer {
           // осевой квадрат проецируется ромбом — как в атласе.
           // Отступы по Y — не меньше шага depth-буфера (16 бит на 200 единиц
           // ≈ 0.003): при 0.002 контур цели дрожал и мерцал (уровень 1-2).
+          // Плашка цели растёт вместе с плитой: конец уровня появляется
+          // одновременно с площадкой, а не следом за ней.
           drawQuad(worldX(x), surface + 0.012, worldZ(y), 0.82 * scale, COLOR_RECESS);
-          if (!animating) {
-            drawQuad(worldX(x), surface + 0.024, worldZ(y), 0.68, goalColor);
-            drawQuad(worldX(x), surface + 0.036, worldZ(y), 0.48, COLOR_RECESS);
-          }
+          drawQuad(worldX(x), surface + 0.024, worldZ(y), 0.68 * scale, goalColor);
+          drawQuad(worldX(x), surface + 0.036, worldZ(y), 0.48 * scale, COLOR_RECESS);
         }
       }
     }

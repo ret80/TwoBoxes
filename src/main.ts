@@ -57,17 +57,39 @@ if (saved) episodes.deserialize(saved as SaveData);
 const renderer = new PicoglRenderer();
 const audio = new WebAudioPlayer();
 const input = new InputAggregator(() => renderer.getCameraAngles());
-// Компас L/D нужен только клавиатуре и геймпаду: на тач-экране подсказка
-// про клавиши только мешает.
 const modality = new ModalityTracker();
 
+/**
+ * Компас L/D нужен только клавиатуре и геймпаду: на тач-экране подсказка про
+ * клавиши только мешает. Как только такой ввод замечен, компас остаётся на
+ * экране до конца сессии — исчезать на каждый тап по экрану он не должен.
+ * Отладочный режим `compass: 'on'` показывает его всегда.
+ */
+let inGame = false;
+let pointingSeen = modality.isPointing();
+let compassAlways = config.get('compass') === 'on';
+const applyKeyGuide = (): void =>
+  renderer.setKeyGuideVisible(inGame && (compassAlways || pointingSeen));
+modality.subscribe((m) => {
+  if (m === 'keyboard' || m === 'gamepad') pointingSeen = true;
+  applyKeyGuide();
+});
+
+/** Во сколько раз быстрее едут кубики в настройке «Быстро». */
+const FAST_MOVE_SPEED = 1.8;
+
 // Громкость из настроек применяется к аудио-адаптеру сразу, отладочные
-// переключатели — к рендеру (счётчик кадров и проекция уровня).
+// переключатели и скорость хода — к рендеру (счётчик кадров, проекция, компас).
 config.subscribe((key, value) => {
   if (key === 'sfxVolume') audio.setSfxVolume(value as number);
   if (key === 'musicVolume') audio.setMusicVolume(value as number);
   if (key === 'projection') renderer.setProjection(value as ProjectionMode);
   if (key === 'showFps') renderer.setFpsVisible(value === true);
+  if (key === 'moveSpeed') renderer.setMoveSpeed(value === 'fast' ? FAST_MOVE_SPEED : 1);
+  if (key === 'compass') {
+    compassAlways = value === 'on';
+    applyKeyGuide();
+  }
 });
 
 // 9. FSM-машины
@@ -108,7 +130,7 @@ gameScreen.pause.addEventListener('click', () => game.pause());
 const ARROWS: Record<string, string> = { '1,0': '→', '-1,0': '←', '0,1': '↓', '0,-1': '↑' };
 let hintTimer = 0;
 gameScreen.hint.addEventListener('click', () => {
-  const plan = game.hintPlan();
+  const plan = game.useHint();
   gameScreen.hintToast.textContent = plan
     ? `${i18n.t('HINT')}: ${ARROWS[`${plan.dir.x},${plan.dir.y}`] ?? ''}`
     : i18n.t('HINT_NONE');
@@ -126,6 +148,7 @@ gameScreen.hint.addEventListener('click', () => {
 renderer.init(gameScreen.canvas);
 renderer.setProjection(config.get('projection') as ProjectionMode);
 renderer.setFpsVisible(config.get('showFps') === true);
+renderer.setMoveSpeed(config.get('moveSpeed') === 'fast' ? FAST_MOVE_SPEED : 1);
 const onResize = () => renderer.resize(window.innerWidth, window.innerHeight);
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);
@@ -148,6 +171,8 @@ const menuCtrl = new MenuController(
     episodes.setCurLevel(ep, lvl);
   },
   config,
+  // Отладка: открыть все уровни — прогресс сразу пишется в сохранение.
+  () => game.saveProgress(),
 );
 
 /*
@@ -203,7 +228,7 @@ const completedDialog = new CompletedDialogController(dialogRoot, i18n, audio, {
 
 game.attachDialogs({
   showPause: () => pauseDialog.show(),
-  showCompleted: (moves, time) => completedDialog.show(moves, time),
+  showCompleted: (result) => completedDialog.show(result),
   hideDialogs: () => {
     pauseDialog.hide();
     completedDialog.hide();
@@ -262,12 +287,7 @@ input.on(InputAction.BACK, () => {
 });
 input.setEnabled(true);
 
-// Компас клавиатуры: только в самой игре и только когда ввод идёт с клавиш
-// или геймпада (на тач-экране клавиш нет, подсказка не нужна).
-let inGame = false;
-const applyKeyGuide = (): void => renderer.setKeyGuideVisible(inGame && modality.isPointing());
 modality.attach();
-modality.subscribe(applyKeyGuide);
 applyKeyGuide();
 
 // Демо-режим: активен во всех состояниях menuFSM, кроме `game` (фон меню)

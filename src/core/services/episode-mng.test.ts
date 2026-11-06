@@ -65,6 +65,36 @@ describe('EpisodeManager', () => {
     expect(mng.isLocked(0, 1)).toBe(true);
   });
 
+  it('первый уровень следующего эпизода — только после 7 уровней предыдущего', () => {
+    const mng = new EpisodeManager();
+    expect(mng.isLocked(1, 0)).toBe(true);
+    // шесть пройденных уровней первого эпизода недостаточно
+    for (let level = 0; level < 6; level++) {
+      mng.setCurLevel(0, level);
+      mng.unlockCurrent();
+    }
+    expect(mng.isLocked(1, 0)).toBe(true);
+    mng.setCurLevel(0, 6);
+    mng.unlockCurrent();
+    expect(mng.isLocked(1, 0)).toBe(false);
+  });
+
+  it('unlockAllLevels открывает все уровни обоих эпизодов', () => {
+    const mng = new EpisodeManager();
+    mng.unlockAllLevels();
+    expect(mng.isAllUnlocked()).toBe(true);
+    expect(mng.isLocked(0, 11)).toBe(false);
+    expect(mng.isLocked(1, 0)).toBe(false);
+    expect(mng.isLocked(1, 11)).toBe(false);
+  });
+
+  it('minMoves возвращает длину кратчайшего решения и кэширует его', () => {
+    const mng = new EpisodeManager();
+    const min = mng.minMoves(0, 0);
+    expect(min).toBeGreaterThan(0);
+    expect(mng.minMoves(0, 0)).toBe(min);
+  });
+
   it('markStarted делает Resume доступной без загрузки сохранения', () => {
     const mng = new EpisodeManager();
     expect(mng.isResume()).toBe(false);

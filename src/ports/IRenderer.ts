@@ -43,6 +43,9 @@ export interface IRenderer {
   /** Проекция сцены (отладочное меню). */
   setProjection(mode: ProjectionMode): void;
 
+  /** Скорость анимации хода: 1 — плавно (по умолчанию), >1 — быстрее. */
+  setMoveSpeed(multiplier: number): void;
+
   /** Счётчик кадров в левом нижнем углу. */
   setFpsVisible(visible: boolean): void;
 }

@@ -7,10 +7,6 @@
     --screen-pad-bottom: clamp(14px, 6vh, 40px);
   }
 
-  .screen__title--main {
-    font-size: clamp(2.6rem, 9.5vh, 4rem);
-  }
-
   /* Панель экрана в альбоме тоже не доходит до заголовка и «Назад»:
      высоту задаёт общее правило через --menu-title-space / --menu-back-space. */
 
@@ -24,7 +20,6 @@
 
   .xmb__caption {
     bottom: calc(var(--screen-pad-bottom) - 8px);
-    padding: 8px 22px;
   }
 }
 
@@ -41,7 +36,6 @@
   }
 
   .xmb__caption {
-    padding: 6px 18px;
     font-size: 1rem;
   }
 }

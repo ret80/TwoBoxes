@@ -13,6 +13,7 @@ import {
   type MainMenuRefs,
   type MenuItemId,
 } from '../html/screens';
+import type { CompassMode, MoveSpeed } from '../../core/services/config';
 import type { ProjectionMode } from '../../ports/IRenderer';
 
 export type MenuDirection = 'up' | 'down' | 'left' | 'right';
@@ -60,6 +61,8 @@ export class MenuController {
   private episodes: EpisodeManager;
   private config: Config;
   private onGameSelected: (episodeId: number, levelId: number) => void;
+  /** Вызывается после разблокировки всех уровней — прогресс надо сохранить. */
+  private onUnlockAll?: () => void;
 
   private screens = new Map<string, HTMLElement>();
   private current = '';
@@ -79,6 +82,7 @@ export class MenuController {
     menuActor: ActorRefFrom<typeof menuMachine>,
     onGameSelected: (episodeId: number, levelId: number) => void,
     config: Config,
+    onUnlockAll?: () => void,
   ) {
     this.container = container;
     this.i18n = i18n;
@@ -86,6 +90,7 @@ export class MenuController {
     this.config = config;
     this.menuActor = menuActor;
     this.onGameSelected = onGameSelected;
+    this.onUnlockAll = onUnlockAll;
     this.buildScreens();
     this.attachSwipe();
     this.menuActor.subscribe((s) => this.show(s.value as string));
@@ -109,12 +114,14 @@ export class MenuController {
       {
         sfx: Number(this.config.get('sfxVolume')),
         music: Number(this.config.get('musicVolume')),
+        speed: this.config.get('moveSpeed') as MoveSpeed,
       },
       {
         onBack: () => this.menuActor.send({ type: 'BACK' }),
         onSfxChange: (value) => this.config.set('sfxVolume', value),
         onMusicChange: (value) => this.config.set('musicVolume', value),
         onLocaleChange: (locale: Locale) => this.i18n.setLocale(locale),
+        onSpeedChange: (value: MoveSpeed) => this.config.set('moveSpeed', value),
       },
     );
     this.screens.set('settings', settings);
@@ -135,11 +142,14 @@ export class MenuController {
       {
         showFps: this.config.get('showFps') === true,
         projection: this.config.get('projection') as ProjectionMode,
+        compass: this.config.get('compass') as CompassMode,
       },
       {
         onBack: () => this.menuActor.send({ type: 'BACK' }),
         onFpsChange: (value) => this.config.set('showFps', value),
         onProjectionChange: (mode) => this.config.set('projection', mode),
+        onCompassChange: (mode) => this.config.set('compass', mode),
+        onUnlockAll: () => this.unlockAllLevels(),
       },
     );
     this.screens.set('debug', debug);
@@ -340,6 +350,13 @@ export class MenuController {
       btn.style.setProperty('--dy', String(dy));
     }
     menu.caption.textContent = this.i18n.t(MENU_LABEL[this.activeItem]);
+  }
+
+  /** Отладочный чит: открыть все уровни и сразу обновить список уровней. */
+  private unlockAllLevels(): void {
+    this.episodes.unlockAllLevels();
+    this.onUnlockAll?.();
+    this.refreshSelector();
   }
 
   /** Обновить статус уровней (например, после победы). */

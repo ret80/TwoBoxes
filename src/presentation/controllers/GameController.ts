@@ -10,6 +10,7 @@ import type { ISaveStorage } from '../../ports/ISaveStorage';
 import type { Statistics } from '../../core/services/statistics';
 import { InputAction } from '../../ports/IInput';
 import { findHint, planSlides, type HintSlide } from '../../core/rules/hint';
+import { starsForMoves, type GameResult } from '../../core/types/game-result';
 
 const SAVE_KEY = 'save';
 
@@ -48,7 +49,7 @@ export class GameController {
 
   // Диалоги (подключаются позже)
   private showPause: (() => void) | null = null;
-  private showCompleted: ((moves: number, time: number) => void) | null = null;
+  private showCompleted: ((result: GameResult) => void) | null = null;
   private hideDialogs: (() => void) | null = null;
 
   constructor(
@@ -79,7 +80,7 @@ export class GameController {
 
   attachDialogs(ui: {
     showPause: () => void;
-    showCompleted: (moves: number, time: number) => void;
+    showCompleted: (result: GameResult) => void;
     hideDialogs: () => void;
   }): void {
     this.showPause = ui.showPause;
@@ -149,6 +150,16 @@ export class GameController {
   }
 
   /**
+   * Подсказка для кнопки «?»: считает использованные подсказки (для статистики
+   * в диалоге победы) и возвращает план — направление и пути кубиков.
+   */
+  useHint(): { dir: Position; slides: HintSlide[] } | null {
+    const plan = this.hintPlan();
+    if (plan && !this.isDemo) this.statistics.incrementHints();
+    return plan;
+  }
+
+  /**
    * Подсказка с путями кубиков: направление первого хода и то, до какой
    * клетки доедет каждый кубик — по этим путям на поле скользят стрелки.
    */
@@ -180,6 +191,11 @@ export class GameController {
     // После первого старта уровня «Продолжить» уже есть что продолжать
     this.episodes.markStarted();
     this.storage.save(SAVE_KEY, this.episodes.serialize());
+  }
+
+  /** Сохранить прогресс после внешних изменений (разблокировка в отладке). */
+  saveProgress(): void {
+    this.save();
   }
 
   loadSave(): unknown {
@@ -242,7 +258,16 @@ export class GameController {
       this.statistics.stop();
       this.episodes.unlockCurrent();
       this.save();
-      this.showCompleted?.(ctx.moves, ctx.time);
+      // Минимальное число ходов уровня — база для звёзд в диалоге победы.
+      const minMoves = this.episodes.minMoves(ctx.level.episodeId, ctx.level.levelId);
+      this.showCompleted?.({
+        moves: ctx.moves,
+        time: ctx.time,
+        completed: true,
+        hints: this.statistics.getHints(),
+        minMoves,
+        stars: starsForMoves(ctx.moves, minMoves),
+      });
     }
   }
 
