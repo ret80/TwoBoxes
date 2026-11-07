@@ -1,4 +1,6 @@
 import { ColorType } from '../core/types/color';
+import type { PathPoint } from '../core/types/game-state';
+import type { MechanicState } from '../core/types/mechanic-state';
 import { Position } from '../core/types/position';
 
 /**
@@ -73,6 +75,8 @@ export interface RenderState {
   height: number;
   boxes: { pos: Position; color: ColorType }[];
   ends: { pos: Position; color: ColorType }[];
+  /** Ловушки и перевёрнутые ротаторы: рендер показывает состояние на поле. */
+  mechanicState?: MechanicState;
 }
 
 /** Описание перемещения одного кубика для tween-анимации. */
@@ -80,4 +84,6 @@ export interface MoveAnimation {
   color: ColorType;
   from: Position;
   to: Position;
+  /** Фактический путь: повороты и прыжки через порталы. */
+  path?: PathPoint[];
 }

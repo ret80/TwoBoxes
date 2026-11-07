@@ -2,6 +2,7 @@ import type { Locale, LocaleManager } from '../i18n/LocaleManager';
 import type { EpisodeManager } from '../../core/services/episode-mng';
 import type { CompassMode, MoveSpeed } from '../../core/services/config';
 import type { ProjectionMode } from '../../ports/IRenderer';
+import { ALL_MECHANICS, type MechanicId } from '../../core/generation/mechanics';
 
 /** DOM-генераторы экранов (план 11.1 — TS-модули вместо .html, SPA/Vite). */
 
@@ -403,13 +404,22 @@ export function buildSettingsScreen(
  */
 export function buildDebugScreen(
   i18n: LocaleManager,
-  values: { showFps: boolean; projection: ProjectionMode; compass: CompassMode },
+  values: {
+    showFps: boolean;
+    projection: ProjectionMode;
+    compass: CompassMode;
+    mechanics: MechanicId[];
+    difficulty: number;
+  },
   cb: {
     onBack: () => void;
     onFpsChange: (value: boolean) => void;
     onProjectionChange: (mode: ProjectionMode) => void;
     onCompassChange: (mode: CompassMode) => void;
     onUnlockAll: () => void;
+    onMechanicsChange: (mechanics: MechanicId[]) => void;
+    onDifficultyChange: (difficulty: number) => void;
+    onTestLevel: (mechanics: MechanicId[], difficulty: number) => Promise<boolean>;
   },
 ): HTMLElement {
   const root = el('div', 'screen screen--info screen--debug');
@@ -457,6 +467,54 @@ export function buildDebugScreen(
     cb.onCompassChange,
     'settings-row',
   );
+
+  // ── Тестовые уровни с механиками ────────────────────────────────────
+  panel.appendChild(el('h3', 'help__title', i18n.t('DEBUG_MECHANICS')));
+  const selected = new Set<MechanicId>(values.mechanics);
+  const mechanicKey = (id: MechanicId): string =>
+    `MECH_${id.toUpperCase()}`;
+  for (const mechanic of ALL_MECHANICS) {
+    const row = el('label', 'settings-row settings-row--check');
+    row.appendChild(el('span', 'settings-row__label', i18n.t(mechanicKey(mechanic.id))));
+    const check = el<HTMLInputElement>('input', 'settings-row__check');
+    check.type = 'checkbox';
+    check.checked = selected.has(mechanic.id);
+    check.title = i18n.t(`${mechanicKey(mechanic.id)}_DESC`);
+    check.addEventListener('change', () => {
+      if (check.checked) selected.add(mechanic.id);
+      else selected.delete(mechanic.id);
+      cb.onMechanicsChange([...selected]);
+    });
+    row.appendChild(check);
+    panel.appendChild(row);
+  }
+
+  const difficultyRow = el('label', 'settings-row');
+  difficultyRow.appendChild(el('span', 'settings-row__label', i18n.t('DEBUG_DIFFICULTY')));
+  const difficulty = el<HTMLInputElement>('input', 'settings-row__range');
+  difficulty.type = 'range';
+  difficulty.min = '0';
+  difficulty.max = '100';
+  difficulty.step = '5';
+  difficulty.value = String(values.difficulty);
+  const difficultyOut = el('span', 'settings-row__value', String(values.difficulty));
+  difficulty.addEventListener('input', () => {
+    difficultyOut.textContent = difficulty.value;
+    cb.onDifficultyChange(Number(difficulty.value));
+  });
+  difficultyRow.append(difficulty, difficultyOut);
+  panel.appendChild(difficultyRow);
+
+  const generate = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_GENERATE'));
+  const status = el('p', 'help__text', '');
+  generate.addEventListener('click', async () => {
+    generate.disabled = true;
+    status.textContent = i18n.t('DEBUG_GENERATING');
+    const ok = await cb.onTestLevel([...selected], Number(difficulty.value));
+    generate.disabled = false;
+    status.textContent = ok ? '' : i18n.t('DEBUG_GENERATE_FAILED');
+  });
+  panel.append(generate, status);
 
   // Чит: открыть все уровни всех эпизодов (прогресс сохраняется сразу).
   const unlock = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_UNLOCK_ALL'));

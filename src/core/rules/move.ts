@@ -1,47 +1,129 @@
-import { CellType, isEndCell } from '../types/cell';
-import { ColorType } from '../types/color';
+import {
+  CellType,
+  isBoxCell,
+  isEndCell,
+  isMechanicCell,
+  oneWayDir,
+  portalPartner,
+} from '../types/cell';
 import type { Box } from '../types/entity';
-import type { GameState } from '../types/game-state';
-import { Level } from '../types/level';
-import { LevelGrid } from '../types/level-grid';
+import type { GameState, PathPoint } from '../types/game-state';
+import type { Level } from '../types/level';
+import {
+  cloneMechanicState,
+  createMechanicState,
+  type MechanicState,
+} from '../types/mechanic-state';
 import { Position } from '../types/position';
 
 /**
- * Клетка проходима для скольжения: EMPTY или любая целевая площадка
- * (раздел 4.4 документации; WALL и UNKNOWN блокируют движение).
+ * Клетка проходима для скольжения. Клетки кубиков тоже проходимы: карта
+ * хранит их стартовые позиции, а актуальные препятствия считает `occupied`.
+ * Иначе кубик навсегда упирался бы в собственную стартовую клетку.
  */
 function isPassable(cell: CellType): boolean {
-  return cell === CellType.EMPTY || isEndCell(cell);
+  return cell === CellType.EMPTY || isEndCell(cell) || isBoxCell(cell) || isMechanicCell(cell);
 }
 
-/**
- * Длина пути скольжения кубика из `pos` в `dir` по рабочей карте
- * (аналог `_get_len_path()` в move_state.gd).
- */
-export function getLenPath(pos: Position, dir: Position, grid: LevelGrid): number {
-  let len = 0;
-  let cur = pos;
-  for (;;) {
-    const next = cur.add(dir);
-    if (!grid.isValid(next) || !isPassable(grid.get(next))) break;
-    cur = next;
-    len++;
+/** Поворот направления на 90°: по часовой стрелке (экранная ось Y вниз) или против. */
+function rotate(dir: Position, clockwise: boolean): Position {
+  return clockwise
+    ? new Position(-dir.y, dir.x)
+    : new Position(dir.y, -dir.x);
+}
+
+/** Найти вторую клетку портала. Пара в уровне одна, но поиск не зависит от неё. */
+function findPortalExit(level: Level, from: Position, partner: CellType): Position | null {
+  for (let y = 0; y < level.height; y++) {
+    for (let x = 0; x < level.width; x++) {
+      const pos = new Position(x, y);
+      if (pos.equals(from)) continue;
+      if (level.grid.get(pos) === partner) return pos;
+    }
   }
-  return len;
+  return null;
+}
+
+interface Trace {
+  pos: Position;
+  points: PathPoint[];
+  /** Кубик вообще сдвинулся (а не только пропустил ход из-за ловушки). */
+  moved: boolean;
 }
 
 /**
- * Попытка хода: **все кубики** одновременно скользят в `dir` до упора
- * (раздел 4.4 документации, аналог `move_state.gd`).
+ * Провести один кубик до упора с учётом механик. Возвращает фактический путь:
+ * по нему анимация рисует повороты на ротаторах и прыжок через портал.
+ */
+function traceBox(
+  level: Level,
+  start: Position,
+  dir: Position,
+  occupied: Uint8Array,
+  state: MechanicState,
+  index: number,
+): Trace {
+  const points: PathPoint[] = [{ pos: start.clone() }];
+  let cur = start.clone();
+  let heading = dir;
+  let step = 0;
+  const maxSteps = level.width * level.height * 4 + 16;
+
+  while (step++ < maxSteps) {
+    const next = cur.add(heading);
+    const cell = level.grid.get(next);
+    if (!isPassable(cell)) break;
+    // Односторонняя клетка пускает только по своему направлению.
+    const oneWay = oneWayDir(cell);
+    if (oneWay && (oneWay.x !== heading.x || oneWay.y !== heading.y)) break;
+    if (occupied[next.y * level.width + next.x]) break;
+
+    cur = next;
+    points.push({ pos: cur.clone() });
+
+    const partner = portalPartner(cell);
+    if (partner) {
+      const exit = findPortalExit(level, cur, partner);
+      if (!exit || occupied[exit.y * level.width + exit.x]) break;
+      cur = exit;
+      points.push({ pos: cur.clone(), teleport: true });
+      continue;
+    }
+
+    if (cell === CellType.TRAP) {
+      // Ловушка останавливает кубик и держит его два следующих хода.
+      state.locks[index] = 2;
+      break;
+    }
+
+    if (cell === CellType.SWITCH) {
+      // Переключатель срабатывает в момент проезда и переворачивает ротаторы.
+      state.rotorFlip = !state.rotorFlip;
+      continue;
+    }
+
+    if (cell === CellType.ROTOR_CW || cell === CellType.ROTOR_CCW) {
+      const clockwise = (cell === CellType.ROTOR_CW) !== state.rotorFlip;
+      heading = rotate(heading, clockwise);
+    }
+  }
+
+  return { pos: cur, points, moved: points.length > 1 };
+}
+
+/**
+ * Попытка хода: **все кубики** одновременно скользят в `dir` до упора.
  *
- * Алгоритм:
- * 1. Рабочая карта = копия grid уровня (кубики уже на ней), кубики последовательно
- *    «перезаписываются» — аналог `Util.create_lvl` (script/util/util.gd).
- * 2. Кубики обрабатываются в порядке «ведущий первым» (сортировка по проекции
- *    на направление): после вычисления пути переднего кубика его новая позиция
- *    становится препятствием для следующего — кубики не «склеиваются».
- * 3. Если ни один кубик не может сдвинуться — возвращается null (ход «в стену»
- *    игнорируется, guard `canMove` игрового FSM).
+ * Механики — это расширения того же скольжения:
+ * - портал переносит кубик на парную клетку и отпускает дальше в том же
+ *   направлении;
+ * - ловушка останавливает кубик и отнимает два следующих хода;
+ * - ротатор поворачивает движение на 90°;
+ * - переключатель переворачивает все ротаторы;
+ * - односторонняя клетка пропускает только по стрелке.
+ *
+ * Если все кубики в ловушках, ход всё равно засчитывается как пропуск: иначе
+ * счётчики никогда бы не уменьшились и уровень стал бы мёртвым.
  *
  * @returns новый GameState или null, если движение невозможно.
  */
@@ -51,50 +133,70 @@ export function moveBoxes(
   dir: Position,
   curMoves: number,
   curTime: number,
+  state: MechanicState = createMechanicState(boxes.length),
 ): GameState | null {
-  const work = level.grid.duplicate();
+  const nextState = cloneMechanicState(state);
+  nextState.locks.length = boxes.length;
+  for (let i = 0; i < boxes.length; i++) nextState.locks[i] ??= 0;
 
-  // Очистить клетки кубиков и выставить кубики по актуальным позициям.
-  for (let y = 0; y < work.height; y++) {
-    for (let x = 0; x < work.width; x++) {
-      if (work.get(new Position(x, y)) === CellType.BOX || work.get(new Position(x, y)) === CellType.BOX_TWO) {
-        work.set(new Position(x, y), CellType.EMPTY);
-      }
-    }
-  }
-  for (const b of boxes) {
-    work.set(b.pos, b.color === ColorType.ONE ? CellType.BOX : CellType.BOX_TWO);
-  }
+  // Списать пропущенный ход у запертых кубиков. Они остаются препятствиями
+  // для остальных и не участвуют в выборе порядка движения.
+  const locked: boolean[] = boxes.map((_, index) => {
+    if (nextState.locks[index] <= 0) return false;
+    nextState.locks[index]--;
+    return true;
+  });
 
-  // «Ведущий первым»: кубик с большей проекцией на направление движется раньше.
-  const proj = (b: Box): number => b.pos.x * dir.x + b.pos.y * dir.y;
-  const indexed = boxes.map((box, index) => ({ box, index }));
-  indexed.sort((a, b) => proj(b.box) - proj(a.box));
+  const occupied = new Uint8Array(level.width * level.height);
+  boxes.forEach((box) => {
+    occupied[box.pos.y * level.width + box.pos.x] = 1;
+  });
 
-  const newBoxes: Box[] = new Array(boxes.length);
+  const proj = (box: Box): number => box.pos.x * dir.x + box.pos.y * dir.y;
+  const indexed = boxes
+    .map((box, index) => ({ box, index }))
+    .filter(({ index }) => !locked[index])
+    .sort((a, b) => proj(b.box) - proj(a.box));
+
+  const newBoxes: Box[] = boxes.map((box) => ({
+    pos: box.pos.clone(),
+    color: box.color,
+  }));
+  const paths: PathPoint[][] = boxes.map(() => []);
   let moved = false;
 
   for (const { box, index } of indexed) {
-    const len = getLenPath(box.pos, dir, work);
-    if (len > 0) {
+    // Кубик освобождает старую клетку, чтобы не блокировать сам себя.
+    occupied[box.pos.y * level.width + box.pos.x] = 0;
+    const trace = traceBox(level, box.pos, dir, occupied, nextState, index);
+    newBoxes[index] = { pos: trace.pos, color: box.color };
+    occupied[trace.pos.y * level.width + trace.pos.x] = 1;
+    if (trace.moved) {
       moved = true;
-      work.set(box.pos, CellType.EMPTY);
-      const target = new Position(box.pos.x + dir.x * len, box.pos.y + dir.y * len);
-      work.set(target, box.color === ColorType.ONE ? CellType.BOX : CellType.BOX_TWO);
-      newBoxes[index] = { pos: target, color: box.color };
-    } else {
-      newBoxes[index] = { pos: box.pos.clone(), color: box.color };
+      paths[index] = trace.points;
     }
   }
 
-  if (!moved) return null;
+  // Все кубики были заперты: ход-пропуск нужен, чтобы ловушки истекли.
+  const waited = locked.some(Boolean) && !moved;
+  if (!moved && !waited) return null;
 
-  return { level, boxes: newBoxes, moves: curMoves + 1, time: curTime };
+  return {
+    level,
+    boxes: newBoxes,
+    moves: curMoves + 1,
+    time: curTime,
+    mechanicState: nextState,
+    paths,
+  };
 }
 
-/**
- * Может ли быть совершён хотя бы один ход (guard `canMove` игрового FSM).
- */
-export function canMoveAny(level: Level, boxes: Box[], dir: Position): boolean {
-  return moveBoxes(level, boxes, dir, 0, 0) !== null;
+/** Может ли быть совершён хотя бы один ход. */
+export function canMoveAny(
+  level: Level,
+  boxes: Box[],
+  dir: Position,
+  state?: MechanicState,
+): boolean {
+  return moveBoxes(level, boxes, dir, 0, 0, state) !== null;
 }

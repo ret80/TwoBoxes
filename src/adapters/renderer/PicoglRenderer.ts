@@ -1,7 +1,14 @@
 import { App, DrawCall, Program, VertexArray, VertexBuffer, PicoGL } from 'picogl';
 import { mat4 } from 'gl-matrix';
 import { ColorType } from '../../core/types/color';
-import { CellType, isBoxCell, isEndCell } from '../../core/types/cell';
+import {
+  CellType,
+  isBoxCell,
+  isEndCell,
+  isMechanicCell,
+  oneWayDir,
+} from '../../core/types/cell';
+import type { PathPoint } from '../../core/types/game-state';
 import type {
   HintArrow,
   IRenderer,
@@ -47,6 +54,17 @@ const COLOR_GOAL_TWO = [0.925, 0.788, 0.404]; // контур цели жёлт�
 const COLOR_RECESS = [0.404, 0.529, 0.51]; // углубление целевой площадки
 const COLOR_GRID = [0.9, 0.96, 0.94]; // светлая сетка на плитах
 const COLOR_BG = [0.933, 0.906, 0.843]; // тёплый желтоватый фон сцены
+// Механики: цветные вставки на плитах, чтобы тип клетки читался без легенды.
+const COLOR_PORTAL_A = [0.36, 0.62, 0.88];
+const COLOR_PORTAL_B = [0.74, 0.45, 0.84];
+const COLOR_TRAP = [0.38, 0.3, 0.27];
+const COLOR_TRAP_MARK = [0.82, 0.42, 0.34];
+const COLOR_ROTOR = [0.34, 0.57, 0.55];
+const COLOR_ROTOR_MARK = [0.94, 0.86, 0.62];
+const COLOR_SWITCH = [0.72, 0.58, 0.32];
+const COLOR_SWITCH_MARK = [1.0, 0.92, 0.72];
+const COLOR_ONEWAY = [0.5, 0.63, 0.58];
+const COLOR_ONEWAY_MARK = [0.95, 0.97, 0.9];
 
 // Свечение кубика на своей площадке — насыщенный цвет кубика (не белый).
 const GLOW_ONE = [1.0, 0.42, 0.17]; // коралловый ореол
@@ -81,7 +99,7 @@ const BOX_Y = PLATFORM_TOP + 0.5;
  * кубики (их клетки в карте уровня помечены BOX/BOX_TWO). WALL — обрыв.
  */
 const isWalkableCell = (cell: CellType): boolean =>
-  cell === CellType.EMPTY || isEndCell(cell) || isBoxCell(cell);
+  cell === CellType.EMPTY || isEndCell(cell) || isBoxCell(cell) || isMechanicCell(cell);
 
 const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 
@@ -405,13 +423,46 @@ export class PicoglRenderer implements IRenderer {
         this.finishMove();
         continue;
       }
-      const distance = Math.abs(m.to.x - m.from.x) + Math.abs(m.to.y - m.from.y);
-      this.tweens.add(
-        item as unknown as Record<string, number>,
-        { x: m.to.x + 0.5, z: m.to.y + 0.5, y: BOX_Y },
-        TweenManager.moveDuration(distance, this.moveSpeed),
-        () => this.finishMove(),
-      );
+
+      // Фактический путь из правил: повороты на ротаторах и выход из
+      // портала. Без него кубик срезал бы через стены по прямой.
+      const path: PathPoint[] =
+        m.path && m.path.length > 1
+          ? m.path
+          : [
+              { pos: m.from },
+              { pos: m.to },
+            ];
+      const steps = path.slice(1);
+      const lengths = steps.map((point, i) => {
+        if (point.teleport) return 0;
+        const prev = path[i].pos;
+        return Math.abs(point.pos.x - prev.x) + Math.abs(point.pos.y - prev.y);
+      });
+      const total = lengths.reduce((sum, n) => sum + n, 0);
+      const totalMs = TweenManager.moveDuration(Math.max(1, total), this.moveSpeed);
+
+      const hop = (index: number): void => {
+        const point = steps[index];
+        if (!point) {
+          this.finishMove();
+          return;
+        }
+        if (point.teleport) {
+          // Прыжок через портал: кубик возникает на выходе без проезда.
+          item.x = point.pos.x + 0.5;
+          item.z = point.pos.y + 0.5;
+          hop(index + 1);
+          return;
+        }
+        this.tweens.add(
+          item as unknown as Record<string, number>,
+          { x: point.pos.x + 0.5, z: point.pos.y + 0.5, y: BOX_Y },
+          total > 0 ? (totalMs * lengths[index]) / total : totalMs,
+          () => hop(index + 1),
+        );
+      };
+      hop(0);
     }
   }
 
@@ -683,6 +734,45 @@ export class PicoglRenderer implements IRenderer {
           drawQuad(worldX(x), surface + 0.024, worldZ(y), 0.68 * scale, goalColor);
           drawQuad(worldX(x), surface + 0.036, worldZ(y), 0.48 * scale, COLOR_RECESS);
         }
+
+        // Клетки механик: цветная вставка и простой знак. Рисуются после
+        // цели, чтобы не спорить с её контуром.
+        if (isMechanicCell(cell)) {
+          const surface = PLATFORM_TOP + lift + 0.045;
+          if (cell === CellType.PORTAL_A || cell === CellType.PORTAL_B) {
+            const color = cell === CellType.PORTAL_A ? COLOR_PORTAL_A : COLOR_PORTAL_B;
+            drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, color);
+            drawQuad(worldX(x), surface + 0.012, worldZ(y), 0.38 * scale, COLOR_GRID);
+          } else if (cell === CellType.TRAP) {
+            drawQuad(worldX(x), surface, worldZ(y), 0.68 * scale, COLOR_TRAP);
+            this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
+            this.drawBar(this.basisMatrix, -0.16, -0.16, 0.16, 0.16, 0.055, COLOR_TRAP_MARK);
+            this.drawBar(this.basisMatrix, 0.16, -0.16, -0.16, 0.16, 0.055, COLOR_TRAP_MARK);
+          } else if (cell === CellType.ROTOR_CW || cell === CellType.ROTOR_CCW) {
+            drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, COLOR_ROTOR);
+            this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
+            const flip = state.mechanicState?.rotorFlip ? -1 : 1;
+            const clockwise = (cell === CellType.ROTOR_CW) !== !!state.mechanicState?.rotorFlip;
+            const side = clockwise ? 1 : -1;
+            this.drawBar(this.basisMatrix, -0.16, -0.13, 0.13, -0.13, 0.06, COLOR_ROTOR_MARK);
+            this.drawBar(this.basisMatrix, 0.13, -0.13, 0.13, 0.13 * flip, 0.06, COLOR_ROTOR_MARK);
+            this.drawBar(this.basisMatrix, 0.13, 0.13 * flip, 0.01, 0.02 * side, 0.06, COLOR_ROTOR_MARK);
+          } else if (cell === CellType.SWITCH) {
+            drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, COLOR_SWITCH);
+            this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
+            this.drawBar(this.basisMatrix, -0.13, 0, 0.13, 0, 0.06, COLOR_SWITCH_MARK);
+            this.drawBar(this.basisMatrix, 0, -0.13, 0, 0.13, 0.06, COLOR_SWITCH_MARK);
+          } else {
+            const dir = oneWayDir(cell);
+            if (!dir) continue;
+            drawQuad(worldX(x), surface, worldZ(y), 0.68 * scale, COLOR_ONEWAY);
+            const angle = Math.atan2(dir.y, dir.x);
+            this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, angle);
+            this.drawBar(this.basisMatrix, -0.2, 0, 0.16, 0, 0.06, COLOR_ONEWAY_MARK);
+            this.drawBar(this.basisMatrix, 0.16, 0, 0.02, -0.11, 0.06, COLOR_ONEWAY_MARK);
+            this.drawBar(this.basisMatrix, 0.16, 0, 0.02, 0.11, 0.06, COLOR_ONEWAY_MARK);
+          }
+        }
       }
     }
 
@@ -746,25 +836,31 @@ export class PicoglRenderer implements IRenderer {
     }
 
     // Кубики: скрывать до появления клетки (аналог скрытых узлов в create_state.gd)
-    for (const b of this.boxPos) {
+    this.boxPos.forEach((b, index) => {
       const bx = Math.round(b.x - 0.5);
       const bz = Math.round(b.z - 0.5);
       const progress = this.cellProgress(bx, bz);
-      if (progress <= 0) continue;
+      if (progress <= 0) return;
       const eased = easeOutCubic(progress);
       const scale = animating ? 0.05 + 0.95 * eased : 1;
       const lift = animating ? (1 - eased) * 1.2 : 0;
+      // Запертый ловушкой кубик чуть меньше и темнее: видно, что он пропустит
+      // следующий ход, не открывая отдельной иконки.
+      const locked = (state.mechanicState?.locks[index] ?? 0) > 0;
+      const boxScale = locked ? 0.76 : 0.9;
+      const baseColor = b.color === ColorType.ONE ? COLOR_BOX : COLOR_BOX_TWO;
+      const color = locked ? baseColor.map((c) => c * 0.7) : baseColor;
       drawCube(
         b.x - state.width / 2,
         BOX_Y * scale + lift,
         b.z - state.height / 2,
-        0.9 * scale,
-        scale,
-        0.9 * scale,
-        b.color === ColorType.ONE ? COLOR_BOX : COLOR_BOX_TWO,
-        onGoal(b) ? 1 : 0,
+        boxScale * scale,
+        (locked ? 0.82 : 1) * scale,
+        boxScale * scale,
+        color,
+        locked ? 0 : onGoal(b) ? 1 : 0,
       );
-    }
+    });
 
     // Стрелки подсказки — поверх сцены: кубик закрывает собой клетку упора,
     // и без этого половина стрелок оставалась за ним.

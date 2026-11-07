@@ -14,6 +14,7 @@ import {
   type MenuItemId,
 } from '../html/screens';
 import type { CompassMode, MoveSpeed } from '../../core/services/config';
+import type { MechanicId } from '../../core/generation/mechanics';
 import type { ProjectionMode } from '../../ports/IRenderer';
 
 export type MenuDirection = 'up' | 'down' | 'left' | 'right';
@@ -87,6 +88,11 @@ export class MenuController {
   private onLevelNeeded: ((episodeId: number, levelId: number) => void) | null = null;
   /** Уровень, который игрок выбрал до окончания его генерации. */
   private pendingLevel: { episodeId: number; levelId: number } | null = null;
+  /** Выбранные в отладке механики и сложность тестового уровня. */
+  private debugMechanics: MechanicId[] = ['portal'];
+  private debugDifficulty = 50;
+  /** Генерация тестового уровня из отладочного меню. */
+  private onTestLevel?: (mechanics: MechanicId[], difficulty: number) => Promise<boolean>;
 
   constructor(
     container: HTMLElement,
@@ -96,6 +102,7 @@ export class MenuController {
     onGameSelected: (episodeId: number, levelId: number) => void,
     config: Config,
     onUnlockAll?: () => void,
+    onTestLevel?: (mechanics: MechanicId[], difficulty: number) => Promise<boolean>,
   ) {
     this.container = container;
     this.i18n = i18n;
@@ -104,6 +111,7 @@ export class MenuController {
     this.menuActor = menuActor;
     this.onGameSelected = onGameSelected;
     this.onUnlockAll = onUnlockAll;
+    this.onTestLevel = onTestLevel;
     this.buildScreens();
     this.attachSwipe();
     this.menuActor.subscribe((s) => this.show(s.value as string));
@@ -156,6 +164,8 @@ export class MenuController {
         showFps: this.config.get('showFps') === true,
         projection: this.config.get('projection') as ProjectionMode,
         compass: this.config.get('compass') as CompassMode,
+        mechanics: this.debugMechanics,
+        difficulty: this.debugDifficulty,
       },
       {
         onBack: () => this.backFromScreen(),
@@ -163,6 +173,14 @@ export class MenuController {
         onProjectionChange: (mode) => this.config.set('projection', mode),
         onCompassChange: (mode) => this.config.set('compass', mode),
         onUnlockAll: () => this.unlockAllLevels(),
+        onMechanicsChange: (mechanics) => {
+          this.debugMechanics = mechanics;
+        },
+        onDifficultyChange: (difficulty) => {
+          this.debugDifficulty = difficulty;
+        },
+        onTestLevel: (mechanics, difficulty) =>
+          this.onTestLevel?.(mechanics, difficulty) ?? Promise.resolve(false),
       },
     );
     this.screens.set('debug', debug);

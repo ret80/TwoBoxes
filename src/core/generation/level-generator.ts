@@ -1,8 +1,20 @@
 import { DIRS, Position } from '../types/position';
+import { CellType } from '../types/cell';
+import { ColorType } from '../types/color';
 import { createLevelFromData } from '../rules/create';
+import { moveBoxes } from '../rules/move';
+import { createMechanicState, type MechanicState } from '../types/mechanic-state';
+import type { Box } from '../types/entity';
 import { findShortestSolution, solveLevel } from './solver';
 import { scoreDifficulty } from './difficulty';
 import { assembleField, type PatternKind } from './patterns';
+import {
+  mechanicChar,
+  resolveMechanics,
+  type FieldDraft,
+  type MechanicId,
+  type MechanicModule,
+} from './mechanics';
 
 /**
  * Генератор уровней для эпизода 2 — переработанный прототип
@@ -40,6 +52,8 @@ export interface GeneratedLevel {
   score: number;
   /** Доля достижимых состояний, из которых победа недостижима. */
   deadEndRatio: number;
+  /** Механики, которые реально встречаются в решении. */
+  mechanics: MechanicId[];
 }
 
 export interface GenerateLevelOptions {
@@ -62,6 +76,8 @@ export interface GenerateLevelOptions {
   maxMoves?: number;
   /** Сколько подходящих кандидатов сравнивать (по умолчанию 1). */
   candidates?: number;
+  /** Подключённые механики; пусто — классический уровень. */
+  mechanics?: MechanicId[];
 }
 
 const OPPOSITE: Record<string, string> = {
@@ -72,7 +88,9 @@ const OPPOSITE: Record<string, string> = {
 };
 
 const key = (pos: Position): string => `${pos.x},${pos.y}`;
-const boxesKey = (boxes: Position[]): string => boxes.map(key).join('|');
+const boxesKey = (boxes: Box[]): string => boxes.map((box) => key(box.pos)).join('|');
+const walkKey = (boxes: Box[], state: MechanicState): string =>
+  `${boxesKey(boxes)}#${state.locks.join(',')}#${state.rotorFlip ? 1 : 0}`;
 
 /** Быстрый детерминированный ГПСЧ (mulberry32). */
 function createRng(seed: number): () => number {
@@ -189,42 +207,6 @@ function createField(size: number, rng: () => number): Uint8Array | null {
   return field;
 }
 
-/**
- * Один ход по точным правилам `moveBoxes`: все кубики скользят до упора,
- * ведущий (большая проекция на направление) движется первым.
- * Возвращает новые позиции либо null, если никто не сдвинулся.
- */
-function slide(
-  floor: Uint8Array,
-  size: number,
-  boxes: Position[],
-  dir: Position,
-): Position[] | null {
-  const result = boxes.map((b) => b.clone());
-  let moved = false;
-
-  const order = [0, 1].sort((a, b) => {
-    const pa = result[a].x * dir.x + result[a].y * dir.y;
-    const pb = result[b].x * dir.x + result[b].y * dir.y;
-    return pb - pa;
-  });
-
-  for (const index of order) {
-    let cur = result[index];
-    for (;;) {
-      const next = cur.add(dir);
-      if (next.x < 0 || next.y < 0 || next.x >= size || next.y >= size) break;
-      if (!floor[next.y * size + next.x]) break;
-      const other = result[1 - index];
-      if (other.equals(next)) break;
-      cur = next;
-      moved = true;
-    }
-    result[index] = cur;
-  }
-
-  return moved ? result : null;
-}
 
 function adjacentToFloor(
   floor: Uint8Array,
@@ -241,7 +223,13 @@ function adjacentToFloor(
   return false;
 }
 
-function render(floor: Uint8Array, size: number, starts: Position[], ends: Position[]): string[] {
+function render(
+  floor: Uint8Array,
+  size: number,
+  starts: Position[],
+  ends: Position[],
+  cells: Map<number, CellType>,
+): string[] {
   const grid: string[][] = [];
   for (let y = 0; y < size; y++) {
     const row: string[] = [];
@@ -255,6 +243,12 @@ function render(floor: Uint8Array, size: number, starts: Position[], ends: Posit
   const put = (pos: Position, ch: string): void => {
     grid[pos.y][pos.x] = ch;
   };
+  // Сначала механики, затем старты/цели: сущности всегда главнее фона.
+  for (const [index, cell] of cells) {
+    const ch = mechanicChar(cell);
+    if (!ch) continue;
+    put(new Position(index % size, Math.floor(index / size)), ch);
+  }
   ends.forEach((pos, i) => put(pos, i === 0 ? 'r' : 'y'));
   starts.forEach((pos, i) => put(pos, i === 0 ? 'R' : 'Y'));
 
@@ -282,6 +276,42 @@ function parse(rows: string[]) {
 }
 
 /**
+ * Пройти кратчайшее решение и вернуть механики, клетки которых кубики
+ * действительно задели. Проверка нужна, чтобы отбросить уровни, где портал
+ * или ловушка стоят в стороне от маршрута.
+ */
+function mechanicsInSolution(
+  level: ReturnType<typeof parse>,
+  solution: Position[],
+  modules: MechanicModule[],
+): MechanicModule[] {
+  if (modules.length === 0) return [];
+  const used = new Set<MechanicId>();
+  let boxes: Box[] = level.boxes.map((box) => ({
+    pos: box.pos.clone(),
+    color: box.color,
+  }));
+  let state = createMechanicState(boxes.length);
+
+  for (const dir of solution) {
+    const next = moveBoxes(level, boxes, dir, 0, 0, state);
+    if (!next) break;
+    for (const path of next.paths ?? []) {
+      for (const point of path) {
+        const cell = level.grid.get(point.pos);
+        for (const module of modules) {
+          if (module.owns(cell)) used.add(module.id);
+        }
+      }
+    }
+    boxes = next.boxes;
+    state = next.mechanicState ?? state;
+  }
+
+  return modules.filter((module) => used.has(module.id));
+}
+
+/**
  * Сгенерировать один уровень. Возвращает null, если за отведённое число
  * попыток не удалось получить корректную карту.
  */
@@ -295,6 +325,7 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
   const allowedDeadEnds = options.deadEnds ?? 0;
   const targetCandidates = Math.max(1, options.candidates ?? 1);
   const patterns = options.patterns ?? [];
+  const modules = resolveMechanics(options.mechanics ?? []);
   const accepted: GeneratedLevel[] = [];
 
   for (let attempt = 0; attempt < 400; attempt++) {
@@ -317,10 +348,23 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
     }
     if (!floor) continue;
 
+    // Механики раскладываются до выбора стартов: старт не должен стоять на
+    // портале, ловушке или ротаторе. Порядок модулей — это и есть пайплайн.
+    const draft: FieldDraft = { size: side, floor, cells: new Map() };
+    let placed = true;
+    for (const module of modules) {
+      if (!module.place(draft, rng)) {
+        placed = false;
+        break;
+      }
+    }
+    if (!placed) continue;
+
     const free: Position[] = [];
     for (let y = 1; y < side - 1; y++) {
       for (let x = 1; x < side - 1; x++) {
-        if (floor[y * side + x]) free.push(new Position(x, y));
+        const index = y * side + x;
+        if (floor[index] && !draft.cells.has(index)) free.push(new Position(x, y));
       }
     }
     if (free.length < 4) continue;
@@ -332,59 +376,66 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
       continue;
     }
 
-    let boxes = starts.map((p) => p.clone());
+    // Пробный уровень: старты уже стоят на карте, целей пока нет. Дальше
+    // ходы считает настоящий `moveBoxes`, поэтому разметка механик и путь
+    // генератора не могут разойтись с игрой.
+    const walkLevel = parse(render(floor, side, starts, [], draft.cells));
+    let boxes: Box[] = starts.map((pos, i) => ({
+      pos,
+      color: i === 0 ? ColorType.ONE : ColorType.TWO,
+    }));
+    let mechanicState = createMechanicState(boxes.length);
     const solution: Position[] = [];
-    const visited = new Set<string>([boxesKey(boxes)]);
+    const visited = new Set<string>([walkKey(boxes, mechanicState)]);
     let last: Position | null = null;
 
-    for (let step = 0; step < walkMoves; step++) {
-      const candidates: { dir: Position; next: Position[]; distance: number }[] = [];
+    const candidatesFor = (allowRepeat: boolean) => {
+      const result: { dir: Position; next: ReturnType<typeof moveBoxes>; distance: number }[] = [];
       for (const dir of [DIRS.up, DIRS.down, DIRS.left, DIRS.right]) {
-        if (last) {
-          if (key(dir) === key(last)) continue;
-          if (key(dir) === OPPOSITE[key(last)]) continue;
-        }
-        const next = slide(floor, side, boxes, dir);
-        if (!next || visited.has(boxesKey(next))) continue;
+        if (last && !allowRepeat && key(dir) === key(last)) continue;
+        if (last && key(dir) === OPPOSITE[key(last)]) continue;
+        const next = moveBoxes(walkLevel, boxes, dir, 0, 0, mechanicState);
+        if (!next) continue;
+        // Ход-пропуск из-за ловушки не двигает кубики: путь не строим.
+        const moved = next.paths?.some((path) => path.length > 1) ?? false;
+        if (!moved) continue;
+        if (visited.has(walkKey(next.boxes, next.mechanicState ?? mechanicState))) continue;
         let distance = 0;
-        next.forEach((p, i) => {
-          distance += Math.abs(p.x - boxes[i].x) + Math.abs(p.y - boxes[i].y);
+        next.boxes.forEach((box, i) => {
+          distance += Math.abs(box.pos.x - boxes[i].pos.x) + Math.abs(box.pos.y - boxes[i].pos.y);
         });
-        candidates.push({ dir, next, distance });
+        result.push({ dir, next, distance });
       }
+      return result;
+    };
 
+    for (let step = 0; step < walkMoves; step++) {
+      let candidates = candidatesFor(false);
       // Если все направления исключены — разрешаем повтор, но не разворот.
-      if (candidates.length === 0 && last) {
-        for (const dir of [DIRS.up, DIRS.down, DIRS.left, DIRS.right]) {
-          if (key(dir) === OPPOSITE[key(last)]) continue;
-          const next = slide(floor, side, boxes, dir);
-          if (!next || visited.has(boxesKey(next))) continue;
-          let distance = 0;
-          next.forEach((p, i) => {
-            distance += Math.abs(p.x - boxes[i].x) + Math.abs(p.y - boxes[i].y);
-          });
-          candidates.push({ dir, next, distance });
-        }
-      }
+      if (candidates.length === 0 && last) candidates = candidatesFor(true);
       if (candidates.length === 0) break;
 
       candidates.sort((a, b) => b.distance - a.distance);
-      const pick = candidates[Math.floor(rng() * Math.min(3, candidates.length))];
-      boxes = pick.next;
-      visited.add(boxesKey(boxes));
-      last = pick.dir;
-      solution.push(pick.dir);
+      const found = candidates[Math.floor(rng() * Math.min(3, candidates.length))];
+      boxes = found.next!.boxes;
+      mechanicState = found.next!.mechanicState ?? mechanicState;
+      visited.add(walkKey(boxes, mechanicState));
+      last = found.dir;
+      solution.push(found.dir);
     }
 
     if (solution.length !== walkMoves) continue;
-    if (boxes[0].equals(boxes[1])) continue;
+    if (boxes[0].pos.equals(boxes[1].pos)) continue;
 
-    const ends = boxes.map((p) => p.clone());
+    const ends = boxes.map((box) => box.pos.clone());
     const all = [...starts, ...ends];
     // Старты и цели не должны делить клетку: иначе маркеры перекроются.
     if (new Set(all.map(key)).size !== all.length) continue;
+    // Цель не должна стоять на клетке механики: иначе маркер цели затрёт
+    // портал/ротатор и выбранная механика исчезнет из готового уровня.
+    if (ends.some((end) => draft.cells.has(end.y * side + end.x))) continue;
 
-    const rows = render(floor, side, starts, ends);
+    const rows = render(floor, side, starts, ends, draft.cells);
     const level = parse(rows);
     if (level.boxes.length !== 2 || level.ends.length !== 2) continue;
 
@@ -410,6 +461,11 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
     if (deadEndRatio > allowedDeadEnds) continue;
     if (deadEndRatio < (options.minDeadEnds ?? 0)) continue;
 
+    // Каждая выбранная механика должна встречаться в кратчайшем решении:
+    // иначе уровень формально содержит портал, но играет как классический.
+    const used = mechanicsInSolution(level, solved.solution, modules);
+    if (modules.length > 0 && used.length < modules.length) continue;
+
     accepted.push({
       rows,
       solution: solved.solution,
@@ -420,6 +476,7 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
         branching: solved.branching,
       }),
       deadEndRatio,
+      mechanics: used.map((mechanic) => mechanic.id),
     });
     if (accepted.length >= targetCandidates) break;
   }
@@ -524,4 +581,43 @@ export function generateEpisode(seed: number, count: number): string[][] {
   const levels: string[][] = [];
   for (let i = 0; i < count; i++) levels.push(generateEpisodeLevel(seed, i, count));
   return levels;
+}
+
+/** Параметры тестового уровня из отладочного меню. */
+export interface TestLevelOptions {
+  mechanics: MechanicId[];
+  /** Целевая сложность 0..100. */
+  difficulty: number;
+  seed?: number;
+}
+
+/**
+ * Уровень для отладочного меню: сложность задаётся ползунком, а не местом в
+ * эпизоде. Тот же конвейер, что и у эпизода, плюс выбранные механики.
+ */
+export function generateTestLevel(options: TestLevelOptions): GeneratedLevel | null {
+  const t = Math.min(1, Math.max(0, options.difficulty / 100));
+  const moves = Math.round(3 + 9 * t);
+  const size = Math.round(8 + 5 * t);
+  const seed = options.seed ?? 0x7e57;
+  const target = Math.round(options.difficulty);
+
+  // Несколько независимых сидов: при неудачной раскладке механик один
+  // кандидат может не дать маршрута, но следующий обычно даёт.
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const generated = generateLevel({
+      seed: seed + attempt * 104729,
+      moves,
+      maxMoves: moves + 2,
+      size,
+      budget: Math.round(34 + 70 * t),
+      patterns: patternsForProgress(t),
+      deadEnds: t < 0.34 ? 0 : Math.round(((0.35 * (t - 0.34)) / 0.66) * 100) / 100,
+      score: target,
+      candidates: 4,
+      mechanics: options.mechanics,
+    });
+    if (generated) return generated;
+  }
+  return null;
 }

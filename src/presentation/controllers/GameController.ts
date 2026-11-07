@@ -37,6 +37,10 @@ export class GameController {
   private storage: ISaveStorage;
   private levelLabel: HTMLElement;
   private isDemo = false;
+  /** Уровень из отладки: не трогаем прогресс, статистику и сохранение. */
+  private testMode = false;
+  private testLevel: Level | null = null;
+  private testLabel = 'TEST';
   private paused = false;
   /** Индекс текущей карты демо-фона в DEMO_LEVELS. */
   private demoIndex = 0;
@@ -99,21 +103,30 @@ export class GameController {
   }
 
   /** Запуск уровня (NEXT_LEVEL/RESET/SELECT_LEVEL/RESUME). */
-  startLevel(level: Level): void {
+  startLevel(level: Level, testMode = false): void {
+    this.testMode = testMode;
+    this.testLevel = testMode ? level : null;
     this.hideDialogs?.();
-    // Демо-фон не пишет статистику и не трогает сохранение игрока
+    // Демо-фон не пишет статистику и не трогает сохранение игрока;
+    // тестовый уровень тоже не должен портить прогресс.
     if (!this.isDemo) {
       this.statistics.reset();
       this.statistics.start();
     }
     this.paused = false;
     this.lastSeenBoxes = level.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
-    this.levelLabel.textContent = this.formatLevel(level);
+    this.levelLabel.textContent = testMode ? this.testLabel : this.formatLevel(level);
     // Сброс уровня при уже активном create должен заново запустить анимацию
     this.lastState = '';
     this.gameActor.send({ type: 'START', level });
     // Игрок начал игру — теперь «Продолжить» есть что продолжать
-    if (!this.isDemo) this.save();
+    if (!this.isDemo && !this.testMode) this.save();
+  }
+
+  /** Тестовый уровень из отладки: играется как обычный, но без прогресса. */
+  startTestLevel(level: Level, label = 'TEST'): void {
+    this.testLabel = label;
+    this.startLevel(level, true);
   }
 
   /** Обработка ввода направления (в т.ч. из DemoInput). */
@@ -124,7 +137,8 @@ export class GameController {
   }
 
   reset(): void {
-    this.startLevel(this.episodes.getCurLevel());
+    if (this.testLevel) this.startTestLevel(this.testLevel, this.testLabel);
+    else this.startLevel(this.episodes.getCurLevel());
   }
 
   /** Откат последнего хода (кнопка undo в нижней панели). */
@@ -146,7 +160,11 @@ export class GameController {
   hint(): Position | null {
     const snapshot = this.gameActor.getSnapshot();
     if ((snapshot.value as string) === 'completed') return null;
-    return findHint(snapshot.context.level, snapshot.context.boxes);
+    return findHint(
+      snapshot.context.level,
+      snapshot.context.boxes,
+      snapshot.context.mechanicState,
+    );
   }
 
   /**
@@ -166,11 +184,20 @@ export class GameController {
   hintPlan(): { dir: Position; slides: HintSlide[] } | null {
     const snapshot = this.gameActor.getSnapshot();
     if ((snapshot.value as string) === 'completed') return null;
-    const dir = findHint(snapshot.context.level, snapshot.context.boxes);
+    const dir = findHint(
+      snapshot.context.level,
+      snapshot.context.boxes,
+      snapshot.context.mechanicState,
+    );
     if (!dir) return null;
     return {
       dir,
-      slides: planSlides(snapshot.context.level, snapshot.context.boxes, dir),
+      slides: planSlides(
+        snapshot.context.level,
+        snapshot.context.boxes,
+        dir,
+        snapshot.context.mechanicState,
+      ),
     };
   }
 
@@ -228,7 +255,12 @@ export class GameController {
       ctx.boxes.forEach((box, i) => {
         const prev = this.lastSeenBoxes[i];
         if (prev && !prev.pos.equals(box.pos)) {
-          moves.push({ color: box.color, from: prev.pos, to: box.pos });
+          moves.push({
+            color: box.color,
+            from: prev.pos,
+            to: box.pos,
+            path: ctx.lastPaths[i]?.length ? ctx.lastPaths[i] : undefined,
+          });
         }
       });
       // Кубик встал на свою площадку именно этим ходом — отдельный звук
@@ -259,10 +291,14 @@ export class GameController {
         return;
       }
       this.statistics.stop();
-      this.episodes.unlockCurrent();
-      this.save();
+      if (!this.testMode) {
+        this.episodes.unlockCurrent();
+        this.save();
+      }
       // Минимальное число ходов уровня — база для звёзд в диалоге победы.
-      const minMoves = this.episodes.minMoves(ctx.level.episodeId, ctx.level.levelId);
+      const minMoves = this.testMode
+        ? Math.max(1, ctx.moves)
+        : this.episodes.minMoves(ctx.level.episodeId, ctx.level.levelId);
       this.showCompleted?.({
         moves: ctx.moves,
         time: ctx.time,
@@ -293,6 +329,7 @@ export class GameController {
       height: ctx.level.height,
       boxes: ctx.boxes.map((b) => ({ pos: b.pos, color: b.color })),
       ends: ctx.level.ends.map((e) => ({ pos: e.pos, color: e.color })),
+      mechanicState: ctx.mechanicState,
     };
   }
 

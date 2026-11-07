@@ -1,16 +1,21 @@
 import type { Box } from '../types/entity';
 import type { Level } from '../types/level';
+import {
+  createMechanicState,
+  type MechanicState,
+} from '../types/mechanic-state';
 import { DIRS, Position } from '../types/position';
 import { checkWin } from '../rules/check';
 import { moveBoxes } from '../rules/move';
 
 /**
  * Полный поиск решения по **тем же правилам**, что и `moveBoxes`:
- * состояние — позиции обоих кубиков, переход — один ход до упора.
+ * состояние — позиции обоих кубиков плюс состояние механик (ловушки и
+ * переключатель ротаторов), переход — один ход до упора.
  *
- * В отличие от подсказки (`findHint`), здесь граф обходится целиком:
- * это нужно генератору, чтобы отличить просто решаемый уровень от уровня,
- * в котором игрок может сделать ход и навсегда застрять.
+ * Механики добавляют вторую координату состояния. Без неё BFS склеивал бы
+ * «кубик на той же клетке, но заперт ещё на ход» с «кубик свободен», и
+ * находил бы несуществующие решения.
  */
 
 export interface SolvedLevel {
@@ -30,11 +35,19 @@ export interface SolvedLevel {
   winStates: number;
 }
 
+interface Node {
+  boxes: Box[];
+  state: MechanicState;
+}
+
 const DIRECTIONS = [DIRS.up, DIRS.down, DIRS.left, DIRS.right];
 const DEFAULT_MAX_STATES = 200_000;
 
-const stateKey = (boxes: Box[]): string =>
+const boxesKey = (boxes: Box[]): string =>
   boxes.map((box) => `${box.pos.x},${box.pos.y}`).join('|');
+
+const stateKey = (node: Node): string =>
+  `${boxesKey(node.boxes)}#${node.state.locks.join(',')}#${node.state.rotorFlip ? 1 : 0}`;
 
 function cloneBoxes(boxes: Box[]): Box[] {
   return boxes.map((box) => ({ pos: box.pos.clone(), color: box.color }));
@@ -63,31 +76,42 @@ function restorePath(
  */
 export function findShortestSolution(
   level: Level,
+  initialState?: MechanicState,
   maxStates = DEFAULT_MAX_STATES,
 ): Position[] | null {
-  const start = cloneBoxes(level.boxes);
-  if (start.length === 0) return null;
-  if (checkWin(start, level.ends)) return [];
+  const startBoxes = cloneBoxes(level.boxes);
+  if (startBoxes.length === 0) return null;
+  if (checkWin(startBoxes, level.ends)) return [];
 
+  const start: Node = {
+    boxes: startBoxes,
+    state: initialState
+      ? { locks: [...initialState.locks], rotorFlip: initialState.rotorFlip }
+      : createMechanicState(startBoxes.length),
+  };
   const startKey = stateKey(start);
   const parents = new Map<string, { prev: string | null; dir: Position | null }>();
   parents.set(startKey, { prev: null, dir: null });
-  const queue: Box[][] = [start];
+  const queue: Node[] = [start];
   let head = 0;
 
   while (head < queue.length) {
-    const boxes = queue[head++];
-    const key = stateKey(boxes);
+    const node = queue[head++];
+    const key = stateKey(node);
 
     for (const dir of DIRECTIONS) {
-      const next = moveBoxes(level, boxes, dir, 0, 0);
+      const next = moveBoxes(level, node.boxes, dir, 0, 0, node.state);
       if (!next) continue;
-      const nextKey = stateKey(next.boxes);
+      const nextNode: Node = {
+        boxes: next.boxes,
+        state: next.mechanicState ?? node.state,
+      };
+      const nextKey = stateKey(nextNode);
       if (parents.has(nextKey)) continue;
       if (parents.size >= maxStates) return null;
       parents.set(nextKey, { prev: key, dir });
       if (checkWin(next.boxes, level.ends)) return restorePath(parents, nextKey);
-      queue.push(next.boxes);
+      queue.push(nextNode);
     }
   }
 
@@ -96,22 +120,25 @@ export function findShortestSolution(
 
 /**
  * Обойти всё пространство состояний. Возвращает null, если решения нет,
- * либо если поиск упёрся в предохранитель `maxStates` (тогда нельзя
- * гарантировать отсутствие тупиков).
+ * либо если поиск упёрся в предохранитель `maxStates`.
  */
 export function solveLevel(
   level: Level,
   maxStates = DEFAULT_MAX_STATES,
 ): SolvedLevel | null {
-  const start = cloneBoxes(level.boxes);
-  if (start.length === 0) return null;
+  const startBoxes = cloneBoxes(level.boxes);
+  if (startBoxes.length === 0) return null;
 
+  const start: Node = {
+    boxes: startBoxes,
+    state: createMechanicState(startBoxes.length),
+  };
   const startKey = stateKey(start);
   const parents = new Map<string, { prev: string | null; dir: Position | null }>();
   const edges = new Map<string, string[]>();
   const winKeys = new Set<string>();
   const boxCells = new Set<string>();
-  const queue: Box[][] = [start];
+  const queue: Node[] = [start];
   let head = 0;
   let firstWin: string | null = null;
   let edgeCount = 0;
@@ -119,26 +146,30 @@ export function solveLevel(
   parents.set(startKey, { prev: null, dir: null });
 
   while (head < queue.length) {
-    const boxes = queue[head++];
-    const key = stateKey(boxes);
-    for (const box of boxes) boxCells.add(`${box.pos.x},${box.pos.y}`);
+    const node = queue[head++];
+    const key = stateKey(node);
+    for (const box of node.boxes) boxCells.add(`${box.pos.x},${box.pos.y}`);
 
-    if (checkWin(boxes, level.ends)) {
+    if (checkWin(node.boxes, level.ends)) {
       winKeys.add(key);
       if (firstWin === null) firstWin = key;
     }
 
     const nextKeys: string[] = [];
     for (const dir of DIRECTIONS) {
-      const next = moveBoxes(level, boxes, dir, 0, 0);
+      const next = moveBoxes(level, node.boxes, dir, 0, 0, node.state);
       if (!next) continue;
-      const nextKey = stateKey(next.boxes);
+      const nextNode: Node = {
+        boxes: next.boxes,
+        state: next.mechanicState ?? node.state,
+      };
+      const nextKey = stateKey(nextNode);
       nextKeys.push(nextKey);
 
       if (!parents.has(nextKey)) {
         if (parents.size >= maxStates) return null;
         parents.set(nextKey, { prev: key, dir });
-        queue.push(next.boxes);
+        queue.push(nextNode);
       }
     }
     edgeCount += nextKeys.length;
@@ -174,14 +205,16 @@ export function solveLevel(
   }
 
   const movesByBox: [number, number] = [0, 0];
-  let replay = cloneBoxes(level.boxes);
+  let replayBoxes = cloneBoxes(level.boxes);
+  let replayState = createMechanicState(replayBoxes.length);
   for (const dir of solution) {
-    const next = moveBoxes(level, replay, dir, 0, 0);
+    const next = moveBoxes(level, replayBoxes, dir, 0, 0, replayState);
     if (!next) return null;
     next.boxes.forEach((box, index) => {
-      if (!box.pos.equals(replay[index].pos)) movesByBox[index]++;
+      if (!box.pos.equals(replayBoxes[index].pos)) movesByBox[index]++;
     });
-    replay = next.boxes;
+    replayBoxes = next.boxes;
+    replayState = next.mechanicState ?? replayState;
   }
 
   return {

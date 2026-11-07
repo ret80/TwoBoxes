@@ -49,6 +49,37 @@ export function createLevelFromData(
           grid.set(pos, CellType.END_TWO);
           ends.push({ pos, color: ColorType.TWO });
           break;
+        // Клетки механик: они проходимы, но меняют траекторию кубика.
+        case 'a':
+          grid.set(pos, CellType.PORTAL_A);
+          break;
+        case 'b':
+          grid.set(pos, CellType.PORTAL_B);
+          break;
+        case 't':
+          grid.set(pos, CellType.TRAP);
+          break;
+        case 'c':
+          grid.set(pos, CellType.ROTOR_CW);
+          break;
+        case 'w':
+          grid.set(pos, CellType.ROTOR_CCW);
+          break;
+        case 's':
+          grid.set(pos, CellType.SWITCH);
+          break;
+        case '^':
+          grid.set(pos, CellType.ONE_WAY_UP);
+          break;
+        case 'v':
+          grid.set(pos, CellType.ONE_WAY_DOWN);
+          break;
+        case '<':
+          grid.set(pos, CellType.ONE_WAY_LEFT);
+          break;
+        case '>':
+          grid.set(pos, CellType.ONE_WAY_RIGHT);
+          break;
         default:
           grid.set(pos, CellType.UNKNOWN);
           break;

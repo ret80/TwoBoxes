@@ -6,6 +6,10 @@ import { Config } from '@core/services/config';
 import { EpisodeManager, type SaveData } from '@core/services/episode-mng';
 import { EPISODE_2_LEVELS, EPISODE_2_SEED } from '@core/data/episode-2';
 import { Statistics } from '@core/services/statistics';
+import { generateTestLevel } from '@core/generation/level-generator';
+import type { MechanicId } from '@core/generation/mechanics';
+import { createLevelFromData } from '@core/rules/create';
+import type { Level } from '@core/types/level';
 import { PicoglRenderer } from '@adapters/renderer/PicoglRenderer';
 import { WebAudioPlayer } from '@adapters/audio/WebAudioPlayer';
 import { InputAggregator } from '@adapters/input/InputAggregator';
@@ -167,6 +171,9 @@ const orbit = new OrbitInput((dx, dy) =>
 );
 orbit.attach(gameScreen.canvasWrap);
 
+/** Тестовый уровень из отладки: стартует сразу, минуя селектор. */
+let pendingDebugLevel: Level | null = null;
+
 const menuCtrl = new MenuController(
   screensRoot,
   i18n,
@@ -178,6 +185,23 @@ const menuCtrl = new MenuController(
   config,
   // Отладка: открыть все уровни — прогресс сразу пишется в сохранение.
   () => game.saveProgress(),
+  // Отладка: собрать уровень под выбранные механики и сложность.
+  async (mechanics: MechanicId[], difficulty: number) => {
+    // Дать экрану нарисовать статус «Генерирую…» перед синхронным перебором.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const generated = generateTestLevel({
+      mechanics,
+      difficulty,
+      seed: 0x7e57 + (Date.now() % 100000),
+    });
+    if (!generated) return false;
+    // Пока шла генерация, игрок мог уйти с отладочного экрана — тогда
+    // тестовый уровень не должен подменять следующий обычный запуск.
+    if ((menuActor.getSnapshot().value as string) !== 'debug') return false;
+    pendingDebugLevel = createLevelFromData(0, 0, generated.rows);
+    menuActor.send({ type: 'TEST_LEVEL' });
+    return true;
+  },
 );
 
 /*
@@ -320,9 +344,15 @@ const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): voi
   orbit.setEnabled(state === 'game');
 
   if (enteringGame) {
-    const selected = snapshot.context.selected;
-    if (selected) episodes.setCurLevel(selected.episodeId, selected.levelId);
-    game.startLevel(episodes.getCurLevel());
+    if (pendingDebugLevel) {
+      const level = pendingDebugLevel;
+      pendingDebugLevel = null;
+      game.startTestLevel(level, i18n.t('DEBUG_TEST_LEVEL'));
+    } else {
+      const selected = snapshot.context.selected;
+      if (selected) episodes.setCurLevel(selected.episodeId, selected.levelId);
+      game.startLevel(episodes.getCurLevel());
+    }
   }
   if (state === 'selector') menuCtrl.refreshSelector();
   if (state === 'mmenu') menuCtrl.refreshResume();

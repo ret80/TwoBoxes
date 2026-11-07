@@ -24,6 +24,7 @@ export type MenuEvent =
   | { type: 'ABOUT' } // mmenu → about
   | { type: 'SETTINGS' } // mmenu → settings
   | { type: 'DEBUG' } // mmenu → debug (отладочное меню, только с ?debug)
+  | { type: 'TEST_LEVEL' } // debug → game (тестовый уровень с механиками)
   | { type: 'BACK' } // selector/help/about/settings/debug → mmenu; game → selector (пауза «Level select»)
   | { type: 'SELECT_LEVEL'; episodeId: number; levelId: number } // selector → game
   | { type: 'HOME' } // game → mmenu (диалоги паузы/завершения)
@@ -99,7 +100,11 @@ export const menuMachine = setup({
     },
     debug: {
       entry: 'enterDemo',
-      on: { BACK: 'mmenu' },
+      on: {
+        BACK: 'mmenu',
+        // Игра стартует без выбора в селекторе: уровень приходит из отладки.
+        TEST_LEVEL: { target: 'game', actions: 'clearSelected' },
+      },
     },
   },
 });

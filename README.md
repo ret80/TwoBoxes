@@ -2,7 +2,7 @@
 
 Головоломка в стиле Sokoban: **все** кубики на поле одновременно скользят в выбранном направлении до упора. Цель — поставить каждый кубик на целевую площадку того же цвета. Порт оригинальной игры на Godot ([bitbucket.org/reTTT/2boxpuzzle](https://bitbucket.org/reTTT/2boxpuzzle)) на TypeScript + picogl (WebGL2).
 
-Документация оригинала: [`docs/game_documentation_2026-11-04.md`](docs/game_documentation_2026-11-04.md). План реализации: [`tasks/implementation_plan_2026-11-04.md`](tasks/implementation_plan_2026-11-04.md).
+Документация оригинала: [`docs/game_documentation_2026-11-04.md`](docs/game_documentation_2026-11-04.md). План реализации: [`tasks/implementation_plan_2026-11-04.md`](tasks/implementation_plan_2026-11-04.md). Механики и их оценки: [`tasks/mechanics_2026-11-07.md`](tasks/mechanics_2026-11-07.md).
 
 ## Архитектура
 
@@ -14,6 +14,7 @@ src/
 │   ├── types/     # CellType, ColorType, Position, LevelGrid, Level, Episode...
 │   ├── rules/     # Правила: create, move, check, reset (чистые функции)
 │   ├── state/     # FSM: game (create→input→move→check→completed), menu
+│   ├── generation/# Генератор уровней, BFS-решатель, модули механик
 │   ├── services/  # Statistics, Config, EpisodeManager
 │   └── data/      # Карты уровней (ASCII, как в оригинале: '#' '.' 'R' 'Y' 'r' 'y')
 ├── ports/         # Интерфейсы: IRenderer, IAudio, IInput, ISaveStorage, ITimeProvider
@@ -53,6 +54,8 @@ npm run preview    # предпросмотр сборки
 
 - 24 уровня (2 эпизода по 12; уровни эпизода 2 процедурный генератор строит в Web Worker, пока игрок в меню);
 - генератор проверяет кратчайшее решение и отсутствие тупиков — тест прогоняет 20 сгенерированных уровней;
+- подключаемые механики: порталы, ловушки, ротаторы, переключатель и односторонние клетки;
+- отладочное меню `?debug` собирает тестовый уровень под выбранные механики и сложность;
 - кубики блокируют друг друга: пути считаются в порядке «ведущий первым»;
 - сохранение прогресса и разблокировка уровней (localStorage, версия v1);
 - локализация EN/RU (18 строк, автоопределение языка);
