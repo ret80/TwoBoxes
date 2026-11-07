@@ -240,6 +240,9 @@ export class GameController {
         return !!prev && goalKeys.has(boxKey(box)) && !goalKeys.has(boxKey(prev));
       });
       this.lastSeenBoxes = ctx.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
+      // Игрок начал ход, пока стрелки подсказки ещё на поле: гасим их плавно,
+      // не дожидаясь конца общего таймера подсказки.
+      this.renderer.fadeHintOut();
       if (!this.isDemo) this.audio.playSfx('swipe');
       this.renderer.animateMove(moves, () => {
         if (justPlaced && !this.isDemo) this.audio.playSfx('place', 0.8);

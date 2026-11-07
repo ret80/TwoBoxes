@@ -154,7 +154,10 @@
   font-size: clamp(26px, 7vw, 34px);
   opacity: 0.62;
   transform: translate(
-      calc(-50% + (var(--slot) - var(--active-slot, 0)) * var(--xmb-step-x)),
+      calc(
+        -50% + (var(--slot) - var(--active-slot, 0)) * var(--xmb-step-x) +
+          var(--drag-x, 0px)
+      ),
       calc(-50% + var(--dy, 0) * var(--xmb-step-y))
     )
     scale(var(--xmb-scale));
@@ -167,6 +170,18 @@
   /* Свайпы по иконкам обрабатываем сами (листание, смена «Играть»/«Продолжить») */
   touch-action: none;
   user-select: none;
+}
+
+/*
+ * Во время перетаскивания ряд едет за пальцем без инерции transition:
+ * transform не анимируется, иначе иконки «отстают» и дёргаются.
+ * После отпускания класс снимается и включается плавная магнитная доводка.
+ */
+.screen--menu.is-dragging .xmb__item {
+  transition:
+    opacity 0.3s ease,
+    background 0.2s ease,
+    box-shadow 0.3s ease;
 }
 
 .xmb__item:hover,

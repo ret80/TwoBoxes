@@ -5,6 +5,7 @@ import { solveLevel } from '../generation/solver';
 import { moveBoxes } from '../rules/move';
 import { checkWin } from '../rules/check';
 import { findHint } from '../rules/hint';
+import { measureLevel } from '../generation/difficulty';
 
 const levelOf = (index: number) => createLevelFromData(0, index, EPISODE_1[index]);
 
@@ -44,14 +45,28 @@ describe('episode 1 data', () => {
     });
   });
 
-  it('level 1-9 solves in 18 moves after the goal fix', () => {
+  it('level 1-10 (previously 1-9) solves in 18 moves after the goal fix', () => {
     // До правки цель стояла на (6,6) и уровень не решался вообще.
-    const level = levelOf(8);
+    const level = levelOf(9);
     const solved = solveLevel(level);
     expect(solved).not.toBeNull();
     expect(solved?.solution.length).toBe(18);
     expect(solved?.movesByBox[0]).toBeGreaterThan(0);
     expect(solved?.movesByBox[1]).toBeGreaterThan(0);
     expect(level.ends.some((end) => end.pos.x === 7 && end.pos.y === 6)).toBe(true);
+  });
+
+  it('is ordered from easiest to hardest', () => {
+    const scores = EPISODE_1.map((rows, index) => {
+      const metrics = measureLevel(createLevelFromData(0, index, rows));
+      expect(metrics, `1-${index + 1} must be measurable`).not.toBeNull();
+      return metrics?.score ?? Number.NaN;
+    });
+    for (let i = 1; i < scores.length; i++) {
+      expect(
+        scores[i],
+        `1-${i + 1} (${scores[i]}) must not be easier than 1-${i} (${scores[i - 1]})`,
+      ).toBeGreaterThanOrEqual(scores[i - 1]);
+    }
   });
 });

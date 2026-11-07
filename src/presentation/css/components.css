@@ -133,6 +133,13 @@
   pointer-events: none;
 }
 
+/* Выбранный уровень ещё генерируется в воркере: карточка ждёт карту. */
+.lvl-card--pending {
+  opacity: 0.55;
+  cursor: progress;
+  pointer-events: none;
+}
+
 .lvl-card__lock {
   display: block;
   width: 40%;

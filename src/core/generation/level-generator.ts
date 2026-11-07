@@ -483,37 +483,45 @@ export function episodeProfiles(count: number): LevelProfile[] {
 }
 
 /**
+ * Сгенерировать один уровень эпизода по его профилю. Воркер вызывает эту
+ * функцию поштучно, поэтому приоритетный уровень можно посчитать первым, а
+ * очередь остальных продолжить после него.
+ */
+export function generateEpisodeLevel(seed: number, index: number, count: number): string[] {
+  const profiles = episodeProfiles(count);
+  const profile = profiles[index];
+  if (!profile) throw new Error(`Профиль уровня ${index + 1} не найден`);
+
+  let generated: GeneratedLevel | null = null;
+  for (let attempt = 0; attempt < 200 && !generated; attempt++) {
+    generated = generateLevel({
+      seed: seed + index * 104729 + attempt * 15485863,
+      moves: profile.moves,
+      maxMoves: profile.moves + (profile.moves <= 5 ? 1 : 3),
+      size: profile.size,
+      budget: profile.budget,
+      patterns: profile.patterns,
+      deadEnds: profile.deadEnds,
+      score: profile.score,
+      candidates: 4,
+    });
+  }
+  if (!generated) {
+    throw new Error(
+      `Не удалось сгенерировать уровень ${index + 1} ` +
+        `(${profile.moves} ходов, ${profile.size}×${profile.size}, ` +
+        `тупики ≤ ${profile.deadEnds}, оценка ≈ ${profile.score})`,
+    );
+  }
+  return generated.rows;
+}
+
+/**
  * Сгенерировать эпизод по кривой сложности. Сид фиксирован, поэтому эпизод
  * детерминирован.
  */
 export function generateEpisode(seed: number, count: number): string[][] {
   const levels: string[][] = [];
-  const profiles = episodeProfiles(count);
-
-  for (let i = 0; i < count; i++) {
-    const profile = profiles[i];
-    let generated: GeneratedLevel | null = null;
-    for (let attempt = 0; attempt < 200 && !generated; attempt++) {
-      generated = generateLevel({
-        seed: seed + i * 104729 + attempt * 15485863,
-        moves: profile.moves,
-        maxMoves: profile.moves + (profile.moves <= 5 ? 1 : 3),
-        size: profile.size,
-        budget: profile.budget,
-        patterns: profile.patterns,
-        deadEnds: profile.deadEnds,
-        score: profile.score,
-        candidates: 4,
-      });
-    }
-    if (!generated) {
-      throw new Error(
-        `Не удалось сгенерировать уровень ${i + 1} ` +
-          `(${profile.moves} ходов, ${profile.size}×${profile.size}, ` +
-          `тупики ≤ ${profile.deadEnds}, оценка ≈ ${profile.score})`,
-      );
-    }
-    levels.push(generated.rows);
-  }
+  for (let i = 0; i < count; i++) levels.push(generateEpisodeLevel(seed, i, count));
   return levels;
 }

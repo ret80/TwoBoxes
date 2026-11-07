@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { episodeProfiles, generateEpisode, generateLevel } from './level-generator';
+import {
+  episodeProfiles,
+  generateEpisode,
+  generateEpisodeLevel,
+  generateLevel,
+} from './level-generator';
 import { findShortestSolution, solveLevel } from './solver';
 import { measureLevel } from './difficulty';
 import { createLevelFromData } from '../rules/create';
@@ -79,11 +84,15 @@ describe('level generator', () => {
     expect(tail - head).toBeGreaterThanOrEqual(20);
   }, 60_000);
 
-  it('is deterministic', () => {
+  it('is deterministic and matches per-level worker generation', () => {
     const first = generateEpisode(0x2b0b2, 12);
-    const second = generateEpisode(0x2b0b2, 12);
+    // Воркер считает уровни поштучно и в произвольном порядке: результат
+    // обязан совпадать с пакетной генерацией эпизода.
+    const second = Array.from({ length: 12 }, (_, index) =>
+      generateEpisodeLevel(0x2b0b2, index, 12),
+    );
     expect(first).toEqual(second);
-  });
+  }, 60_000);
 
   it('spreads seeds: different seeds give different levels', () => {
     const levels = [1, 2, 3, 4].map((seed) =>

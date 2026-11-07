@@ -25,23 +25,25 @@ describe('difficulty model', () => {
   it('ranks the hand-made episode the way it plays', () => {
     const first = measureLevel(levelOf(0));
     const sixth = measureLevel(levelOf(5));
-    const tenth = measureLevel(levelOf(9));
+    const last = measureLevel(levelOf(11));
 
     expect(first).not.toBeNull();
     expect(sixth).not.toBeNull();
-    expect(tenth).not.toBeNull();
-    if (!first || !sixth || !tenth) return;
+    expect(last).not.toBeNull();
+    if (!first || !sixth || !last) return;
 
     expect(first.score).toBeLessThan(sixth.score);
-    expect(sixth.score).toBeLessThan(tenth.score);
-    // 1-10 — самый длинный уровень эпизода: 28 ходов и 378 состояний.
-    expect(tenth.moves).toBe(28);
-    expect(tenth.score).toBeGreaterThan(80);
+    expect(sixth.score).toBeLessThan(last.score);
+    // Новый 1-12 (исходный 1-10) — самый длинный уровень эпизода:
+    // 28 ходов и 378 состояний.
+    expect(last.moves).toBe(28);
+    expect(last.score).toBeGreaterThan(80);
   });
 
   it('sees the punishing level as punishing', () => {
-    // 1-4 — коридорная «гребёнка»: почти половина состояний — тупики.
-    const comb = measureLevel(levelOf(3));
+    // Новый 1-11 (исходный 1-4) — коридорная «гребёнка»: почти половина
+    // состояний — тупики.
+    const comb = measureLevel(levelOf(10));
     expect(comb).not.toBeNull();
     if (!comb) return;
     expect(comb.deadEndRatio).toBeGreaterThan(0.3);
@@ -50,14 +52,15 @@ describe('difficulty model', () => {
   });
 
   it('measures the previously broken hand-made level', () => {
-    // 1-9 раньше не решался (цель стояла на (6,6)); после переноса цели на
-    // клетку правее он решается за 18 ходов и попадает между 1-8 и 1-10.
-    const ninth = measureLevel(levelOf(8));
-    expect(ninth).not.toBeNull();
-    if (!ninth) return;
-    expect(ninth.moves).toBe(18);
-    expect(ninth.score).toBeGreaterThan(measureLevel(levelOf(7))?.score ?? 0);
-    expect(ninth.score).toBeLessThan(measureLevel(levelOf(9))?.score ?? 100);
+    // Бывший 1-9 (теперь 1-10) раньше не решался (цель стояла на (6,6));
+    // после переноса цели на клетку правее он решается за 18 ходов и попадает
+    // между соседями по отсортированной кривой сложности.
+    const fixed = measureLevel(levelOf(9));
+    expect(fixed).not.toBeNull();
+    if (!fixed) return;
+    expect(fixed.moves).toBe(18);
+    expect(fixed.score).toBeGreaterThan(measureLevel(levelOf(8))?.score ?? 0);
+    expect(fixed.score).toBeLessThan(measureLevel(levelOf(10))?.score ?? 100);
   });
 
   it('measures corridor share of the field', () => {

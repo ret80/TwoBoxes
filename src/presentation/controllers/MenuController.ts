@@ -39,15 +39,22 @@ const MENU_LABEL: Record<MenuItemId, string> = {
 };
 
 /**
- * Пороги свайпа (CSS-пиксели). Жест делает ровно один шаг: короткие случайные
- * касания не двигают карусель, а длинный свайп не проскакивает мимо иконки.
+ * Пороги жеста (CSS-пиксели). С этого расстояния понятно, по какой оси идёт
+ * жест; вертикальный свайп по-прежнему делает один шаг, а горизонтальный
+ * превращается в непрерывное перетаскивание карусели.
  */
-const SWIPE_STEP_X = 30;
-const SWIPE_STEP_Y = 34;
-/** С этого расстояния понятно, по какой оси идёт жест. */
 const SWIPE_AXIS = 12;
+const SWIPE_STEP_Y = 34;
 /** Запас вокруг ряда иконок: вертикальный свайп работает только в этой полосе. */
 const SWIPE_ZONE_PAD = 28;
+/** Сопротивление за крайней иконкой: ряд тянется, но не уезжает в пустоту. */
+const DRAG_EDGE_RESISTANCE = 0.35;
+/** С такой скорости отпускания (px/ms) ряд продолжает ехать по инерции. */
+const FLING_MIN_VELOCITY = 0.35;
+/** Затухание скорости инерции за миллисекунду (0.99 — примерно 200 px на 2 px/ms). */
+const FLING_FRICTION = 0.99;
+/** Скорость, ниже которой инерция считается остановленной и включается магнит. */
+const FLING_STOP_VELOCITY = 0.02;
 
 /**
  * Контроллер меню (план 11.3): управление экранами mmenu/selector/help/about/settings,
@@ -74,6 +81,12 @@ export class MenuController {
     window.location.hash.includes('debug');
   /** Свайп уже отработал — клик после него не должен открывать пункт. */
   private suppressClickUntil = 0;
+  /** Экран открыт поверх паузы: «Назад» вернёт в предыдущее меню — паузу. */
+  private overlayReturn: (() => void) | null = null;
+  /** Запрос догенерировать уровень, карт которого ещё нет (эпизод 2). */
+  private onLevelNeeded: ((episodeId: number, levelId: number) => void) | null = null;
+  /** Уровень, который игрок выбрал до окончания его генерации. */
+  private pendingLevel: { episodeId: number; levelId: number } | null = null;
 
   constructor(
     container: HTMLElement,
@@ -117,7 +130,7 @@ export class MenuController {
         speed: this.config.get('moveSpeed') as MoveSpeed,
       },
       {
-        onBack: () => this.menuActor.send({ type: 'BACK' }),
+        onBack: () => this.backFromScreen(),
         onSfxChange: (value) => this.config.set('sfxVolume', value),
         onMusicChange: (value) => this.config.set('musicVolume', value),
         onLocaleChange: (locale: Locale) => this.i18n.setLocale(locale),
@@ -127,12 +140,12 @@ export class MenuController {
     this.screens.set('settings', settings);
 
     const help = buildHelpScreen(i18n, {
-      onBack: () => this.menuActor.send({ type: 'BACK' }),
+      onBack: () => this.backFromScreen(),
     });
     this.screens.set('help', help);
 
     const about = buildAboutScreen(i18n, {
-      onBack: () => this.menuActor.send({ type: 'BACK' }),
+      onBack: () => this.backFromScreen(),
     });
     this.screens.set('about', about);
 
@@ -145,7 +158,7 @@ export class MenuController {
         compass: this.config.get('compass') as CompassMode,
       },
       {
-        onBack: () => this.menuActor.send({ type: 'BACK' }),
+        onBack: () => this.backFromScreen(),
         onFpsChange: (value) => this.config.set('showFps', value),
         onProjectionChange: (mode) => this.config.set('projection', mode),
         onCompassChange: (mode) => this.config.set('compass', mode),
@@ -174,13 +187,74 @@ export class MenuController {
     if (prev) prev.remove();
     const selector = buildSelectorScreen(this.i18n, this.episodes, {
       onSelect: (ep, lvl) => {
-        this.menuActor.send({ type: 'SELECT_LEVEL', episodeId: ep, levelId: lvl });
-        this.onGameSelected(ep, lvl);
+        if (!this.episodes.hasLevel(ep, lvl)) {
+          // Карты уровня ещё нет: просим воркер посчитать его первым и
+          // запускаем игру, как только уровень будет готов.
+          this.pendingLevel = { episodeId: ep, levelId: lvl };
+          this.markLevelPending(ep, lvl);
+          this.onLevelNeeded?.(ep, lvl);
+          return;
+        }
+        this.selectLevel(ep, lvl);
       },
-      onBack: () => this.menuActor.send({ type: 'BACK' }),
+      onBack: () => this.backFromScreen(),
     });
     this.screens.set('selector', selector);
     this.container.appendChild(selector);
+    if (this.pendingLevel) {
+      this.markLevelPending(this.pendingLevel.episodeId, this.pendingLevel.levelId);
+    }
+  }
+
+  /** Подключить фоновую генерацию уровней (воркер эпизода 2). */
+  setLevelGenerator(handler: ((episodeId: number, levelId: number) => void) | null): void {
+    this.onLevelNeeded = handler;
+  }
+
+  private selectLevel(episodeId: number, levelId: number): void {
+    this.menuActor.send({ type: 'SELECT_LEVEL', episodeId, levelId });
+    this.onGameSelected(episodeId, levelId);
+  }
+
+  /** Уровень догенерирован: если его ждали — сразу открываем игру. */
+  levelReady(episodeId: number, levelId: number): void {
+    const pending = this.pendingLevel;
+    if (!pending || pending.episodeId !== episodeId || pending.levelId !== levelId) return;
+    this.pendingLevel = null;
+    this.clearPendingMarks();
+    this.selectLevel(episodeId, levelId);
+  }
+
+  /** Генерация выбранного уровня не удалась — снимаем ожидание. */
+  levelGenerationFailed(episodeId: number, levelId: number): void {
+    const pending = this.pendingLevel;
+    if (!pending || pending.episodeId !== episodeId || pending.levelId !== levelId) return;
+    this.cancelPendingSelection();
+  }
+
+  /** Воркер недоступен: снимаем ожидание, чтобы карточка снова стала кликабельной. */
+  cancelPendingSelection(): void {
+    this.pendingLevel = null;
+    this.clearPendingMarks();
+  }
+
+  /** Карточка ждёт генерации: показываем это и не даём кликнуть дважды. */
+  private markLevelPending(episodeId: number, levelId: number): void {
+    this.clearPendingMarks();
+    const card = this.screens
+      .get('selector')
+      ?.querySelector<HTMLElement>(`.lvl-card[data-episode="${episodeId}"][data-level="${levelId}"]`);
+    card?.classList.add('lvl-card--pending');
+    card?.setAttribute('aria-busy', 'true');
+  }
+
+  private clearPendingMarks(): void {
+    const selector = this.screens.get('selector');
+    if (!selector) return;
+    for (const card of selector.querySelectorAll('.lvl-card--pending')) {
+      card.classList.remove('lvl-card--pending');
+      card.removeAttribute('aria-busy');
+    }
   }
 
   /**
@@ -209,17 +283,18 @@ export class MenuController {
   }
 
   /**
-   * Свайп пальцем по меню.
+   * Жесты по главному меню: пальцем, пером и мышью с зажатой левой кнопкой.
    *
-   * Раньше шаг считался по приращению «от прошлой точки» и повторялся, пока
-   * палец едет: случайная дрож на границе порога давала то два шага подряд,
-   * то ни одного. Теперь жест фиксирован — **один свайп = один шаг** того
-   * направления, которое победило по оси, а после него жест уже не повторяется:
-   * иконка всегда встаёт точно та, что нужна.
+   * Горизонтальное перетаскивание больше не дискретное: пока жест удерживается,
+   * ряд иконок едет за ним один к одному (без transition), а не прыгает на
+   * один шаг и не замирает до отпускания. Сильный свайп продолжает движение
+   * по инерции с затуханием, а затем ближайшая к центральному слоту иконка
+   * «магнитится» — становится активной, и ряд плавно доезжает до неё.
+   * За крайними иконками добавлено сопротивление, чтобы пустой ряд не уезжал
+   * за экран.
    *
-   * Горизонтальный свайп листает ряд, вертикальный — меняет местами «Играть»
-   * и «Продолжить» (вниз — на «Продолжить», вверх — обратно на «Играть»),
-   * но только если жест начался в полосе иконок.
+   * Вертикальный свайп остаётся шагом: он переключает «Продолжить»/«Играть»
+   * в той же колонке и работает только в полосе иконок.
    */
   private attachSwipe(): void {
     let pointerId = -1;
@@ -227,32 +302,165 @@ export class MenuController {
     let startY = 0;
     let axis: '' | 'x' | 'y' = '';
     let handled = false;
+    let dragging = false;
+    /** Смещение карусели в пикселях: во время перетаскивания — за пальцем. */
+    let dragX = 0;
+    /** Поправка на порог оси, чтобы в момент старта ряд не дёргался. */
+    let dragBase = 0;
+    /** Границы свободного хода карусели (крайние иконки у центра). */
+    let dragMin = 0;
+    let dragMax = 0;
+    let stepX = 0;
+    /** Скорость пальца в px/ms — сглаженная по последним событиям. */
+    let velocity = 0;
+    let lastSampleX = 0;
+    let lastSampleAt = 0;
+    let inertiaFrame = 0;
 
     const inIconZone = (y: number): boolean => {
       const menu = this.menu;
       if (!menu) return false;
       let top = Number.POSITIVE_INFINITY;
       let bottom = Number.NEGATIVE_INFINITY;
-      for (const [id, btn] of menu.items) {
+      for (const btn of menu.items.values()) {
         if (btn.hidden) continue;
         const r = btn.getBoundingClientRect();
         if (r.width === 0) continue;
         top = Math.min(top, r.top);
         bottom = Math.max(bottom, r.bottom);
-        void id;
       }
       return Number.isFinite(top) && y >= top - SWIPE_ZONE_PAD && y <= bottom + SWIPE_ZONE_PAD;
     };
 
+    /** Диапазон смещений, при которых хотя бы одна иконка ряда доходит до центра. */
+    const measureDragRange = (): void => {
+      const menu = this.menu;
+      // Шаг анимации — CSS-переменная с clamp()/vw. getComputedStyle возвращает
+      // её как текст, а не в пикселях, поэтому измеряем реальную ширину
+      // скрытым пробником внутри .xmb (там переменная определена).
+      const probe = menu ? [...menu.items.values()].find((btn) => !btn.hidden) : undefined;
+      const stage = probe?.parentElement;
+      if (stage) {
+        const meter = document.createElement('div');
+        meter.style.cssText =
+          'position:absolute;left:0;top:0;height:0;visibility:hidden;width:var(--xmb-step-x)';
+        stage.appendChild(meter);
+        stepX = meter.getBoundingClientRect().width;
+        meter.remove();
+      } else {
+        stepX = 0;
+      }
+      const activeSlot = MENU_SLOT[this.activeItem];
+      let minRel = 0;
+      let maxRel = 0;
+      for (const id of MENU_ORDER) {
+        const btn = menu?.items.get(id);
+        if (!btn || btn.hidden) continue;
+        const rel = MENU_SLOT[id] - activeSlot;
+        minRel = Math.min(minRel, rel);
+        maxRel = Math.max(maxRel, rel);
+      }
+      // Сдвиг, при котором крайняя левая/правая иконка встаёт в центральный слот.
+      dragMin = -maxRel * stepX;
+      dragMax = -minRel * stepX;
+    };
+
+    const applyDrag = (): void => {
+      const menu = this.menu;
+      if (!menu) return;
+      menu.root.style.setProperty('--drag-x', `${dragX}px`);
+    };
+
+    const setDragging = (on: boolean): void => {
+      dragging = on;
+      const menu = this.menu;
+      if (!menu) return;
+      menu.root.classList.toggle('is-dragging', on);
+      if (!on) menu.root.style.setProperty('--drag-x', '0px');
+    };
+
+    const stopInertia = (): void => {
+      if (inertiaFrame) cancelAnimationFrame(inertiaFrame);
+      inertiaFrame = 0;
+    };
+
+    /**
+     * Инерция после сильного свайпа: ряд продолжает ехать с затухающей
+     * скоростью, а затем магнит доводит ближайшую к центру иконку.
+     */
+    const startInertia = (initialVelocity: number): void => {
+      stopInertia();
+      let v = initialVelocity;
+      let last = performance.now();
+      const frame = (now: number): void => {
+        const dt = Math.min(Math.max(now - last, 1), 32);
+        last = now;
+        const next = dragX + v * dt;
+        // У края ряда инерцию не пускаем в пустоту: доехали до крайней
+        // иконки — сразу магнитная доводка к ней.
+        if (next <= dragMin || next >= dragMax) {
+          dragX = next < dragMin ? dragMin : dragMax;
+          applyDrag();
+          inertiaFrame = 0;
+          snapToNearest();
+          return;
+        }
+        dragX = next;
+        v *= Math.pow(FLING_FRICTION, dt);
+        applyDrag();
+        if (Math.abs(v) < FLING_STOP_VELOCITY) {
+          inertiaFrame = 0;
+          snapToNearest();
+          return;
+        }
+        inertiaFrame = requestAnimationFrame(frame);
+      };
+      inertiaFrame = requestAnimationFrame(frame);
+    };
+
+    /** Отпустили палец: активируем иконку, ближайшую к центральному слоту. */
+    const snapToNearest = (): void => {
+      const menu = this.menu;
+      if (!menu) return;
+      const activeSlot = MENU_SLOT[this.activeItem];
+      // Текущая иконка участвует в сравнении наравне с соседями: «Продолжить»
+      // занимает тот же центральный слот, и лёгкое дрожание пальца не должно
+      // переключать её на «Играть».
+      let nearest: MenuItemId = this.activeItem;
+      let nearestDist = Math.abs(dragX);
+      for (const [id, btn] of menu.items) {
+        if (id === this.activeItem || btn.hidden) continue;
+        const offset = (MENU_SLOT[id] - activeSlot) * stepX + dragX;
+        const dist = Math.abs(offset);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = id;
+        }
+      }
+      // Клик, который браузер пришлёт после pointerup, не должен открывать пункт.
+      this.suppressClickUntil = performance.now() + 500;
+      setDragging(false);
+      dragX = 0;
+      this.selectItem(nearest);
+    };
+
     const onDown = (e: PointerEvent) => {
-      // Мышь не свайпает: по иконкам кликают, перетаскивание ей не нужно.
-      if (e.pointerType === 'mouse') return;
+      // Мышь перетаскивает карусель левой кнопкой; тач и перо — любым касанием.
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (this.current !== 'mmenu' || pointerId !== -1 || !e.isPrimary) return;
+      stopInertia();
       pointerId = e.pointerId;
       startX = e.clientX;
       startY = e.clientY;
       axis = '';
       handled = false;
+      velocity = 0;
+      lastSampleX = e.clientX;
+      lastSampleAt = performance.now();
+      setDragging(false);
+      dragX = 0;
+      dragBase = 0;
+      measureDragRange();
     };
 
     const onMove = (e: PointerEvent) => {
@@ -261,16 +469,43 @@ export class MenuController {
       const dy = e.clientY - startY;
       if (axis === '' && Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_AXIS) {
         axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+        if (axis === 'x') {
+          // Начинаем с нуля на пороге: ряд не прыгает на первые 12 px жеста.
+          dragBase = Math.sign(dx) * SWIPE_AXIS;
+          this.suppressClickUntil = performance.now() + 500;
+          setDragging(true);
+          lastSampleX = e.clientX;
+          lastSampleAt = performance.now();
+          velocity = 0;
+        }
       }
-      if (axis === '' || handled) return;
+      if (axis === '') return;
+
       if (axis === 'x') {
-        if (Math.abs(dx) < SWIPE_STEP_X) return;
-        this.suppressClickUntil = performance.now() + 500;
-        this.navigate(dx < 0 ? 'right' : 'left');
-        handled = true;
+        // Скорость по последним событиям: нужна для инерции на отпускании.
+        const now = performance.now();
+        const dt = now - lastSampleAt;
+        if (dt > 0) {
+          // Ограничиваем выбросы: одно редкое событие не должно раскрутить ряд.
+          const instant = Math.max(-5, Math.min(5, (e.clientX - lastSampleX) / dt));
+          velocity = velocity === 0 ? instant : velocity * 0.65 + instant * 0.35;
+          lastSampleX = e.clientX;
+          lastSampleAt = now;
+        }
+        const raw = dx - dragBase;
+        if (raw > dragMax) {
+          dragX = dragMax + (raw - dragMax) * DRAG_EDGE_RESISTANCE;
+        } else if (raw < dragMin) {
+          dragX = dragMin + (raw - dragMin) * DRAG_EDGE_RESISTANCE;
+        } else {
+          dragX = raw;
+        }
+        applyDrag();
         return;
       }
-      // Вертикальный жест работает только в полосе иконок.
+
+      // Вертикальный жест работает только в полосе иконок и делает один шаг.
+      if (handled) return;
       if (!inIconZone(startY) || Math.abs(dy) < SWIPE_STEP_Y) return;
       this.suppressClickUntil = performance.now() + 500;
       this.selectItem(dy > 0 ? 'continue' : 'play');
@@ -279,15 +514,63 @@ export class MenuController {
 
     const onUp = (e: PointerEvent) => {
       if (e.pointerId !== pointerId) return;
+      const wasDragging = dragging && axis === 'x';
       pointerId = -1;
       axis = '';
       handled = false;
+      if (!wasDragging) {
+        setDragging(false);
+        return;
+      }
+      // Клик после pointerup не должен открывать пункт.
+      this.suppressClickUntil = performance.now() + 500;
+      // Палец замер перед отпусканием — инерции нет, только магнит.
+      if (performance.now() - lastSampleAt > 100) velocity = 0;
+      // За краем ряда сразу возвращаемся магнитом, без свободного хода.
+      const atEdge = dragX <= dragMin || dragX >= dragMax;
+      if (e.type === 'pointerup' && !atEdge && Math.abs(velocity) >= FLING_MIN_VELOCITY) {
+        startInertia(velocity);
+      } else {
+        stopInertia();
+        snapToNearest();
+      }
     };
+
+    // Уход с главного меню не должен оставлять катящийся ряд в фоне.
+    this.menuActor.subscribe((s) => {
+      if ((s.value as string) !== 'mmenu') {
+        stopInertia();
+        setDragging(false);
+        dragX = 0;
+      }
+    });
 
     window.addEventListener('pointerdown', onDown, { passive: true });
     window.addEventListener('pointermove', onMove, { passive: true });
     window.addEventListener('pointerup', onUp, { passive: true });
     window.addEventListener('pointercancel', onUp, { passive: true });
+  }
+
+  /**
+   * Показать экран поверх паузы (настройки из меню паузы). Экран не меняет
+   * состояние menuFSM: когда игрок нажмёт «Назад», вернёмся в паузу, а не в
+   * главное меню.
+   */
+  showOverPause(name: 'settings', onBack: () => void): void {
+    this.overlayReturn = onBack;
+    this.show(name);
+  }
+
+  /** «Назад» на экране: в исходное меню — пауза или главное. */
+  private backFromScreen(): void {
+    const back = this.overlayReturn;
+    if (back) {
+      this.overlayReturn = null;
+      this.hideAll();
+      back();
+      return;
+    }
+    this.menuActor.send({ type: 'BACK' });
   }
 
   /** Активировать текущую иконку (Enter / A / клик). */
@@ -379,6 +662,12 @@ export class MenuController {
   }
 
   show(name: string): void {
+    // Ушли с выбора уровня, пока догенерировался выбранный, — не открываем
+    // игру самовольно, когда карты будут готовы.
+    if (name !== 'selector' && this.pendingLevel) {
+      this.pendingLevel = null;
+      this.clearPendingMarks();
+    }
     this.current = name;
     for (const [key, s] of this.screens) {
       s.classList.toggle('screen--hidden', key !== name);

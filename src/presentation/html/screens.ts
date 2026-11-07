@@ -483,11 +483,18 @@ export function buildSelectorScreen(
   const panel = el('div', 'panel panel--screen selector-panel');
   const gridWrap = el('div', 'selector-grid-wrap');
   episodes.episodes.forEach((episode) => {
+    // Эпизод 2 готовит воркер: до готовности не показываем пустую секцию.
+    // После генерации MenuController.refreshSelector перестроит список.
+    if (episode.levelCount === 0) return;
     gridWrap.appendChild(el('div', 'selector-episode', i18n.t('EPISODE_NUM', episode.episodeId + 1)));
     const grid = el('div', 'selector-grid');
     for (let lvl = 0; lvl < episode.levelCount; lvl++) {
       const label = `${episode.episodeId + 1}-${lvl + 1}`;
       const card = el<HTMLButtonElement>('button', 'lvl-card', label);
+      // Идентификаторы нужны контроллеру, чтобы пометить карточку, пока её
+      // уровень догенерируется в воркере.
+      card.dataset.episode = String(episode.episodeId);
+      card.dataset.level = String(lvl);
       if (episodes.isLocked(episode.episodeId, lvl)) {
         card.classList.add('lvl-card--locked');
         card.disabled = true;
@@ -610,10 +617,15 @@ export function buildAboutScreen(
   return root;
 }
 
-/** Диалог паузы: Resume, Level select, Main Menu. */
+/** Диалог паузы: Resume, Level select, Settings, Main Menu. */
 export function buildPauseDialog(
   i18n: LocaleManager,
-  cb: { onResume: () => void; onLevelSelect: () => void; onMainMenu: () => void },
+  cb: {
+    onResume: () => void;
+    onLevelSelect: () => void;
+    onSettings: () => void;
+    onMainMenu: () => void;
+  },
 ): { root: HTMLElement } {
   const root = el('div', 'dialog dialog--hidden');
   root.dataset.dialog = 'pause';
@@ -625,9 +637,11 @@ export function buildPauseDialog(
   resume.addEventListener('click', cb.onResume);
   const select = el('button', 'btn', i18n.t('LVL_SELECTOR'));
   select.addEventListener('click', cb.onLevelSelect);
+  const settings = el('button', 'btn', i18n.t('OPTIONS'));
+  settings.addEventListener('click', cb.onSettings);
   const mmenu = el('button', 'btn', i18n.t('MMENU'));
   mmenu.addEventListener('click', cb.onMainMenu);
-  box.append(resume, select, mmenu);
+  box.append(resume, select, settings, mmenu);
   root.append(title, box);
   return { root };
 }

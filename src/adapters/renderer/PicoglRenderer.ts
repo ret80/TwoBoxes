@@ -64,6 +64,8 @@ const KEY_GUIDE_DIM_ALPHA = 0.32;
 const HINT_SLIDE_MS = 560;
 const HINT_FADE_START_MS = 1750;
 const HINT_TOTAL_MS = 2200;
+/** Ход игрока прерывает показ подсказки: стрелки гаснут коротким плавным затуханием. */
+const HINT_FADE_OUT_MS = 240;
 
 /** Полосы, резервируемые под плавающие панели HUD (CSS-пиксели). */
 const HUD_INSET_TOP = 76;
@@ -98,6 +100,12 @@ interface RenderBoxPos {
  */
 export class PicoglRenderer implements IRenderer {
   private app: App | null = null;
+  /** Канвас и обработчики потери контекста: WebGL-ресурсы переживают только до restore. */
+  private canvas: HTMLCanvasElement | null = null;
+  private contextLost = false;
+  private contextListenersAttached = false;
+  /** Цикл должен продолжить рисовать после восстановления контекста. */
+  private wantsLoop = false;
   private program: Program | null = null;
   private lineProgram: Program | null = null;
   private glowProgram: Program | null = null;
@@ -127,7 +135,14 @@ export class PicoglRenderer implements IRenderer {
   private readonly scratchRot = mat4.create();
 
   // Стрелки подсказки и компас клавиатуры (плоскость L/D)
-  private hint: { arrows: HintArrow[]; start: number } | null = null;
+  private hint: {
+    arrows: HintArrow[];
+    start: number;
+    /** Начало досрочного затухания (ход игрока) или null — обычный таймер. */
+    fadeAt: number | null;
+    /** Прозрачность в момент старта досрочного затухания. */
+    fadeFrom: number;
+  } | null = null;
   private keyGuide = true;
   /** Сила «обратной перспективы» в шейдерах (носится в uniform uWarp). */
   private warp = 0;
@@ -163,6 +178,48 @@ export class PicoglRenderer implements IRenderer {
   private loopRunning = false;
 
   init(canvas: HTMLCanvasElement): void {
+    this.canvas = canvas;
+    if (!this.contextListenersAttached) {
+      this.contextListenersAttached = true;
+      canvas.addEventListener('webglcontextlost', this.onContextLost);
+      canvas.addEventListener('webglcontextrestored', this.onContextRestored);
+    }
+    this.setupGL();
+  }
+
+  /**
+   * Потеря контекста (вкладка ушла в фон, драйвер перезагрузился): без
+   * preventDefault браузер не пришлёт `webglcontextrestored`, и канвас
+   * оставался пустым до перезагрузки страницы.
+   */
+  private readonly onContextLost = (event: Event): void => {
+    event.preventDefault();
+    this.contextLost = true;
+    cancelAnimationFrame(this.rafId);
+    this.loopRunning = false;
+  };
+
+  /**
+   * Контекст вернулся: все GL-объекты (шейдеры, буферы, VAO) стали невалидны,
+   * поэтому создаём их заново и продолжаем цикл. Состояние уровня, камера и
+   * tween-анимации живут в JS и переживают потерю контекста.
+   */
+  private readonly onContextRestored = (): void => {
+    this.contextLost = false;
+    this.setupGL();
+    this.resize(this.viewportW, this.viewportH);
+    if (this.fpsEl) this.fpsEl.hidden = !this.fpsVisible;
+    if (this.wantsLoop) this.startLoop();
+  };
+
+  private setupGL(): void {
+    const canvas = this.canvas;
+    if (!canvas) return;
+    // Старые GL-объекты после потери контекста уже невалидны — просто забываем их.
+    this.gridBuf = null;
+    this.gridVao = null;
+    this.gridDraw = null;
+    this.gridWave = Number.NaN;
     // Canvas без альфа-канала: полупрозрачные пиксели (ореолы, стрелки) не
     // смешиваются с фоном страницы. Иначе premultiplied-композитинг браузера
     // подмешивал кремовый фон поверх и свечение выгорало в белое.
@@ -400,11 +457,33 @@ export class PicoglRenderer implements IRenderer {
       this.hint = null;
       return;
     }
-    this.hint = { arrows: arrows.map((a) => ({ ...a })), start: performance.now() };
+    this.hint = {
+      arrows: arrows.map((a) => ({ ...a })),
+      start: performance.now(),
+      fadeAt: null,
+      fadeFrom: 1,
+    };
   }
 
   hideHint(): void {
     this.hint = null;
+  }
+
+  /**
+   * Игрок уже сделал ход, пока стрелки ещё видны: не ждём конца их таймера,
+   * а плавно гасим с текущей прозрачности.
+   */
+  fadeHintOut(): void {
+    if (!this.hint || this.hint.fadeAt !== null) return;
+    const now = performance.now();
+    this.hint.fadeFrom = this.hintAlpha(now - this.hint.start);
+    this.hint.fadeAt = now;
+  }
+
+  /** Прозрачность стрелок по обычному таймеру (скольжение → пауза → затухание). */
+  private hintAlpha(elapsed: number): number {
+    if (elapsed <= HINT_FADE_START_MS) return 1;
+    return Math.max(0, 1 - (elapsed - HINT_FADE_START_MS) / (HINT_TOTAL_MS - HINT_FADE_START_MS));
   }
 
   /** Компас клавиатуры (плоскость с осями L/D) нужен только в самой игре. */
@@ -452,7 +531,8 @@ export class PicoglRenderer implements IRenderer {
   }
 
   startLoop(): void {
-    if (this.loopRunning) return;
+    this.wantsLoop = true;
+    if (this.loopRunning || this.contextLost) return;
     this.loopRunning = true;
     this.lastFrameTime = performance.now();
     const frame = (now: number) => {
@@ -471,6 +551,7 @@ export class PicoglRenderer implements IRenderer {
   }
 
   stopLoop(): void {
+    this.wantsLoop = false;
     this.loopRunning = false;
     cancelAnimationFrame(this.rafId);
   }
@@ -512,7 +593,7 @@ export class PicoglRenderer implements IRenderer {
   private drawFrame(): void {
     const app = this.app;
     const state = this.state;
-    if (!app || !state || !this.cubeDraw || !this.quadDraw) return;
+    if (!app || this.contextLost || !state || !this.cubeDraw || !this.quadDraw) return;
 
     app.clear();
     // Обычные грани рисуются непрозрачно; режим смешивания включается только
@@ -777,17 +858,21 @@ export class PicoglRenderer implements IRenderer {
     const hint = this.hint;
     const app = this.app;
     if (!hint || !app || !this.quadXYDraw) return;
-    const elapsed = performance.now() - hint.start;
-    if (elapsed >= HINT_TOTAL_MS) {
+    const now = performance.now();
+    const elapsed = now - hint.start;
+    if (hint.fadeAt === null && elapsed >= HINT_TOTAL_MS) {
       this.hint = null;
       return;
     }
     const slide = easeOutCubic(Math.min(1, elapsed / HINT_SLIDE_MS));
     const fade =
-      elapsed <= HINT_FADE_START_MS
-        ? 1
-        : Math.max(0, 1 - (elapsed - HINT_FADE_START_MS) / (HINT_TOTAL_MS - HINT_FADE_START_MS));
-    if (fade <= 0) return;
+      hint.fadeAt === null
+        ? this.hintAlpha(elapsed)
+        : hint.fadeFrom * Math.max(0, 1 - (now - hint.fadeAt) / HINT_FADE_OUT_MS);
+    if (fade <= 0) {
+      this.hint = null;
+      return;
+    }
 
     const gl = app.gl;
     app.enable(PicoGL.BLEND);

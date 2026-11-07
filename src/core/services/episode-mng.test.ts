@@ -1,12 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { EpisodeManager } from './episode-mng';
+import { EPISODE_1 } from '../data/episode-1';
+
+/** Карты-заглушки для эпизода 2: тестам не нужна настоящая генерация. */
+const EP2_ROWS = Array.from({ length: 12 }, () => EPISODE_1[0]);
+const readyManager = (): EpisodeManager => {
+  const mng = new EpisodeManager();
+  mng.applyEpisodeRows(1, EP2_ROWS);
+  return mng;
+};
 
 describe('EpisodeManager', () => {
-  it('создаёт 2 эпизода (по 12 уровней)', () => {
+  it('создаёт 2 эпизода; карты эпизода 2 приходят по одной', () => {
     const mng = new EpisodeManager();
     expect(mng.episodes).toHaveLength(2);
     expect(mng.getEpisode(0).levelCount).toBe(12);
+    // Слоты второго эпизода видны сразу, но карт в них ещё нет.
     expect(mng.getEpisode(1).levelCount).toBe(12);
+    expect(mng.hasLevel(1, 0)).toBe(false);
+    expect(mng.isEpisodeReady(1)).toBe(false);
+
+    mng.applyEpisodeLevel(1, 0, EPISODE_1[0]);
+    expect(mng.hasLevel(1, 0)).toBe(true);
+    expect(mng.hasLevel(1, 1)).toBe(false);
+    expect(mng.isEpisodeReady(1)).toBe(false);
+
+    mng.applyEpisodeRows(1, EP2_ROWS);
+    expect(mng.isEpisodeReady(1)).toBe(true);
   });
 
   it('уровень 1 доступен, остальные заблокированы', () => {
@@ -23,15 +43,28 @@ describe('EpisodeManager', () => {
   });
 
   it('nextLevel переходит через границу эпизода', () => {
-    const mng = new EpisodeManager();
+    const mng = readyManager();
     mng.setCurLevel(0, 11);
     expect(mng.nextLevel()).toBe(true);
     expect(mng.curEpisodeId).toBe(1);
     expect(mng.curLevelId).toBe(0);
   });
 
-  it('nextLevel в последнем эпизоде остаётся на месте', () => {
+  it('nextLevel ждёт готовности карт следующего эпизода', () => {
     const mng = new EpisodeManager();
+    mng.setCurLevel(0, 11);
+    // Эпизод 2 ещё генерируется в воркере — не уходим на пустую карту.
+    expect(mng.nextLevel()).toBe(false);
+    expect(mng.curEpisodeId).toBe(0);
+
+    mng.applyEpisodeRows(1, EP2_ROWS);
+    expect(mng.nextLevel()).toBe(true);
+    expect(mng.curEpisodeId).toBe(1);
+    expect(mng.curLevelId).toBe(0);
+  });
+
+  it('nextLevel в последнем эпизоде остаётся на месте', () => {
+    const mng = readyManager();
     mng.setCurLevel(1, 11);
     expect(mng.nextLevel()).toBe(false);
     expect(mng.curEpisodeId).toBe(1);
@@ -53,7 +86,7 @@ describe('EpisodeManager', () => {
   });
 
   it('nextCyclicLevel идёт по картам по кругу и не трогает прогресс', () => {
-    const mng = new EpisodeManager();
+    const mng = readyManager();
     mng.setCurLevel(0, 0);
     const second = mng.nextCyclicLevel(0, 0);
     expect(second).toEqual({ episodeId: 0, levelId: 1 });
@@ -80,7 +113,7 @@ describe('EpisodeManager', () => {
   });
 
   it('unlockAllLevels открывает все уровни обоих эпизодов', () => {
-    const mng = new EpisodeManager();
+    const mng = readyManager();
     mng.unlockAllLevels();
     expect(mng.isAllUnlocked()).toBe(true);
     expect(mng.isLocked(0, 11)).toBe(false);
@@ -93,6 +126,37 @@ describe('EpisodeManager', () => {
     const min = mng.minMoves(0, 0);
     expect(min).toBeGreaterThan(0);
     expect(mng.minMoves(0, 0)).toBe(min);
+  });
+
+  it('сохраняет прогресс эпизода при подстановке сгенерированных карт', () => {
+    const mng = new EpisodeManager();
+    mng.getEpisode(1).unlockedAll = true;
+    mng.getEpisode(1).lastUnlockedLevel = 4;
+    mng.applyEpisodeRows(1, EP2_ROWS);
+    expect(mng.getEpisode(1).unlockedAll).toBe(true);
+    expect(mng.getEpisode(1).lastUnlockedLevel).toBe(4);
+    expect(mng.getEpisode(1).levelCount).toBe(12);
+  });
+
+  it('не предлагает Resume на уровень, которого ещё нет', () => {
+    const mng = new EpisodeManager();
+    // Сохранение указывает на эпизод 2, который генерируется в фоне.
+    mng.deserialize({
+      version: 1,
+      curEpisodeId: 1,
+      curLevelId: 5,
+      episodes: [
+        { lastUnlockedLevel: 11, unlockedAll: false },
+        { lastUnlockedLevel: 0, unlockedAll: false },
+      ],
+    });
+    expect(mng.isResume()).toBe(false);
+    // До готовности карт показываем безопасный первый уровень.
+    expect(mng.getCurLevel().label).toBe('1-1');
+
+    mng.applyEpisodeRows(1, EP2_ROWS);
+    expect(mng.isResume()).toBe(true);
+    expect(mng.getCurLevel().label).toBe('2-6');
   });
 
   it('markStarted делает Resume доступной без загрузки сохранения', () => {

@@ -37,6 +37,9 @@ export interface IRenderer {
   /** Убрать стрелки подсказки сразу. */
   hideHint(): void;
 
+  /** Плавно погасить стрелки подсказки (игрок уже сделал ход). */
+  fadeHintOut(): void;
+
   /** Подсказка осей для клавиатуры (плоскость L/D) видна только в игре. */
   setKeyGuideVisible(visible: boolean): void;
 

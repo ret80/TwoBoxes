@@ -34,7 +34,11 @@ export class EpisodeManager {
   private minMovesCache = new Map<string, number>();
 
   constructor() {
-    this.episodes = EPISODES_DATA.map((rows, i) => new Episode(i, rows));
+    // Копируем карты: эпизод 2 заполняется по одному через applyEpisodeLevel,
+    // и мутация не должна протекать в общий модуль данных (и другие менеджеры).
+    this.episodes = EPISODES_DATA.map(
+      (rows, i) => new Episode(i, rows.map((row) => [...row])),
+    );
   }
 
   getEpisode(episodeId: number): Episode {
@@ -43,16 +47,59 @@ export class EpisodeManager {
     return ep;
   }
 
+  /** Все карты эпизода уже сгенерированы. */
+  isEpisodeReady(episodeId: number): boolean {
+    const ep = this.episodes[episodeId];
+    return !!ep && ep.levelRows.every((rows) => rows.length > 0);
+  }
+
+  /** Есть ли у эпизода готовая карта с таким номером. */
+  hasLevel(episodeId: number, levelId: number): boolean {
+    const ep = this.episodes[episodeId];
+    if (!ep || levelId < 0 || levelId >= ep.levelCount) return false;
+    return ep.levelRows[levelId].length > 0;
+  }
+
+  /**
+   * Подставить один готовый уровень. Прогресс эпизода живёт в том же
+   * объекте Episode, поэтому трогать его не нужно.
+   */
+  applyEpisodeLevel(episodeId: number, levelId: number, rows: string[]): void {
+    const ep = this.episodes[episodeId];
+    if (!ep || levelId < 0 || levelId >= ep.levelRows.length) return;
+    ep.levelRows[levelId] = rows;
+  }
+
+  /**
+   * Подставить все карты эпизода сразу, сохранив прогресс (тесты и
+   * потенциальная загрузка эпизода из кэша).
+   */
+  applyEpisodeRows(episodeId: number, rows: string[][]): void {
+    const prev = this.episodes[episodeId];
+    if (!prev) return;
+    const next = new Episode(episodeId, rows);
+    next.deserialize(prev.serialize());
+    this.episodes[episodeId] = next;
+  }
+
   /** Ленивое создание уровня из данных карт. */
   getLevel(episodeId: number, levelId: number): Level {
     const ep = this.getEpisode(episodeId);
     const rows = ep.levelRows[levelId];
-    if (!rows) throw new Error(`Уровень ${episodeId}-${levelId} не найден`);
+    if (!rows || rows.length === 0) {
+      throw new Error(`Уровень ${episodeId}-${levelId} ещё не сгенерирован`);
+    }
     return createLevelFromData(episodeId, levelId, rows);
   }
 
   getCurLevel(): Level {
-    return this.getLevel(this.curEpisodeId, this.curLevelId);
+    // Сохранение может указывать на эпизод 2, карты которого ещё готовит
+    // воркер: до его готовности показываем первый уровень, чтобы старт игры
+    // не падал. Как только карты придут, Resume откроет сохранённый уровень.
+    if (this.hasLevel(this.curEpisodeId, this.curLevelId)) {
+      return this.getLevel(this.curEpisodeId, this.curLevelId);
+    }
+    return this.getLevel(0, 0);
   }
 
   setCurLevel(episodeId: number, levelId: number): void {
@@ -72,6 +119,9 @@ export class EpisodeManager {
       return true;
     }
     if (this.curEpisodeId + 1 < this.episodes.length) {
+      // Первый уровень следующего эпизода может ещё генерироваться в воркере —
+      // тогда остаёмся на месте, чтобы не запустить пустую карту.
+      if (!this.hasLevel(this.curEpisodeId + 1, 0)) return false;
       this.curEpisodeId++;
       this.curLevelId = 0;
       return true;
@@ -170,8 +220,11 @@ export class EpisodeManager {
     this.saved = true;
   }
 
-  /** Есть ли сохранённое состояние (активность кнопки Resume в главном меню). */
+  /**
+   * Есть ли что продолжать: сохранённый уровень существует и его карты уже
+   * готовы. Иначе Resume вёл бы на уровень, которого ещё нет (эпизод 2).
+   */
   isResume(): boolean {
-    return this.saved;
+    return this.saved && this.hasLevel(this.curEpisodeId, this.curLevelId);
   }
 }

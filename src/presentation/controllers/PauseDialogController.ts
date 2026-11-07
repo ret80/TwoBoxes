@@ -14,6 +14,7 @@ export class PauseDialogController {
   private input: { setEnabled(enabled: boolean): void };
   private onResumeGame: () => void;
   private onLevelSelect: () => void;
+  private onSettings: () => void;
   private onMainMenu: () => void;
   private onVisibility?: (visible: boolean) => void;
 
@@ -25,6 +26,7 @@ export class PauseDialogController {
     handlers: {
       onResume: () => void;
       onLevelSelect: () => void;
+      onSettings: () => void;
       onMainMenu: () => void;
       /** Открытие/закрытие диалога — для размытия сцены под ним. */
       onVisibility?: (visible: boolean) => void;
@@ -36,6 +38,7 @@ export class PauseDialogController {
     this.input = input;
     this.onResumeGame = handlers.onResume;
     this.onLevelSelect = handlers.onLevelSelect;
+    this.onSettings = handlers.onSettings;
     this.onMainMenu = handlers.onMainMenu;
     this.onVisibility = handlers.onVisibility;
     this.build();
@@ -58,6 +61,12 @@ export class PauseDialogController {
         this.input.setEnabled(true);
         this.onLevelSelect();
       },
+      // Настройки открываются поверх паузы: игра, звук и ввод остаются
+      // замороженными, а «Назад» в настройках возвращает сюда же.
+      onSettings: () => {
+        this.root.classList.add('dialog--hidden');
+        this.onSettings();
+      },
       onMainMenu: () => {
         this.hide();
         this.audio.resume();
@@ -79,6 +88,11 @@ export class PauseDialogController {
   hide(): void {
     this.root.classList.add('dialog--hidden');
     this.onVisibility?.(false);
+  }
+
+  /** Вернуться из настроек: пауза не снималась, диалог снова на экране. */
+  restore(): void {
+    this.root.classList.remove('dialog--hidden');
   }
 
   get visible(): boolean {

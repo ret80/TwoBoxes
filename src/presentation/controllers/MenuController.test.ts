@@ -92,4 +92,28 @@ describe('MenuController: карусель главного меню', () => {
     ctrl.activate();
     expect(actor.getSnapshot().value).toBe('game');
   });
+
+  it('догенерирует выбранный уровень и запускает его, когда карта готова', () => {
+    const { ctrl, actor, episodes, root } = setup();
+    const request = vi.fn();
+    ctrl.setLevelGenerator(request);
+    episodes.unlockAllLevels();
+    actor.send({ type: 'PLAY' });
+    ctrl.refreshSelector();
+
+    const card = root.querySelector<HTMLButtonElement>(
+      '.lvl-card[data-episode="1"][data-level="5"]',
+    );
+    expect(card).not.toBeNull();
+    card?.click();
+
+    // Воркер получил приоритетную заявку, но игра ещё не началась.
+    expect(request).toHaveBeenCalledWith(1, 5);
+    expect(actor.getSnapshot().value).toBe('selector');
+    expect(card?.classList.contains('lvl-card--pending')).toBe(true);
+
+    episodes.applyEpisodeLevel(1, 5, episodes.getEpisode(0).levelRows[0]);
+    ctrl.levelReady(1, 5);
+    expect(actor.getSnapshot().value).toBe('game');
+  });
 });

@@ -4,6 +4,7 @@ import { createGameMachine } from '@core/state/game';
 import { menuMachine } from '@core/state/menu';
 import { Config } from '@core/services/config';
 import { EpisodeManager, type SaveData } from '@core/services/episode-mng';
+import { EPISODE_2_LEVELS, EPISODE_2_SEED } from '@core/data/episode-2';
 import { Statistics } from '@core/services/statistics';
 import { PicoglRenderer } from '@adapters/renderer/PicoglRenderer';
 import { WebAudioPlayer } from '@adapters/audio/WebAudioPlayer';
@@ -19,6 +20,10 @@ import { GameController } from '@presentation/controllers/GameController';
 import { PauseDialogController } from '@presentation/controllers/PauseDialogController';
 import { CompletedDialogController } from '@presentation/controllers/CompletedDialogController';
 import { buildGameScreen } from '@presentation/html/screens';
+import type {
+  EpisodeWorkerRequest,
+  EpisodeWorkerResponse,
+} from './workers/episode-protocol';
 
 /**
  * Точка входа (план 14.1): сборка ядра, адаптеров, FSM и контроллеров.
@@ -192,6 +197,9 @@ const setDialogVisible = (visible: boolean): void => {
 const pauseDialog = new PauseDialogController(dialogRoot, i18n, audio, input, {
   onResume: () => game.resume(),
   onLevelSelect: () => menuActor.send({ type: 'BACK' }),
+  // Настройки из паузы: игра остаётся замороженной, а «Назад» в настройках
+  // возвращает в меню паузы (а не в главное меню).
+  onSettings: () => menuCtrl.showOverPause('settings', () => pauseDialog.restore()),
   onMainMenu: () => menuActor.send({ type: 'HOME' }),
   onVisibility: setDialogVisible,
 });
@@ -323,6 +331,72 @@ menuActor.subscribe(applyMenuState);
 // XState не вызывает подписчика для текущего состояния: синхронизируем стартовое
 // меню вручную, иначе демо-фон и активная иконка не включались при загрузке.
 applyMenuState(menuActor.getSnapshot());
+
+/*
+ * Эпизод 2 генерируется в фоновом потоке, пока игрок в меню: синхронная
+ * генерация при импорте данных подвешивала первый кадр и анимацию появления.
+ * Уровни приходят по одному, поэтому клик по ещё не готовому уровню можно
+ * обслужить вне очереди: воркер досчитает текущий (~250 мс), затем выбранный,
+ * а потом продолжит остальные. Если сохранение указывает на эпизод 2,
+ * Resume появится после подстановки нужной карты.
+ */
+let episodeWorker: Worker | null = null;
+
+const requestEpisodeLevel = (episodeId: number, levelId: number): void => {
+  const request: EpisodeWorkerRequest = { type: 'prioritize', episodeId, levelId };
+  episodeWorker?.postMessage(request);
+};
+menuCtrl.setLevelGenerator(requestEpisodeLevel);
+
+const startEpisodeTwoGeneration = (): void => {
+  const worker = new Worker(
+    new URL('./workers/episode-generator.worker.ts', import.meta.url),
+    { type: 'module' },
+  );
+  episodeWorker = worker;
+  worker.onmessage = (event: MessageEvent<EpisodeWorkerResponse>) => {
+    const message = event.data;
+    if (message.type === 'episode-level-ready') {
+      episodes.applyEpisodeLevel(message.episodeId, message.levelId, message.rows);
+      // Если игрок уже нажал этот уровень — сразу запускаем игру.
+      menuCtrl.levelReady(message.episodeId, message.levelId);
+      if (
+        episodes.curEpisodeId === message.episodeId &&
+        episodes.curLevelId === message.levelId
+      ) {
+        menuCtrl.refreshResume();
+      }
+      return;
+    }
+    if (message.type === 'episode-ready') {
+      // Карты эпизода собраны, воркер больше не нужен.
+      worker.terminate();
+      if (episodeWorker === worker) episodeWorker = null;
+      return;
+    }
+    console.error(
+      `Не удалось сгенерировать уровень ${message.episodeId + 1}-${(message.levelId ?? 0) + 1}:`,
+      message.message,
+    );
+    if (message.levelId !== undefined) {
+      menuCtrl.levelGenerationFailed(message.episodeId, message.levelId);
+    }
+  };
+  worker.onerror = (event) => {
+    console.error('Ошибка воркера генерации эпизода 2:', event.message);
+    worker.terminate();
+    if (episodeWorker === worker) episodeWorker = null;
+    menuCtrl.cancelPendingSelection();
+  };
+  const request: EpisodeWorkerRequest = {
+    type: 'generate-episode',
+    episodeId: 1,
+    seed: EPISODE_2_SEED,
+    count: EPISODE_2_LEVELS,
+  };
+  worker.postMessage(request);
+};
+startEpisodeTwoGeneration();
 
 // AudioContext — по user gesture (политика автозапуска)
 const initAudio = () => {
