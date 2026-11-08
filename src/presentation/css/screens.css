@@ -1,4 +1,13 @@
 /* Стили экранов */
+
+/*
+ * Вертикаль ряда иконок главного меню. Ей же пользуется ряд кнопок в меню
+ * победы: кнопки стоят на уровне иконок, а не висят по центру экрана.
+ */
+:root {
+  --menu-icons-y: 76%;
+}
+
 #screens {
   position: absolute;
   inset: 0;
@@ -127,8 +136,6 @@
   --xmb-step-x: clamp(76px, 19vw, 112px);
   --xmb-step-y: clamp(74px, 13vh, 104px);
   --xmb-size: clamp(64px, 16vw, 92px);
-  /* Карусель — у нижней трети: центр экрана остаётся свободным для демо */
-  --xmb-center-y: 76%;
   position: fixed;
   inset: 0;
   z-index: 1;
@@ -138,7 +145,8 @@
 .xmb__item {
   --xmb-scale: 0.82;
   position: absolute;
-  top: var(--xmb-center-y);
+  /* Карусель — у нижней трети: центр экрана остаётся свободным для демо */
+  top: var(--menu-icons-y);
   left: 50%;
   display: flex;
   align-items: center;

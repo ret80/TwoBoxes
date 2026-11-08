@@ -11,11 +11,14 @@
      на экранах со списком они стоят в одной колонке и делят высоту. */
 
   /* Карусель в альбоме: компактнее, чтобы иконки не упирались в подпись */
+  :root {
+    --menu-icons-y: 74%;
+  }
+
   .xmb {
     --xmb-step-x: clamp(74px, 15vw, 104px);
     --xmb-step-y: clamp(62px, 17vh, 84px);
     --xmb-size: clamp(54px, 12vh, 76px);
-    --xmb-center-y: 74%;
   }
 
   .xmb__caption {
@@ -25,10 +28,13 @@
 
 /* Низкие экраны: карусель и подпись не должны пересекаться */
 @media (max-height: 520px) {
+  :root {
+    --menu-icons-y: 74%;
+  }
+
   .xmb {
     --xmb-step-y: 56px;
     --xmb-size: 50px;
-    --xmb-center-y: 74%;
   }
 
   .xmb__item {

@@ -51,6 +51,12 @@ const MENU_LABEL: Record<MenuItemId, string> = {
  */
 const SWIPE_AXIS = 12;
 const SWIPE_STEP_Y = 34;
+/**
+ * Во сколько раз сдвиг должен превышать сдвиг по другой оси, чтобы жест
+ * считался направленным. Палец при листании карусели почти всегда сносит
+ * вверх-вниз, и без запаса боковой жест уходил в переключение «Продолжить».
+ */
+const SWIPE_LOCK_RATIO = 1.6;
 /** Запас вокруг ряда иконок: вертикальный свайп работает только в этой полосе. */
 const SWIPE_ZONE_PAD = 28;
 /** Сопротивление за крайней иконкой: ряд тянется, но не уезжает в пустоту. */
@@ -321,14 +327,17 @@ export class MenuController {
    * за экран.
    *
    * Вертикальный свайп остаётся шагом: он переключает «Продолжить»/«Играть»
-   * в той же колонке и работает только в полосе иконок.
+   * в той же колонке. Работает он только если жест начался на одной из этих
+   * двух иконок — у остальных иконок вертикальной пары нет, и оттуда жест
+   * остаётся горизонтальным до конца касания.
    */
   private attachSwipe(): void {
     let pointerId = -1;
     let startX = 0;
     let startY = 0;
     let axis: '' | 'x' | 'y' = '';
-    let handled = false;
+    /** Касание началось на иконке с вертикальной парой («Играть»/«Продолжить»). */
+    let verticalAllowed = false;
     let dragging = false;
     /** Смещение карусели в пикселях: во время перетаскивания — за пальцем. */
     let dragX = 0;
@@ -480,7 +489,12 @@ export class MenuController {
       startX = e.clientX;
       startY = e.clientY;
       axis = '';
-      handled = false;
+      // Вертикальная пара есть только у «Играть»/«Продолжить»: с остальных
+      // иконок жест не должен уводить карусель вверх-вниз.
+      const pressed = (e.target as Element | null)?.closest?.('.xmb__item');
+      verticalAllowed =
+        pressed instanceof HTMLElement &&
+        (pressed.dataset.item === 'play' || pressed.dataset.item === 'continue');
       velocity = 0;
       lastSampleX = e.clientX;
       lastSampleAt = performance.now();
@@ -494,9 +508,12 @@ export class MenuController {
       if (e.pointerId !== pointerId) return;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
-      if (axis === '' && Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_AXIS) {
-        axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
-        if (axis === 'x') {
+      const adx = Math.abs(dx);
+      const ady = Math.abs(dy);
+      if (axis === '') {
+        if (adx >= SWIPE_AXIS && adx > ady * SWIPE_LOCK_RATIO) {
+          // Горизонталь: ряд едет за пальцем.
+          axis = 'x';
           // Начинаем с нуля на пороге: ряд не прыгает на первые 12 px жеста.
           dragBase = Math.sign(dx) * SWIPE_AXIS;
           this.suppressClickUntil = performance.now() + 500;
@@ -504,9 +521,23 @@ export class MenuController {
           lastSampleX = e.clientX;
           lastSampleAt = performance.now();
           velocity = 0;
+        } else if (
+          // Вертикаль — только шагом и только когда палец ушёл вверх-вниз
+          // заметно сильнее, чем вбок: иначе дрожание руки при листании
+          // срабатывало как переключение «Продолжить».
+          verticalAllowed &&
+          inIconZone(startY) &&
+          ady >= SWIPE_STEP_Y &&
+          ady > adx * SWIPE_LOCK_RATIO
+        ) {
+          axis = 'y';
+          this.suppressClickUntil = performance.now() + 500;
+          this.selectItem(dy > 0 ? 'continue' : 'play');
         }
+        return;
       }
-      if (axis === '') return;
+
+      if (axis === 'y') return;
 
       if (axis === 'x') {
         // Скорость по последним событиям: нужна для инерции на отпускании.
@@ -528,24 +559,21 @@ export class MenuController {
           dragX = raw;
         }
         applyDrag();
-        return;
       }
-
-      // Вертикальный жест работает только в полосе иконок и делает один шаг.
-      if (handled) return;
-      if (!inIconZone(startY) || Math.abs(dy) < SWIPE_STEP_Y) return;
-      this.suppressClickUntil = performance.now() + 500;
-      this.selectItem(dy > 0 ? 'continue' : 'play');
-      handled = true;
     };
 
     const onUp = (e: PointerEvent) => {
       if (e.pointerId !== pointerId) return;
       const wasDragging = dragging && axis === 'x';
+      // Жест ушёл дальше порога, но так и не выбрал ось (например, вертикальный
+      // увод с иконки без вертикальной пары): это не нажатие, пункт открывать
+      // не надо.
+      const moved =
+        Math.max(Math.abs(e.clientX - startX), Math.abs(e.clientY - startY)) >= SWIPE_AXIS;
       pointerId = -1;
       axis = '';
-      handled = false;
       if (!wasDragging) {
+        if (moved) this.suppressClickUntil = performance.now() + 500;
         setDragging(false);
         return;
       }

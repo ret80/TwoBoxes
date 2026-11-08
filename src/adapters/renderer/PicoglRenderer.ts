@@ -135,22 +135,30 @@ const GLOW_TWO = [1.0, 0.66, 0.18]; // золотой ореол
 
 /**
  * Геометрия свечения. Свет рисуется двумя квадами: свет на самой площадке
- * (квадрат по размеру клетки) и объёмный ореол вокруг кубика (круг по его
- * силуэту). Расстояния и радиусы — в UV квада, поэтому связаны с его размером:
- * клетка 1.0 мира при кваде 1.9 — это половина 0.263, кубик 0.9 мира в кваде
- * 3.6 — круг радиусом 0.125.
+ * (квадрат по размеру клетки) и ореол вокруг кубика (силуэт кубика, снятый с
+ * текущего ракурса камеры). Расстояния — в UV квада, поэтому связаны с его
+ * размером: клетка 1.0 мира при кваде 1.9 — половина 0.263, кубик 0.9 мира в
+ * кваде 3.6 — половина 0.125.
  */
 const GLOW_POOL_SIZE = 1.9;
-const GLOW_POOL_RECT = 0.5 / GLOW_POOL_SIZE;
-const GLOW_POOL_RADIUS = 0.06;
-const GLOW_POOL_CORE = 0.06;
-const GLOW_POOL_WIDE = 0.09;
-const GLOW_POOL_ALPHA = 0.38;
+/** Половина клетки в UV квада площадки. */
+const GLOW_POOL_HALF = 0.5 / GLOW_POOL_SIZE;
+const GLOW_POOL_CORE = 0.04;
+const GLOW_POOL_WIDE = 0.045;
+const GLOW_POOL_ALPHA = 0.34;
+/** Силуэт площадки — квадрат клетки: две полосы (третья дублирует вторую). */
+const GLOW_POOL_SLABS = [
+  1, 0, GLOW_POOL_HALF,
+  0, 1, GLOW_POOL_HALF,
+  0, 1, GLOW_POOL_HALF,
+];
 const GLOW_HALO_SIZE = 3.6;
-const GLOW_HALO_RADIUS = 0.45 / GLOW_HALO_SIZE;
-const GLOW_HALO_CORE = 0.05;
-const GLOW_HALO_WIDE = 0.11;
-const GLOW_HALO_ALPHA = 0.85;
+/** Половина кубика (0.9 мира) в UV квада ореола. */
+const GLOW_HALO_HALF = 0.45 / GLOW_HALO_SIZE;
+/** Ядро и мягкий хвост: свечение почти не уходит дальше пятой части кубика. */
+const GLOW_HALO_CORE = 0.01;
+const GLOW_HALO_WIDE = 0.026;
+const GLOW_HALO_ALPHA = 0.8;
 /** Компас: оси — цветом текста, но с прозрачностью недоступной кнопки отката. */
 const KEY_GUIDE_DIM_ALPHA = 0.32;
 
@@ -237,6 +245,8 @@ export class PicoglRenderer implements IRenderer {
   private readonly basisMatrix = mat4.create();
   private readonly decalModel = mat4.create();
   private readonly scratchRot = mat4.create();
+  /** Полосы силуэта кубика для шейдера ореола (9 чисел, см. `cubeHull`). */
+  private readonly hullSlabs = new Array<number>(9).fill(0);
 
   // Подсказка и компас клавиатуры (плоскость L/D)
   private hint: {
@@ -916,13 +926,7 @@ export class PicoglRenderer implements IRenderer {
     const onGoal = (b: RenderBoxPos): boolean =>
       goals.has(`${Math.round(b.x - 0.5)},${Math.round(b.z - 0.5)},${b.color}`);
 
-    // Направление на камеру — для подсветки рёбер кубика (rim в шейдере).
     const { yaw: camYaw, pitch: camPitch } = this.camera.getAngles();
-    this.cubeDraw.uniform('uViewDir', [
-      -Math.cos(camPitch) * Math.sin(camYaw),
-      Math.sin(camPitch),
-      Math.cos(camPitch) * Math.cos(camYaw),
-    ]);
 
     const glowing = this.boxPos.filter(onGoal);
     if (glowing.length > 0 && !animating) {
@@ -946,23 +950,30 @@ export class PicoglRenderer implements IRenderer {
         this.floorBasis(this.basisMatrix, worldX(bx), worldZ(bz), PLATFORM_TOP + 0.03, 0);
         mat4.scale(this.decalModel, this.basisMatrix, [GLOW_POOL_SIZE, GLOW_POOL_SIZE, 1]);
         this.drawGlow(this.decalModel, color, GLOW_POOL_ALPHA, {
-          half: GLOW_POOL_RECT,
-          radius: GLOW_POOL_RADIUS,
+          slabs: GLOW_POOL_SLABS,
           core: GLOW_POOL_CORE,
           wide: GLOW_POOL_WIDE,
         });
-        // Объёмный ореол: билборд к камере, силуэт — круг по габариту кубика.
-        // Свечение мягко расходится во все стороны и не читается «раздутым кубом».
+        // Объёмный ореол: билборд к камере, силуэт — сама проекция кубика с
+        // текущего ракурса. Поэтому свечение облегает кубик целиком (включая
+        // нижние рёбра) с любого угла, а квад заметно больше ореола и гаснет
+        // задолго до своей границы — краёв текстуры не видно.
         PicoglRenderer.setBasis(
           this.basisMatrix,
           [b.x - state.width / 2, b.y, b.z - state.height / 2],
           [cosYaw, 0, sinYaw],
           [sinPitch * sinYaw, cosPitch, -sinPitch * cosYaw],
         );
-        mat4.scale(this.decalModel, this.basisMatrix, [GLOW_HALO_SIZE, GLOW_HALO_SIZE, 1]);
+        mat4.scale(this.decalModel, this.basisMatrix, [GLOW_HALO_SIZE, GLOW_HALO_SIZE, 1]);        PicoglRenderer.cubeHull(
+          GLOW_HALO_HALF,
+          cosYaw,
+          sinYaw,
+          sinPitch,
+          cosPitch,
+          this.hullSlabs,
+        );
         this.drawGlow(this.decalModel, color, GLOW_HALO_ALPHA, {
-          half: GLOW_HALO_RADIUS,
-          radius: GLOW_HALO_RADIUS,
+          slabs: this.hullSlabs,
           core: GLOW_HALO_CORE,
           wide: GLOW_HALO_WIDE,
         });
@@ -1075,26 +1086,68 @@ export class PicoglRenderer implements IRenderer {
   }
 
   /**
-   * Квад ореола. `half` и `radius` задают силуэт в UV квада: скруглённый
-   * квадрат с половиной стороны `half`, а круг — при `half = radius`
-   * (тогда расстояние в шейдере равно `|p| - radius`). `core` и `wide` —
-   * радиусы яркого ядра и широкого ореола.
+   * Квад ореола. `slabs` — три полосы силуэта `(nᵢx, nᵢy, rᵢ)` в UV квада (их
+   * пересечение и есть силуэт), `core` и `wide` — радиусы яркого ядра и
+   * мягкого ореола.
    */
   private drawGlow(
     model: mat4,
     color: number[],
     intensity: number,
-    shape: { half: number; radius: number; core: number; wide: number },
+    shape: { slabs: number[]; core: number; wide: number },
   ): void {
     if (!this.glowDraw) return;
+    const s = shape.slabs;
     this.applyViewProj(this.glowDraw.uniform('uModel', model))
       .uniform('uColor', color)
       .uniform('uIntensity', intensity)
-      .uniform('uRect', [shape.half, shape.half])
-      .uniform('uRadius', shape.radius)
+      .uniform('uN0', [s[0], s[1]])
+      .uniform('uR0', s[2])
+      .uniform('uN1', [s[3], s[4]])
+      .uniform('uR1', s[5])
+      .uniform('uN2', [s[6], s[7]])
+      .uniform('uR2', s[8])
       .uniform('uCore', shape.core)
       .uniform('uWide', shape.wide)
       .draw();
+  }
+
+  /**
+   * Полосы силуэта кубика в UV билборда: тройки `(nᵢx, nᵢy, rᵢ)`.
+   *
+   * Ортокамера проецирует параллелепипед в центрально-симметричный
+   * шестиугольник — зонотоп трёх отрезков (проекций осей кубика). Его рёбра
+   * параллельны этим проекциям, значит нормали полос — перпендикуляры к ним, а
+   * радиус полосы — опорная функция зонотопа `Σ|n·aⱼ|` в этом направлении.
+   * Расстояние до силуэта — максимум по трём полосам. Вырожденная ось (взгляд
+   * вдоль неё) даёт нулевую нормаль и на максимум не влияет.
+   */
+  private static cubeHull(
+    halfUv: number,
+    cosYaw: number,
+    sinYaw: number,
+    sinPitch: number,
+    cosPitch: number,
+    out: number[],
+  ): void {
+    // Проекции мировых осей на правый и верхний векторы билборда.
+    const axes: [number, number][] = [
+      [cosYaw, sinPitch * sinYaw],
+      [0, cosPitch],
+      [sinYaw, -sinPitch * cosYaw],
+    ];
+    for (let i = 0; i < 3; i++) {
+      const a = axes[i] as [number, number];
+      const len = Math.hypot(a[0], a[1]) || 1;
+      // Нормаль ребра силуэта — перпендикуляр к проекции оси.
+      const nx = -a[1] / len;
+      const ny = a[0] / len;
+      let support = 0;
+      for (const b of axes) support += Math.abs(nx * b[0] + ny * b[1]);
+      out[i * 3] = nx;
+      out[i * 3 + 1] = ny;
+      out[i * 3 + 2] = halfUv * support;
+    }
   }
 
   /** Дистанция пути в клетках: прыжок через портал не проезжается (0 клеток). */

@@ -767,7 +767,9 @@ export function buildCompletedDialog(
   next.addEventListener('click', cb.onNext);
   const row = el('div', 'dialog__actions');
   row.append(reset, home, next);
-  box.append(stars, stats, row);
-  root.append(title, box);
+  box.append(stars, stats);
+  // Кнопки — отдельным рядом на уровне иконок главного меню (см. dialogs.css),
+  // поэтому они не в панели со звёздами и статистикой.
+  root.append(title, box, row);
   return { root, stats, stars, title };
 }

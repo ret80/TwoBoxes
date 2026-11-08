@@ -131,6 +131,19 @@
   white-space: nowrap;
 }
 
+/*
+ * Победа: ряд кнопок — на уровне иконок главного меню (`--menu-icons-y`),
+ * отдельно от панели со звёздами и статистикой. Ряд шире панели так же, как
+ * ряд иконок: по центру экрана и той же ширины, что и панель.
+ */
+.dialog[data-dialog='completed'] .dialog__actions {
+  position: absolute;
+  top: var(--menu-icons-y);
+  left: 50%;
+  width: min(380px, 90vw);
+  transform: translate(-50%, -50%);
+}
+
 .dialog__actions {
   display: flex;
   gap: 10px;
