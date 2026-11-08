@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createLevelFromData } from './create';
+import { ColorType } from '../types/color';
 import { planSlides } from './hint';
 import { moveBoxes } from './move';
 import { DIRS, Position } from '../types/position';
@@ -75,6 +76,35 @@ describe('mechanic rules', () => {
 
     expect(next?.boxes[0].pos.x).toBe(3);
     expect(next?.boxes[0].pos.y).toBe(3);
+  });
+
+  it('кубик с ротатора упирается в соседа, который уже доехал до стены', () => {
+    // Жёлтый едет вверх по своей колонке и встаёт в стену. Коралловый едет
+    // вверх, на ротаторе поворачивает вправо и едет по той же линии прямо в
+    // жёлтого: он должен встать перед ним, а не проехать им насквозь.
+    const level = levelOf([
+      '   ######  ',
+      '   #c...#  ',
+      '####....###',
+      '#w....w..y#',
+      '####R..Y#.#',
+      '   #...r#.#',
+      '   ######.#',
+      '       ##.#',
+      '       #..#',
+      '       ####',
+    ]);
+    const next = moveBoxes(level, level.boxes, DIRS.up, 0, 0)!;
+    const coral = next.boxes.find((box) => box.color === ColorType.ONE)!;
+    const yellow = next.boxes.find((box) => box.color === ColorType.TWO)!;
+
+    expect({ x: yellow.pos.x, y: yellow.pos.y }).toEqual({ x: 7, y: 1 });
+    expect({ x: coral.pos.x, y: coral.pos.y }).toEqual({ x: 6, y: 1 });
+    // Коралловый прошёл тот же путь, но упёрся в жёлтого, а не встал за ним.
+    const coralIndex = level.boxes.findIndex((box) => box.color === ColorType.ONE);
+    const coralPath = next.paths![coralIndex].map((point) => `${point.pos.x},${point.pos.y}`);
+    expect(coralPath).toContain('4,1');
+    expect(coralPath[coralPath.length - 1]).toBe('6,1');
   });
 
   it('switch flips all rotators for the following moves', () => {

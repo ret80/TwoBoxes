@@ -44,79 +44,29 @@ function findPortalExit(level: Level, from: Position, partner: CellType): Positi
   return null;
 }
 
-interface Trace {
+/** Состояние одного кубика в пределах одного хода. */
+interface BoxRun {
   pos: Position;
+  heading: Position;
+  /** Кубик ещё едет: не упёрся, не застрял в ловушке, не заперт. */
+  moving: boolean;
   points: PathPoint[];
-  /** Кубик вообще сдвинулся (а не только пропустил ход из-за ловушки). */
-  moved: boolean;
-}
-
-/**
- * Провести один кубик до упора с учётом механик. Возвращает фактический путь:
- * по нему анимация рисует повороты на ротаторах и прыжок через портал.
- */
-function traceBox(
-  level: Level,
-  start: Position,
-  dir: Position,
-  occupied: Uint8Array,
-  state: MechanicState,
-  index: number,
-): Trace {
-  const points: PathPoint[] = [{ pos: start.clone() }];
-  let cur = start.clone();
-  let heading = dir;
-  let step = 0;
-  const maxSteps = level.width * level.height * 4 + 16;
-
-  while (step++ < maxSteps) {
-    const next = cur.add(heading);
-    const cell = level.grid.get(next);
-    if (!isPassable(cell)) break;
-    // Односторонняя клетка пускает только по своему направлению.
-    const oneWay = oneWayDir(cell);
-    if (oneWay && (oneWay.x !== heading.x || oneWay.y !== heading.y)) break;
-    if (occupied[next.y * level.width + next.x]) break;
-
-    cur = next;
-    points.push({ pos: cur.clone() });
-
-    const partner = portalPartner(cell);
-    if (partner) {
-      const exit = findPortalExit(level, cur, partner);
-      if (!exit || occupied[exit.y * level.width + exit.x]) break;
-      cur = exit;
-      points.push({ pos: cur.clone(), teleport: true });
-      continue;
-    }
-
-    if (cell === CellType.TRAP) {
-      // Ловушка останавливает кубик и держит его два следующих хода.
-      state.locks[index] = 2;
-      break;
-    }
-
-    if (cell === CellType.SWITCH) {
-      // Переключатель срабатывает в момент проезда и переворачивает ротаторы.
-      state.rotorFlip = !state.rotorFlip;
-      continue;
-    }
-
-    if (cell === CellType.ROTOR_CW || cell === CellType.ROTOR_CCW) {
-      const clockwise = (cell === CellType.ROTOR_CW) !== state.rotorFlip;
-      heading = rotate(heading, clockwise);
-    }
-  }
-
-  return { pos: cur, points, moved: points.length > 1 };
 }
 
 /**
  * Попытка хода: **все кубики** одновременно скользят в `dir` до упора.
  *
+ * Ход считается пошагово: за один шаг каждый свободный кубик пробует сдвинуться
+ * на клетку по своему направлению, и клетка, которую сосед покидает в этом же
+ * шаге, считается свободной. Порядок «сначала ведущий до упора» здесь не
+ * годится: ротатор и портал заворачивают кубик в чужую полосу, и кубик,
+ * проехавший весь путь первым, оказывался там, где на самом деле уже стоит
+ * другой. Пошаговая схема даёт то же самое, что видит игрок: кто ближе — тот и
+ * упрётся первым, а остальные встанут за ним.
+ *
  * Механики — это расширения того же скольжения:
  * - портал переносит кубик на парную клетку и отпускает дальше в том же
- *   направлении;
+ *   направлении (занятый выход останавливает кубик на входе);
  * - ловушка останавливает кубик и отнимает два следующих хода;
  * - ротатор поворачивает движение на 90°;
  * - переключатель переворачивает все ротаторы;
@@ -140,42 +90,146 @@ export function moveBoxes(
   for (let i = 0; i < boxes.length; i++) nextState.locks[i] ??= 0;
 
   // Списать пропущенный ход у запертых кубиков. Они остаются препятствиями
-  // для остальных и не участвуют в выборе порядка движения.
+  // для остальных и в этом ходе не двигаются.
   const locked: boolean[] = boxes.map((_, index) => {
     if (nextState.locks[index] <= 0) return false;
     nextState.locks[index]--;
     return true;
   });
 
-  const occupied = new Uint8Array(level.width * level.height);
-  boxes.forEach((box) => {
-    occupied[box.pos.y * level.width + box.pos.x] = 1;
-  });
-
-  const proj = (box: Box): number => box.pos.x * dir.x + box.pos.y * dir.y;
-  const indexed = boxes
-    .map((box, index) => ({ box, index }))
-    .filter(({ index }) => !locked[index])
-    .sort((a, b) => proj(b.box) - proj(a.box));
-
-  const newBoxes: Box[] = boxes.map((box) => ({
+  const runs: BoxRun[] = boxes.map((box, index) => ({
     pos: box.pos.clone(),
-    color: box.color,
+    heading: new Position(dir.x, dir.y),
+    moving: !locked[index],
+    points: [{ pos: box.pos.clone() }],
   }));
-  const paths: PathPoint[][] = boxes.map(() => []);
+
+  /** Кто стоит на клетке: индекс кубика по `y * width + x`. */
+  const occupied = new Map<number, number>();
+  boxes.forEach((box, index) => occupied.set(box.pos.y * level.width + box.pos.x, index));
+
+  const cellKey = (pos: Position): number => pos.y * level.width + pos.x;
+  const maxTicks = level.width * level.height * 4 + 16;
   let moved = false;
 
-  for (const { box, index } of indexed) {
-    // Кубик освобождает старую клетку, чтобы не блокировать сам себя.
-    occupied[box.pos.y * level.width + box.pos.x] = 0;
-    const trace = traceBox(level, box.pos, dir, occupied, nextState, index);
-    newBoxes[index] = { pos: trace.pos, color: box.color };
-    occupied[trace.pos.y * level.width + trace.pos.x] = 1;
-    if (trace.moved) {
-      moved = true;
-      paths[index] = trace.points;
+  for (let tick = 0; tick < maxTicks; tick++) {
+    const active = runs
+      .map((run, index) => ({ run, index }))
+      .filter(({ run }) => run.moving);
+    if (active.length === 0) break;
+
+    // Куда хочет шагнуть каждый кубик и что мешает шагу.
+    const wants = new Map<number, { index: number; next: Position; cell: CellType }>();
+    const blocked = new Set<number>();
+    for (const { run, index } of active) {
+      const next = run.pos.add(run.heading);
+      const cell = level.grid.get(next);
+      if (!isPassable(cell)) {
+        blocked.add(index);
+        continue;
+      }
+      // Односторонняя клетка пускает только по своему направлению.
+      const oneWay = oneWayDir(cell);
+      if (oneWay && (oneWay.x !== run.heading.x || oneWay.y !== run.heading.y)) {
+        blocked.add(index);
+        continue;
+      }
+      wants.set(index, { index, next, cell });
     }
+
+    // Двое в одну клетку и обмен клетками невозможны — оба встают.
+    const targets = new Map<number, number[]>();
+    for (const want of wants.values()) {
+      const key = cellKey(want.next);
+      const list = targets.get(key) ?? [];
+      list.push(want.index);
+      targets.set(key, list);
+    }
+    for (const list of targets.values()) {
+      if (list.length > 1) list.forEach((index) => blocked.add(index));
+    }
+    for (const want of wants.values()) {
+      if (blocked.has(want.index)) continue;
+      const occupant = occupied.get(cellKey(want.next));
+      if (occupant === undefined) continue;
+      const other = wants.get(occupant);
+      if (other && other.next.equals(runs[want.index].pos)) {
+        blocked.add(want.index);
+        blocked.add(occupant);
+      }
+    }
+
+    // Кубик, который стоит на пути и сам в этом шаге не сдвинется, останавливает
+    // соседа. Цепочка «все едут» разрешается, поэтому цикл идёт до устойчивого
+    // состояния: остановка одного может остановить следующего.
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const want of wants.values()) {
+        if (blocked.has(want.index)) continue;
+        const occupant = occupied.get(cellKey(want.next));
+        if (occupant === undefined || occupant === want.index) continue;
+        const advances = wants.has(occupant) && !blocked.has(occupant);
+        if (!advances) {
+          blocked.add(want.index);
+          changed = true;
+        }
+      }
+    }
+
+    const advancing = [...wants.values()].filter((want) => !blocked.has(want.index));
+    for (const want of advancing.sort((a, b) => a.index - b.index)) {
+      const run = runs[want.index];
+      occupied.delete(cellKey(run.pos));
+      run.pos = want.next.clone();
+      run.points.push({ pos: run.pos.clone() });
+      occupied.set(cellKey(run.pos), want.index);
+      moved = true;
+    }
+
+    // Эффекты клеток — после того как все сдвинулись: переключатели и ловушки
+    // обрабатываются в порядке кубиков, чтобы ход был детерминированным.
+    for (const want of advancing) {
+      const run = runs[want.index];
+      const partner = portalPartner(want.cell);
+      if (partner) {
+        const exit = findPortalExit(level, run.pos, partner);
+        if (exit && !occupied.has(cellKey(exit))) {
+          occupied.delete(cellKey(run.pos));
+          run.pos = exit.clone();
+          run.points.push({ pos: run.pos.clone(), teleport: true });
+          occupied.set(cellKey(run.pos), want.index);
+        } else {
+          // Выход занят — кубик остаётся на входе.
+          run.moving = false;
+        }
+        continue;
+      }
+      if (want.cell === CellType.TRAP) {
+        nextState.locks[want.index] = 2;
+        run.moving = false;
+        continue;
+      }
+      if (want.cell === CellType.SWITCH) {
+        nextState.rotorFlip = !nextState.rotorFlip;
+        continue;
+      }
+      if (want.cell === CellType.ROTOR_CW || want.cell === CellType.ROTOR_CCW) {
+        const clockwise = (want.cell === CellType.ROTOR_CW) !== nextState.rotorFlip;
+        run.heading = rotate(run.heading, clockwise);
+      }
+    }
+
+    // Упёршиеся кубики больше не поедут: стена, односторонняя клетка и стоящий
+    // сосед за ход не сдвинутся.
+    for (const index of blocked) runs[index].moving = false;
   }
+
+  const newBoxes: Box[] = runs.map((run, index) => ({
+    pos: run.pos,
+    color: boxes[index].color,
+  }));
+  const paths: PathPoint[][] = runs.map((run) => (run.points.length > 1 ? run.points : []));
 
   // Все кубики были заперты: ход-пропуск нужен, чтобы ловушки истекли.
   const waited = locked.some(Boolean) && !moved;
