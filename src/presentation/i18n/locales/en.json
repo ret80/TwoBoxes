@@ -6,6 +6,7 @@
   "HELP": "Help",
   "ABOUT": "About",
   "LVL_NUM": "Level #%d-%d",
+  "LVL_SEED": "seed %s",
   "RESUME": "Resume",
   "EXIT": "Exit",
   "PAUSE": "Pause",

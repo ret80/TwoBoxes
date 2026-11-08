@@ -583,6 +583,34 @@
 }
 
 /*
+ * Сид уровня: узкая плашка под верхним баром. Появляется, если кликнуть по
+ * номеру уровня десять раз, — в обычной игре её не видно.
+ */
+.game-seed {
+  position: absolute;
+  top: calc(74px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  z-index: 2;
+  padding: 3px 12px;
+  border-radius: 12px;
+  background: var(--color-cream);
+  box-shadow: var(--shadow);
+  color: var(--color-coffee);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  opacity: 0.92;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.game-seed[hidden] {
+  display: none;
+}
+
+/*
  * Кнопки внутри плавающих панелей: только иконки, без своей плашки.
  * Размер плашки фиксирован (44×44), поэтому растут именно иконки — а высота
  * панели остаётся прежней за счёт уменьшенного вертикального padding.
@@ -654,9 +682,14 @@
   pointer-events: none;
 }
 
+.hud--hidden .game-seed {
+  opacity: 0;
+}
+
 /* Вне игры (меню, выбор уровня, помощь) плавающие панели HUD скрыты */
 .screen--game-idle .game-topbar,
-.screen--game-idle .game-bottombar {
+.screen--game-idle .game-bottombar,
+.screen--game-idle .game-seed {
   display: none;
 }
 

@@ -12,6 +12,7 @@ import {
 } from '@core/data/generated-episodes';
 import { Statistics } from '@core/services/statistics';
 import { generateTestLevel } from '@core/generation/level-generator';
+import { formatLevelSeed } from '@core/generation/level-seed';
 import type { MechanicId } from '@core/generation/mechanics';
 import { createLevelFromData } from '@core/rules/create';
 import type { Level } from '@core/types/level';
@@ -174,8 +175,10 @@ const game = new GameController(
   statistics,
   storage,
   gameScreen.levelLabel,
+  gameScreen.seedLabel,
   gameActor,
   (level) => i18n.t('LVL_NUM', level.episodeId + 1, level.levelId + 1),
+  (seed) => i18n.t('LVL_SEED', formatLevelSeed(seed)),
 );
 
 // Панели HUD: верхняя (сброс/пауза) и нижняя (сброс/подсказка)

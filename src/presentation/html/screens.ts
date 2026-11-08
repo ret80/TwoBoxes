@@ -651,6 +651,8 @@ export function buildGameScreen(
 ): {
   root: HTMLElement;
   levelLabel: HTMLElement;
+  /** Сид уровня под верхним баром: скрыт, пока его не откроют кликами. */
+  seedLabel: HTMLElement;
   canvas: HTMLCanvasElement;
   canvasWrap: HTMLElement;
   pause: HTMLButtonElement;
@@ -667,6 +669,9 @@ export function buildGameScreen(
   const pause = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'pause', i18n.t('PAUSE'));
   pause.addEventListener('click', cb.onPause);
   topbar.append(levelLabel, pause);
+  // Пасхалка: десять кликов по номеру уровня показывают его сид.
+  const seedLabel = el('div', 'game-seed', '');
+  seedLabel.hidden = true;
 
   const canvasWrap = el('div', '', undefined);
   canvasWrap.id = 'canvas-wrap';
@@ -686,8 +691,19 @@ export function buildGameScreen(
   hint.addEventListener('click', cb.onHint);
   bottombar.append(hintToast, undo, resetBottom, hint);
 
-  root.append(canvasWrap, topbar, bottombar);
-  return { root, levelLabel, canvas, canvasWrap, pause, undo, resetBottom, hint, hintToast };
+  root.append(canvasWrap, topbar, seedLabel, bottombar);
+  return {
+    root,
+    levelLabel,
+    seedLabel,
+    canvas,
+    canvasWrap,
+    pause,
+    undo,
+    resetBottom,
+    hint,
+    hintToast,
+  };
 }
 
 /** Элемент SVG с атрибутами — для иллюстраций в справке. */

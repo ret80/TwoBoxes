@@ -10,6 +10,7 @@ import type { ISaveStorage } from '../../ports/ISaveStorage';
 import type { Statistics } from '../../core/services/statistics';
 import { InputAction } from '../../ports/IInput';
 import { createLevelFromData } from '../../core/rules/create';
+import { formatLevelSeed, levelSeed } from '../../core/generation/level-seed';
 import { findHint, planSlides, type HintSlide } from '../../core/rules/hint';
 import { starsForResult, type GameResult } from '../../core/types/game-result';
 
@@ -37,6 +38,9 @@ export class GameController {
   private statistics: Statistics;
   private storage: ISaveStorage;
   private levelLabel: HTMLElement;
+  /** Сид уровня: показывается после десяти кликов по номеру уровня. */
+  private seedLabel: HTMLElement;
+  private levelLabelClicks = 0;
   private isDemo = false;
   /** Уровень из отладки: не трогаем прогресс, статистику и сохранение. */
   private testMode = false;
@@ -52,6 +56,7 @@ export class GameController {
   private demoLevels: Level[] = [];
 
   private formatLevel: (level: Level) => string;
+  private formatSeed: (seed: number) => string;
   private lastSeenBoxes: Box[] = [];
   private lastState = '';
   private rafId = 0;
@@ -69,8 +74,10 @@ export class GameController {
     statistics: Statistics,
     storage: ISaveStorage,
     levelLabel: HTMLElement,
+    seedLabel: HTMLElement,
     gameActor: ActorRefFrom<ReturnType<typeof createGameMachine>>,
     formatLevel?: (level: Level) => string,
+    formatSeed?: (seed: number) => string,
   ) {
     this.renderer = renderer;
     this.audio = audio;
@@ -78,8 +85,11 @@ export class GameController {
     this.statistics = statistics;
     this.storage = storage;
     this.levelLabel = levelLabel;
+    this.seedLabel = seedLabel;
     this.gameActor = gameActor;
     this.formatLevel = formatLevel ?? ((level) => `Level #${level.label}`);
+    this.formatSeed = formatSeed ?? formatLevelSeed;
+    this.levelLabel.addEventListener('click', () => this.onLevelLabelClick());
 
     this.gameActor.subscribe((snapshot) => this.onTransition(snapshot));
     this.startLoop();
@@ -96,6 +106,17 @@ export class GameController {
     this.showPause = ui.showPause;
     this.showCompleted = ui.showCompleted;
     this.hideDialogs = ui.hideDialogs;
+  }
+
+  /**
+   * Пасхалка на номере уровня: после десяти кликов под верхним баром
+   * появляется сид карты. Дальше он остаётся и обновляется на каждом уровне.
+   */
+  private onLevelLabelClick(): void {
+    if (!this.seedLabel.hidden) return;
+    this.levelLabelClicks++;
+    if (this.levelLabelClicks < 10) return;
+    this.seedLabel.hidden = false;
   }
 
   setDemo(demo: boolean): void {
@@ -139,6 +160,8 @@ export class GameController {
     this.paused = false;
     this.lastSeenBoxes = level.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
     this.levelLabel.textContent = testMode ? this.testLabel : this.formatLevel(level);
+    this.levelLabelClicks = 0;
+    this.seedLabel.textContent = this.formatSeed(levelSeed(level));
     // Сброс уровня при уже активном create должен заново запустить анимацию
     this.lastState = '';
     this.gameActor.send({ type: 'START', level });

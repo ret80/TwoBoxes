@@ -69,6 +69,8 @@ function setup(demo: boolean) {
   const actor = createActor(createGameMachine(level));
   actor.start();
   const label = document.createElement('div');
+  const seed = document.createElement('div');
+  seed.hidden = true;
   const showCompleted = vi.fn();
   const playSfx = vi.fn();
   const storage = makeStorage();
@@ -79,12 +81,13 @@ function setup(demo: boolean) {
     new Statistics(),
     storage,
     label,
+    seed,
     actor,
   );
   game.attachDialogs({ showPause: vi.fn(), showCompleted, hideDialogs: vi.fn() });
   game.setDemo(demo);
   game.startLevel(level);
-  return { game, actor, label, showCompleted, storage, playSfx };
+  return { game, actor, label, seed, showCompleted, storage, playSfx };
 }
 
 /** Проходить уровень по подсказкам, пока не выполнится `done`. */
@@ -122,5 +125,15 @@ describe('GameController: завершение уровня', () => {
     expect(label.textContent).toBe('Level #1-1');
     // прогресс и сохранение игрока демо не трогает
     expect(storage.saved).toHaveLength(0);
+  });
+
+  it('сид уровня появляется после десяти кликов по номеру', () => {
+    const { label, seed } = setup(false);
+    for (let i = 0; i < 9; i++) label.click();
+    expect(seed.hidden).toBe(true);
+    label.click();
+    expect(seed.hidden).toBe(false);
+    // По умолчанию (без i18n) сид показывается как hex из восьми цифр.
+    expect(seed.textContent).toMatch(/^0x[0-9a-f]{8}$/);
   });
 });
