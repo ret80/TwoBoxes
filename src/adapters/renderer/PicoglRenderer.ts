@@ -210,6 +210,21 @@ interface RenderBoxPos {
   inPortal: boolean;
 }
 
+/** План анимации одного кубика за ход: путь, его тайминги и прыжок через портал. */
+interface MovePlan {
+  item: RenderBoxPos;
+  steps: PathPoint[];
+  lengths: number[];
+  total: number;
+  totalMs: number;
+  /** Клетка входа в портал (старт, если портала нет). */
+  entry: Position;
+  /** Клетка выхода из портала; null — кубик в этом ходу не телепортируется. */
+  exit: Position | null;
+  /** Второй участник обмена через портал (индекс в списке планов), -1 — нет. */
+  pair: number;
+}
+
 /** Активная анимация телепорта одного кубика. */
 interface PortalAnim {
   item: RenderBoxPos;
@@ -323,6 +338,8 @@ export class PicoglRenderer implements IRenderer {
    * по очереди.
    */
   private portalPausePending = false;
+  /** Прыжки, ждущие партнёра по обмену: оба стартуют одновременно. */
+  private parkedHops = new Map<number, { index: number; step: number }>();
   /** Подписчик на старт телепорта: озвучка идёт по фазам анимации. */
   private portalListener: ((durationMs: number) => void) | null = null;
   /** Когда последний раз было событие телепорта — чтобы два разом дали один звук. */
@@ -450,6 +467,7 @@ export class PicoglRenderer implements IRenderer {
       // Новая расстановка (старт уровня, сброс): телепорт-анимации больше
       // не относятся к делу, их позы не должны пережить смену состояния.
       this.portals = [];
+      this.parkedHops.clear();
       this.portalBlocks = 0;
       this.portalPausePending = false;
       this.lastPortalAt = Number.NEGATIVE_INFINITY;
@@ -562,6 +580,9 @@ export class PicoglRenderer implements IRenderer {
     }
     this.movingCount = moves.length;
     this.moveDone = onComplete;
+    this.parkedHops.clear();
+
+    const plans: MovePlan[] = [];
     for (const m of moves) {
       const item = this.boxPos.find(
         (b) => b.color === m.color && b.x === m.from.x + 0.5 && b.z === m.from.y + 0.5,
@@ -587,30 +608,79 @@ export class PicoglRenderer implements IRenderer {
         return Math.abs(point.pos.x - prev.x) + Math.abs(point.pos.y - prev.y);
       });
       const total = lengths.reduce((sum, n) => sum + n, 0);
-      const totalMs = TweenManager.moveDuration(Math.max(1, total), this.moveSpeed);
-
-      const hop = (index: number): void => {
-        const point = steps[index];
-        if (!point) {
-          this.finishMove();
-          return;
-        }
-        if (point.teleport) {
-          // Прыжок через портал: вместо мгновенного переноса кубик поднимается,
-          // вытягивается в палку и уходит в точку, а на выходе собирается
-          // обратно той же анимацией. Пока она идёт, остальные кубики стоят.
-          this.startPortalHop(item, point.pos, () => hop(index + 1));
-          return;
-        }
-        this.tweens.add(
-          item as unknown as Record<string, number>,
-          { x: point.pos.x + 0.5, z: point.pos.y + 0.5, y: BOX_Y },
-          total > 0 ? (totalMs * lengths[index]) / total : totalMs,
-          () => hop(index + 1),
-        );
-      };
-      hop(0);
+      // Клетка входа и клетка выхода: по ним видно, какие два кубика
+      // поменялись местами через портал.
+      const jump = steps.findIndex((point) => point.teleport);
+      plans.push({
+        item,
+        steps,
+        lengths,
+        total,
+        totalMs: TweenManager.moveDuration(Math.max(1, total), this.moveSpeed),
+        entry: jump >= 0 ? path[jump].pos : m.from,
+        exit: jump >= 0 ? steps[jump].pos : null,
+        pair: -1,
+      });
     }
+
+    // Обмен через портал: кубики меняются клетками. Их прыжки должны начаться
+    // вместе — иначе один уже стоит на выходе, пока второй ещё едет к входу.
+    for (let i = 0; i < plans.length; i++) {
+      const a = plans[i];
+      if (!a.exit || a.pair >= 0) continue;
+      for (let j = i + 1; j < plans.length; j++) {
+        const b = plans[j];
+        if (!b.exit || b.pair >= 0) continue;
+        if (a.exit.equals(b.entry) && b.exit.equals(a.entry)) {
+          a.pair = j;
+          b.pair = i;
+          break;
+        }
+      }
+    }
+
+    const hop = (index: number, step: number): void => {
+      const plan = plans[index];
+      const point = plan.steps[step];
+      if (!point) {
+        this.finishMove();
+        return;
+      }
+      if (!point.teleport) {
+        const duration =
+          plan.total > 0 ? (plan.totalMs * plan.lengths[step]) / plan.total : plan.totalMs;
+        this.tweens.add(
+          plan.item as unknown as Record<string, number>,
+          { x: point.pos.x + 0.5, z: point.pos.y + 0.5, y: BOX_Y },
+          duration,
+          () => hop(index, step + 1),
+        );
+        return;
+      }
+      // Прыжок через портал: вместо мгновенного переноса кубик поднимается,
+      // вытягивается в палку и уходит в точку, а на выходе собирается
+      // обратно той же анимацией. Пока она идёт, остальные кубики стоят.
+      if (plan.pair < 0) {
+        this.startPortalHop(plan.item, point.pos, () => hop(index, step + 1));
+        return;
+      }
+      const key = Math.min(index, plan.pair);
+      const parked = this.parkedHops.get(key);
+      if (!parked) {
+        // Второй кубик ещё едет к своему порталу: ждём его и прыгаем вдвоём.
+        this.parkedHops.set(key, { index, step });
+        return;
+      }
+      this.parkedHops.delete(key);
+      this.startPortalHop(
+        plans[parked.index].item,
+        plans[parked.index].steps[parked.step].pos,
+        () => hop(parked.index, parked.step + 1),
+      );
+      this.startPortalHop(plan.item, point.pos, () => hop(index, step + 1));
+    };
+
+    plans.forEach((_, index) => hop(index, 0));
   }
 
   /**
