@@ -41,6 +41,13 @@ export class GameController {
   /** Сид уровня: показывается после десяти кликов по номеру уровня. */
   private seedLabel: HTMLElement;
   private levelLabelClicks = 0;
+  /**
+   * Настоящий сид генератора текущего уровня (`null` — карта ручная, и в
+   * плашке лежит только отпечаток содержимого).
+   */
+  private seedValue: number | null = null;
+  /** Подсказка плашки сида: показывается только у воспроизводимых карт. */
+  private seedHint = '';
   private isDemo = false;
   /** Уровень из отладки: не трогаем прогресс, статистику и сохранение. */
   private testMode = false;
@@ -89,7 +96,10 @@ export class GameController {
     this.gameActor = gameActor;
     this.formatLevel = formatLevel ?? ((level) => `Level #${level.label}`);
     this.formatSeed = formatSeed ?? formatLevelSeed;
+    this.seedHint = this.seedLabel.title;
+    this.seedLabel.removeAttribute('title');
     this.levelLabel.addEventListener('click', () => this.onLevelLabelClick());
+    this.seedLabel.addEventListener('click', () => this.rebuildFromSeed());
 
     this.gameActor.subscribe((snapshot) => this.onTransition(snapshot));
     this.startLoop();
@@ -117,6 +127,40 @@ export class GameController {
     this.levelLabelClicks++;
     if (this.levelLabelClicks < 10) return;
     this.seedLabel.hidden = false;
+  }
+
+  /**
+   * Собрать текущий уровень заново по его сиду. Рецепт генератора
+   * восстанавливается в `EpisodeManager`, карта пересчитывается с нуля — если
+   * она совпала с исходной, уровень запускается заново (с анимацией сборки).
+   * Плашка подтверждает результат зелёным или красным.
+   */
+  private rebuildFromSeed(): void {
+    if (this.seedValue === null) return;
+    const level = this.gameActor.getSnapshot().context.level;
+    const rows = this.episodes.rebuildLevel(level.episodeId, level.levelId);
+    if (rows) {
+      const rebuilt = createLevelFromData(level.episodeId, level.levelId, rows);
+      // Сравниваем отпечатки: одинаковое содержимое — тот же уровень.
+      if (levelSeed(rebuilt) === levelSeed(level)) {
+        this.flashSeed(true);
+        this.startLevel(rebuilt);
+        return;
+      }
+    }
+    this.flashSeed(false);
+    console.warn(
+      `Сид ${formatLevelSeed(this.seedValue)} не воспроизвёл уровень ${level.label}`,
+    );
+  }
+
+  /** Короткая подсветка плашки сида: удалось собрать карту или нет. */
+  private flashSeed(ok: boolean): void {
+    this.seedLabel.classList.remove('game-seed--ok', 'game-seed--fail');
+    this.seedLabel.classList.add(ok ? 'game-seed--ok' : 'game-seed--fail');
+    window.setTimeout(() => {
+      this.seedLabel.classList.remove('game-seed--ok', 'game-seed--fail');
+    }, 1200);
   }
 
   setDemo(demo: boolean): void {
@@ -161,7 +205,14 @@ export class GameController {
     this.lastSeenBoxes = level.boxes.map((b) => ({ pos: b.pos.clone(), color: b.color }));
     this.levelLabel.textContent = testMode ? this.testLabel : this.formatLevel(level);
     this.levelLabelClicks = 0;
-    this.seedLabel.textContent = this.formatSeed(levelSeed(level));
+    // У сгенерированных карт сид настоящий (его можно ввести и получить ту же
+    // карту), у ручных — отпечаток содержимого, который только опознаёт карту.
+    this.seedValue = this.episodes.getLevelSeed(level.episodeId, level.levelId);
+    this.seedLabel.textContent = this.formatSeed(this.seedValue ?? levelSeed(level));
+    const rebuildable = this.seedValue !== null;
+    this.seedLabel.classList.toggle('game-seed--actionable', rebuildable);
+    if (rebuildable) this.seedLabel.title = this.seedHint;
+    else this.seedLabel.removeAttribute('title');
     // Сброс уровня при уже активном create должен заново запустить анимацию
     this.lastState = '';
     this.gameActor.send({ type: 'START', level });

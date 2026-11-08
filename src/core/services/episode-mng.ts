@@ -1,4 +1,6 @@
 import { EPISODES_DATA } from '../data';
+import { GENERATED_EPISODES } from '../data/generated-episodes';
+import { rebuildEpisodeLevel } from '../generation/level-generator';
 import { findShortestSolution } from '../generation/solver';
 import { createLevelFromData } from '../rules/create';
 import { Episode } from '../types/episode';
@@ -40,6 +42,8 @@ export class EpisodeManager {
   private saved = false;
   /** Кэш минимального числа ходов по уровням (считается лениво, один раз). */
   private minMovesCache = new Map<string, number>();
+  /** Настоящие сиды генератора сгенерированных карт: `эпизод:уровень`. */
+  private levelSeeds = new Map<string, number>();
 
   constructor() {
     // Копируем карты: эпизод 2 заполняется по одному через applyEpisodeLevel,
@@ -72,10 +76,31 @@ export class EpisodeManager {
    * Подставить один готовый уровень. Прогресс эпизода живёт в том же
    * объекте Episode, поэтому трогать его не нужно.
    */
-  applyEpisodeLevel(episodeId: number, levelId: number, rows: string[]): void {
+  applyEpisodeLevel(episodeId: number, levelId: number, rows: string[], seed?: number): void {
     const ep = this.episodes[episodeId];
     if (!ep || levelId < 0 || levelId >= ep.levelRows.length) return;
     ep.levelRows[levelId] = rows;
+    if (seed !== undefined) this.levelSeeds.set(`${episodeId}:${levelId}`, seed);
+  }
+
+  /**
+   * Настоящий сид генератора для карты из сгенерированного эпизода. У ручных
+   * уровней и у карт, которые ещё не пришли из воркера, — `null`.
+   */
+  getLevelSeed(episodeId: number, levelId: number): number | null {
+    return this.levelSeeds.get(`${episodeId}:${levelId}`) ?? null;
+  }
+
+  /**
+   * Собрать уровень заново по его сиду. Рецепт (профиль уровня и механики)
+   * берётся из конфигурации эпизода, поэтому по одному числу получается та же
+   * самая карта. `null` — уровень не сгенерирован или сид ему не принадлежит.
+   */
+  rebuildLevel(episodeId: number, levelId: number): string[] | null {
+    const seed = this.getLevelSeed(episodeId, levelId);
+    const config = GENERATED_EPISODES.find((item) => item.episodeId === episodeId);
+    if (seed === null || !config) return null;
+    return rebuildEpisodeLevel(config.seed, levelId, config.levelCount, config.mechanics, seed);
   }
 
   /**

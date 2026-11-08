@@ -552,6 +552,84 @@ export function episodeProfiles(count: number): LevelProfile[] {
   return profiles;
 }
 
+/** Сид следующего уровня внутри эпизода (номера идут арифметической прогрессией). */
+const LEVEL_SEED_STEP = 104729;
+/** Шаг между попытками поиска карты для одного и того же уровня. */
+const ATTEMPT_SEED_STEP = 15485863;
+/** Сколько попыток перебирает `generateEpisodeLevel`, прежде чем сдаться. */
+const EPISODE_ATTEMPTS = 400;
+
+/**
+ * Параметры генерации уровня эпизода. Сид попытки плюс профиль — весь рецепт:
+ * повторный `generateLevel` с этими же опциями даёт ту же карту.
+ */
+function episodeLevelOptions(
+  seed: number,
+  index: number,
+  count: number,
+  mechanics: MechanicId[],
+  attempt: number,
+): GenerateLevelOptions {
+  const profile = episodeProfiles(count)[index];
+  if (!profile) throw new Error(`Профиль уровня ${index + 1} не найден`);
+  // Сначала ищем уровень, точно попадающий в оценку профиля (±2): так
+  // соседние уровни эпизода не меняются сложностью местами. Если узкая
+  // полоса не далась, допуск расширяется, и только в самом конце берётся
+  // что угодно близкое по сиду.
+  const scoreTolerance = attempt < 25 ? 2 : attempt < 70 ? 5 : undefined;
+  return {
+    seed: seed + index * LEVEL_SEED_STEP + attempt * ATTEMPT_SEED_STEP,
+    moves: profile.moves,
+    maxMoves: profile.moves + (profile.moves <= 5 ? 1 : 3),
+    size: profile.size,
+    budget: profile.budget,
+    patterns: profile.patterns,
+    deadEnds: profile.deadEnds,
+    score: profile.score,
+    scoreTolerance,
+    candidates: 4,
+    mechanics,
+  };
+}
+
+/**
+ * Сид уровня вместе с рецептом: `seed` — тот самый сид, с которым карта
+ * получилась, по нему уровень собирается заново (`rebuildEpisodeLevel`).
+ */
+export interface EpisodeLevelRecipe {
+  rows: string[];
+  seed: number;
+}
+
+/**
+ * Сгенерировать уровень эпизода и вернуть его настоящий сид — для показа
+ * игроку и повторной сборки карты.
+ */
+export function generateEpisodeLevelRecipe(
+  seed: number,
+  index: number,
+  count: number,
+  mechanics: MechanicId[] = [],
+): EpisodeLevelRecipe {
+  let generated: GeneratedLevel | null = null;
+  let options: GenerateLevelOptions | null = null;
+  for (let attempt = 0; attempt < EPISODE_ATTEMPTS && !generated; attempt++) {
+    options = episodeLevelOptions(seed, index, count, mechanics, attempt);
+    generated = generateLevel(options);
+  }
+  if (!generated) {
+    const profile = episodeProfiles(count)[index];
+    throw new Error(
+      `Не удалось сгенерировать уровень ${index + 1} ` +
+        `(${profile.moves} ходов, ${profile.size}×${profile.size}, ` +
+        `тупики ≤ ${profile.deadEnds}, оценка ≈ ${profile.score}` +
+        (mechanics.length > 0 ? `, механики: ${mechanics.join(', ')}` : '') +
+        ')',
+    );
+  }
+  return { rows: generated.rows, seed: options?.seed ?? seed };
+}
+
 /**
  * Сгенерировать один уровень эпизода по его профилю. Воркер вызывает эту
  * функцию поштучно, поэтому приоритетный уровень можно посчитать первым, а
@@ -566,41 +644,26 @@ export function generateEpisodeLevel(
   count: number,
   mechanics: MechanicId[] = [],
 ): string[] {
-  const profiles = episodeProfiles(count);
-  const profile = profiles[index];
-  if (!profile) throw new Error(`Профиль уровня ${index + 1} не найден`);
+  return generateEpisodeLevelRecipe(seed, index, count, mechanics).rows;
+}
 
-  let generated: GeneratedLevel | null = null;
-  for (let attempt = 0; attempt < 400 && !generated; attempt++) {
-    // Сначала ищем уровень, точно попадающий в оценку профиля (±2): так
-    // соседние уровни эпизода не меняются сложностью местами. Если узкая
-    // полоса не далась, допуск расширяется, и только в самом конце берётся
-    // что угодно близкое по сиду.
-    const scoreTolerance = attempt < 25 ? 2 : attempt < 70 ? 5 : undefined;
-    generated = generateLevel({
-      seed: seed + index * 104729 + attempt * 15485863,
-      moves: profile.moves,
-      maxMoves: profile.moves + (profile.moves <= 5 ? 1 : 3),
-      size: profile.size,
-      budget: profile.budget,
-      patterns: profile.patterns,
-      deadEnds: profile.deadEnds,
-      score: profile.score,
-      scoreTolerance,
-      candidates: 4,
-      mechanics,
-    });
-  }
-  if (!generated) {
-    throw new Error(
-      `Не удалось сгенерировать уровень ${index + 1} ` +
-        `(${profile.moves} ходов, ${profile.size}×${profile.size}, ` +
-        `тупики ≤ ${profile.deadEnds}, оценка ≈ ${profile.score}` +
-        (mechanics.length > 0 ? `, механики: ${mechanics.join(', ')}` : '') +
-        ')',
-    );
-  }
-  return generated.rows;
+/**
+ * Собрать уровень эпизода заново по его сиду: рецепт (профиль уровня, номер
+ * попытки, механики) восстанавливается из сида, поэтому генератор выдаёт ту же
+ * самую карту. `null` — сид не из этого эпизода.
+ */
+export function rebuildEpisodeLevel(
+  seed: number,
+  index: number,
+  count: number,
+  mechanics: MechanicId[],
+  levelSeed: number,
+): string[] | null {
+  const offset = levelSeed - seed - index * LEVEL_SEED_STEP;
+  if (offset < 0 || offset % ATTEMPT_SEED_STEP !== 0) return null;
+  const attempt = offset / ATTEMPT_SEED_STEP;
+  if (!Number.isInteger(attempt) || attempt >= EPISODE_ATTEMPTS) return null;
+  return generateLevel(episodeLevelOptions(seed, index, count, mechanics, attempt))?.rows ?? null;
 }
 
 /**

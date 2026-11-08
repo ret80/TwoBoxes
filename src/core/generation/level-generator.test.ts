@@ -4,7 +4,9 @@ import {
   generateDemoLevel,
   generateEpisode,
   generateEpisodeLevel,
+  generateEpisodeLevelRecipe,
   generateLevel,
+  rebuildEpisodeLevel,
 } from './level-generator';
 import { findShortestSolution, solveLevel } from './solver';
 import { measureLevel } from './difficulty';
@@ -13,6 +15,7 @@ import { moveBoxes } from '../rules/move';
 import { checkWin } from '../rules/check';
 import { findHint } from '../rules/hint';
 import type { Position } from '../types/position';
+import type { MechanicId } from './mechanics';
 
 function replay(rows: string[], solution: Position[]): boolean {
   const level = createLevelFromData(0, 0, rows);
@@ -136,6 +139,25 @@ describe('level generator', () => {
       expect(new Set(levelCells(generated.rows)).size).toBe(4);
     }
   }, 20_000);
+});
+
+describe('сид уровня', () => {
+  it('настоящий сид генератора собирает ту же карту заново', () => {
+    const seed = 0x2b0b2;
+    const count = 8;
+    const mechanics: MechanicId[] = ['portal'];
+    const first = generateEpisodeLevelRecipe(seed, 0, count, mechanics);
+    const second = generateEpisodeLevelRecipe(seed, 1, count, mechanics);
+
+    // У каждого уровня свой сид, и по нему карта собирается байт в байт.
+    expect(first.seed).not.toBe(second.seed);
+    expect(rebuildEpisodeLevel(seed, 0, count, mechanics, first.seed)).toEqual(first.rows);
+    expect(rebuildEpisodeLevel(seed, 1, count, mechanics, second.seed)).toEqual(second.rows);
+  }, 30_000);
+
+  it('чужой сид не выдаётся за уровень эпизода', () => {
+    expect(rebuildEpisodeLevel(0x2b0b2, 0, 8, ['portal'], 12345)).toBeNull();
+  });
 });
 
 describe('демо-уровни меню', () => {

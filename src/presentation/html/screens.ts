@@ -669,9 +669,11 @@ export function buildGameScreen(
   const pause = iconButton(el<HTMLButtonElement>('button', 'btn btn--icon'), 'pause', i18n.t('PAUSE'));
   pause.addEventListener('click', cb.onPause);
   topbar.append(levelLabel, pause);
-  // Пасхалка: десять кликов по номеру уровня показывают его сид.
+  // Пасхалка: десять кликов по номеру уровня показывают его сид; у
+  // сгенерированных карт по клику на сид игра собирает уровень заново.
   const seedLabel = el('div', 'game-seed', '');
   seedLabel.hidden = true;
+  seedLabel.title = i18n.t('LVL_SEED_REBUILD');
 
   const canvasWrap = el('div', '', undefined);
   canvasWrap.id = 'canvas-wrap';

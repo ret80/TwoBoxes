@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EpisodeManager } from './episode-mng';
 import { EPISODE_1 } from '../data/episode-1';
+import { generateEpisodeLevelRecipe } from '../generation/level-generator';
 
 /** Карты-заглушки для генерируемого эпизода: тестам не нужна генерация. */
 const EP2_ROWS = Array.from({ length: 8 }, () => EPISODE_1[0]);
@@ -31,6 +32,24 @@ describe('EpisodeManager', () => {
     mng.applyEpisodeRows(1, EP2_ROWS);
     expect(mng.isEpisodeReady(1)).toBe(true);
   });
+
+  it('хранит настоящий сид сгенерированного уровня и собирает его заново', () => {
+    const mng = new EpisodeManager();
+    // У ручного эпизода сида генератора нет.
+    expect(mng.getLevelSeed(0, 0)).toBeNull();
+
+    const seed = 0x2b0b2;
+    const count = 8;
+    const { rows, seed: levelSeed } = generateEpisodeLevelRecipe(seed, 0, count, ['portal']);
+    mng.applyEpisodeLevel(1, 0, rows, levelSeed);
+    expect(mng.getLevelSeed(1, 0)).toBe(levelSeed);
+    expect(mng.rebuildLevel(1, 0)).toEqual(rows);
+
+    // Без сида собирать нечего.
+    mng.applyEpisodeLevel(1, 1, rows);
+    expect(mng.getLevelSeed(1, 1)).toBeNull();
+    expect(mng.rebuildLevel(1, 1)).toBeNull();
+  }, 30_000);
 
   it('уровень 1 доступен, остальные заблокированы', () => {
     const mng = new EpisodeManager();

@@ -21,7 +21,14 @@ export type EpisodeWorkerRequest = EpisodeGenerateRequest | EpisodePrioritizeReq
 
 /** Ответ воркера: один готовый уровень, весь эпизод, всё готово, либо ошибка. */
 export type EpisodeWorkerResponse =
-  | { type: 'episode-level-ready'; episodeId: number; levelId: number; rows: string[] }
+  | {
+      type: 'episode-level-ready';
+      episodeId: number;
+      levelId: number;
+      rows: string[];
+      /** Настоящий сид генератора: по нему карта собирается заново. */
+      seed: number;
+    }
   | { type: 'episode-ready'; episodeId: number }
   | { type: 'all-ready' }
   | { type: 'episode-error'; episodeId: number; levelId?: number; message: string };

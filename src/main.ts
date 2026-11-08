@@ -531,7 +531,7 @@ const startEpisodesGeneration = (): void => {
   worker.onmessage = (event: MessageEvent<EpisodeWorkerResponse>) => {
     const message = event.data;
     if (message.type === 'episode-level-ready') {
-      episodes.applyEpisodeLevel(message.episodeId, message.levelId, message.rows);
+      episodes.applyEpisodeLevel(message.episodeId, message.levelId, message.rows, message.seed);
       // Если игрок уже нажал этот уровень — сразу запускаем игру.
       menuCtrl.levelReady(message.episodeId, message.levelId);
       if (

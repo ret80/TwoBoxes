@@ -1,4 +1,4 @@
-import { generateEpisodeLevel } from '../core/generation/level-generator';
+import { generateEpisodeLevelRecipe } from '../core/generation/level-generator';
 import type { MechanicId } from '../core/generation/mechanics';
 import type { EpisodeWorkerRequest, EpisodeWorkerResponse } from './episode-protocol';
 
@@ -89,9 +89,14 @@ const runNext = (): void => {
   // сообщение о приоритетном уровне и поставить его в начало очереди.
   setTimeout(() => {
     try {
-      const rows = generateEpisodeLevel(job.seed, levelId, job.count, job.mechanics);
+      const { rows, seed } = generateEpisodeLevelRecipe(
+        job.seed,
+        levelId,
+        job.count,
+        job.mechanics,
+      );
       job.done.add(levelId);
-      post({ type: 'episode-level-ready', episodeId: job.episodeId, levelId, rows });
+      post({ type: 'episode-level-ready', episodeId: job.episodeId, levelId, rows, seed });
       if (isDone(job)) post({ type: 'episode-ready', episodeId: job.episodeId });
     } catch (error) {
       post({

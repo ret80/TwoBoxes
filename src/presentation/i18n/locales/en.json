@@ -7,6 +7,7 @@
   "ABOUT": "About",
   "LVL_NUM": "Level #%d-%d",
   "LVL_SEED": "seed %s",
+  "LVL_SEED_REBUILD": "Rebuild the level from its seed",
   "RESUME": "Resume",
   "EXIT": "Exit",
   "PAUSE": "Pause",

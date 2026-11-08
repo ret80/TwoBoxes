@@ -611,6 +611,33 @@
 }
 
 /*
+ * У сгенерированных карт сид настоящий: по клику игра собирает уровень заново.
+ * У ручных уровней плашка остаётся просто подписью и кликов не ловит.
+ */
+.game-seed--actionable {
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    opacity 0.3s ease,
+    background-color 0.25s ease,
+    color 0.25s ease;
+}
+
+.game-seed--actionable:hover {
+  background: var(--color-tint-hover);
+}
+
+.game-seed--ok {
+  background: #3f7d64;
+  color: #f7f2e7;
+}
+
+.game-seed--fail {
+  background: #9c4b3f;
+  color: #f7f2e7;
+}
+
+/*
  * Кнопки внутри плавающих панелей: только иконки, без своей плашки.
  * Размер плашки фиксирован (44×44), поэтому растут именно иконки — а высота
  * панели остаётся прежней за счёт уменьшенного вертикального padding.
