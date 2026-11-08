@@ -617,6 +617,41 @@ export function generateEpisode(
   return levels;
 }
 
+/**
+ * Уровень демо-фона главного меню: короткое решение и простая комната без
+ * тупиков. Механики эпизода при этом обязательные — иначе демо показывает не ту
+ * игру, в которую игрок только что играл.
+ *
+ * Профиль нарочно лёгкий: компьютер в меню переставляет кубики сам, и уровень
+ * должен проходиться за несколько ходов, пока игрок выбирает пункт меню.
+ */
+export function generateDemoLevel(
+  seed: number,
+  index: number,
+  mechanics: MechanicId[] = [],
+): string[] {
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const generated = generateLevel({
+      seed: seed + index * 104729 + attempt * 15485863,
+      moves: 3,
+      maxMoves: 4,
+      size: 8,
+      budget: 34,
+      patterns: ['room'],
+      deadEnds: 0,
+      score: 24,
+      scoreTolerance: 10,
+      candidates: 2,
+      mechanics,
+    });
+    if (generated) return generated.rows;
+  }
+  throw new Error(
+    `Не удалось сгенерировать демо-уровень ${index + 1}` +
+      (mechanics.length > 0 ? ` (механики: ${mechanics.join(', ')})` : ''),
+  );
+}
+
 /** Параметры тестового уровня из отладочного меню. */
 export interface TestLevelOptions {
   mechanics: MechanicId[];

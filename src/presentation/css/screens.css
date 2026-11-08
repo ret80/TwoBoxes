@@ -250,6 +250,58 @@
   opacity: 0.55;
 }
 
+/* Компас: картинка слева, пояснение справа; на узком экране — в столбик */
+.help__figureRow {
+  display: flex;
+  /* Картинка держится у первой строки абзаца, а не в его середине. */
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.help__figure {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 96px;
+}
+
+/* Специальные клетки: иконка-клетка, название и описание */
+.help__cells {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.help__cell {
+  display: flex;
+  /* Иконка держится у первой строки названия: при переносе описания она не
+     уезжает в середину абзаца. */
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.help__cellIcon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+}
+
+.help__cellText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.help__cellName {
+  font-weight: 700;
+}
+
+.help__cellDesc {
+  opacity: 0.85;
+}
+
 .help__tip {
   margin: 10px 0 0;
   font-style: italic;

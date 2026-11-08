@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EPISODES_DATA } from './index';
 import { EPISODE_1 } from './episode-1';
-import { GENERATED_EPISODES, episodeTheme } from './generated-episodes';
+import { GENERATED_EPISODES, episodeMechanics, episodeTheme } from './generated-episodes';
 import { generateEpisode } from '../generation/level-generator';
 import { createLevelFromData } from '../rules/create';
 import { solveLevel } from '../generation/solver';
@@ -17,6 +17,14 @@ const MECHANIC_CHARS: Record<MechanicId, string[]> = {
 };
 
 describe('набор эпизодов', () => {
+  it('демо-уровни меню берут механики эпизода', () => {
+    expect(episodeMechanics(4)).toEqual(['switch']);
+    expect(episodeMechanics(5)).toEqual(['oneWay']);
+    // У ручного первого эпизода своих механик нет.
+    expect(episodeMechanics(0)).toEqual([]);
+    expect(episodeMechanics(99)).toEqual([]);
+  });
+
   it('первый эпизод ручной (12 уровней), остальные — по 8', () => {
     expect(EPISODES_DATA).toHaveLength(6);
     expect(EPISODES_DATA[0]).toBe(EPISODE_1);

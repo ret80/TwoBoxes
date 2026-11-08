@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   episodeProfiles,
+  generateDemoLevel,
   generateEpisode,
   generateEpisodeLevel,
   generateLevel,
@@ -134,6 +135,23 @@ describe('level generator', () => {
       expect(findHint(level, level.boxes)).not.toBeNull();
       expect(new Set(levelCells(generated.rows)).size).toBe(4);
     }
+  }, 20_000);
+});
+
+describe('демо-уровни меню', () => {
+  it('лёгкие, решаемые и с механиками эпизода', () => {
+    const rows = generateDemoLevel(0x0de40, 0, ['portal']);
+    const level = createLevelFromData(0, 0, rows);
+    // Механика из эпизода в демо есть — иначе фон меню показывал бы обычный уровень.
+    const cells = rows.join('');
+    expect(cells).toContain('a');
+    expect(cells).toContain('b');
+    const solution = findShortestSolution(level);
+    expect(solution).not.toBeNull();
+    // Короткое решение — демо крутится в меню само, пока игрок выбирает пункт.
+    expect(solution!.length).toBeLessThanOrEqual(4);
+    const metrics = measureLevel(level);
+    expect(metrics!.deadEndRatio).toBe(0);
   }, 20_000);
 });
 

@@ -997,16 +997,23 @@ export class PicoglRenderer implements IRenderer {
       const boxScale = locked ? 0.76 : 0.9;
       const baseColor = b.color === ColorType.ONE ? this.palette.boxOne : this.palette.boxTwo;
       const color = locked ? baseColor.map((c) => c * 0.7) : baseColor;
+      const centerX = b.x - state.width / 2;
+      const centerY = BOX_Y * scale + lift;
+      const centerZ = b.z - state.height / 2;
+      const width = boxScale * scale;
+      const height = (locked ? 0.82 : 1) * scale;
       drawCube(
-        b.x - state.width / 2,
-        BOX_Y * scale + lift,
-        b.z - state.height / 2,
-        boxScale * scale,
-        (locked ? 0.82 : 1) * scale,
-        boxScale * scale,
+        centerX,
+        centerY,
+        centerZ,
+        width,
+        height,
+        width,
         color,
         locked ? 0 : onGoal(b) ? 1 : 0,
       );
+      // Стороны света на боковых гранях: кубик сам работает компасом.
+      this.drawBoxLetters(centerX, centerY, centerZ, width / 2, height / 2, width / 2, color);
     });
 
     // Стрелки подсказки — поверх сцены: кубик закрывает собой клетку упора,
@@ -1444,8 +1451,8 @@ export class PicoglRenderer implements IRenderer {
     PicoglRenderer.setBasis(this.basisMatrix, [0, 0, 0], [1, 0, 0], [0, 1, 0]);
     const tipW = this.viewPoint(-reach - 0.16, 0.02, 0);
     const tipS = this.viewPoint(0, 0.02, reach + 0.16);
-    this.drawGlyphW(tipW[0], tipW[1], this.palette.ink);
-    this.drawGlyphS(tipS[0], tipS[1], this.palette.ink);
+    this.drawLetter('W', tipW[0], tipW[1], 0.0625, 0.115, 0.04, this.palette.ink);
+    this.drawLetter('S', tipS[0], tipS[1], 0.0525, 0.115, 0.04, this.palette.ink);
 
     this.warp = warp;
     app.disable(PicoGL.BLEND);
@@ -1460,45 +1467,109 @@ export class PicoglRenderer implements IRenderer {
     return [m[0] * x + m[4] * y + m[8] * z, m[1] * x + m[5] * y + m[9] * z];
   }
 
-  /** Буква «W»: подпись оси верхней стрелки (WASD). */
-  private drawGlyphW(cx: number, cy: number, color: number[]): void {
-    const h = 0.115;
-    const w = 0.125;
-    const t = 0.04;
-    // Четыре штриха: вниз-вверх-вниз-вверх, как у литеры W.
-    const points: [number, number][] = [
-      [cx - w / 2, cy + h],
-      [cx - w / 4, cy - h],
-      [cx, cy + h * 0.12],
-      [cx + w / 4, cy - h],
-      [cx + w / 2, cy + h],
-    ];
+  /**
+   * Буква из штрихов в заданном базисе: `w`/`h` — половина ширины и высоты,
+   * `t` — толщина штриха. Литеры блочные, из прямых отрезков: на гранях кубика
+   * они занимают всего пару десятков пикселей, и закругления в этом размере
+   * превращаются в кашу.
+   */
+  private drawLetter(
+    letter: 'W' | 'S' | 'N' | 'E',
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    t: number,
+    color: number[],
+    base: mat4 = this.basisMatrix,
+  ): void {
+    let points: [number, number][];
+    if (letter === 'W') {
+      // Вниз-вверх-вниз-вверх.
+      points = [
+        [cx - w, cy + h],
+        [cx - w / 2, cy - h],
+        [cx, cy + h * 0.12],
+        [cx + w / 2, cy - h],
+        [cx + w, cy + h],
+      ];
+    } else if (letter === 'S') {
+      // Верхняя перекладина, спуск слева, середина по диагонали, спуск справа,
+      // нижняя перекладина.
+      points = [
+        [cx + w, cy + h],
+        [cx - w, cy + h],
+        [cx - w, cy + h * 0.12],
+        [cx + w, cy - h * 0.12],
+        [cx + w, cy - h],
+        [cx - w, cy - h],
+      ];
+    } else if (letter === 'N') {
+      points = [
+        [cx - w, cy - h],
+        [cx - w, cy + h],
+        [cx + w, cy - h],
+        [cx + w, cy + h],
+      ];
+    } else {
+      // «E»: стойка и три перекладины; средняя короче, как у наборной литеры.
+      points = [
+        [cx - w, cy - h],
+        [cx - w, cy + h],
+        [cx + w, cy + h],
+        [cx - w, cy],
+        [cx + w * 0.7, cy],
+        [cx - w, cy],
+        [cx - w, cy - h],
+        [cx + w, cy - h],
+      ];
+    }
     for (let i = 1; i < points.length; i++) {
       const [x0, y0] = points[i - 1];
       const [x1, y1] = points[i];
-      this.drawBar(this.basisMatrix, x0, y0, x1, y1, t, color);
+      this.drawBar(base, x0, y0, x1, y1, t, color);
     }
   }
 
-  /** Буква «S»: подпись оси нижней стрелки (WASD). */
-  private drawGlyphS(cx: number, cy: number, color: number[]): void {
-    const h = 0.115;
-    const w = 0.105;
-    const t = 0.04;
-    // Блочная «S»: верхняя перекладина, спуск слева, середина по диагонали,
-    // спуск справа, нижняя перекладина. Для 10-пиксельной подписи этого хватает.
-    const points: [number, number][] = [
-      [cx + w / 2, cy + h],
-      [cx - w / 2, cy + h],
-      [cx - w / 2, cy + h * 0.12],
-      [cx + w / 2, cy - h * 0.12],
-      [cx + w / 2, cy - h],
-      [cx - w / 2, cy - h],
+  /**
+   * Буквы-стороны света на четырёх боковых гранях кубика: сам кубик работает
+   * компасом. Верх и низ не подписаны.
+   *
+   * Соответствие то же, что у подсказки клавиатуры: W — мировая −X,
+   * E — +X, N — −Z, S — +Z. Буква каждой грани нарисована так, чтобы читаться
+   * снаружи: локальный +X базиса совпадает с экранным «вправо» для наблюдателя
+   * с этой стороны, а нормаль базиса смотрит наружу (иначе грань отсекается как
+   * задняя). Цвет чуть темнее грани — подпись видна, но не спорит с кубиком.
+   */
+  private drawBoxLetters(
+    cx: number,
+    cy: number,
+    cz: number,
+    halfW: number,
+    halfH: number,
+    halfD: number,
+    color: number[],
+  ): void {
+    if (!this.quadXYDraw) return;
+    // Литера масштабируется вместе с кубиком: на анимации появления она
+    // появляется вместе с гранью, а у запертого ловушкой кубика меньше.
+    const w = halfW * 0.34;
+    const h = Math.min(halfH * 0.62, w * 1.15);
+    const t = Math.max(0.012, w * 0.26);
+    // Отступ от плоскости грани: декаль не должна спорить с ней по глубине.
+    const eps = 0.006;
+    const faces: { origin: [number, number, number]; right: [number, number, number]; letter: 'W' | 'S' | 'N' | 'E' }[] = [
+      // −Z (север): наблюдатель с этой стороны видит «вправо» как мировую −X.
+      { origin: [cx, cy, cz - halfD - eps], right: [-1, 0, 0], letter: 'N' },
+      { origin: [cx, cy, cz + halfD + eps], right: [1, 0, 0], letter: 'S' },
+      { origin: [cx - halfW - eps, cy, cz], right: [0, 0, 1], letter: 'W' },
+      { origin: [cx + halfW + eps, cy, cz], right: [0, 0, -1], letter: 'E' },
     ];
-    for (let i = 1; i < points.length; i++) {
-      const [x0, y0] = points[i - 1];
-      const [x1, y1] = points[i];
-      this.drawBar(this.basisMatrix, x0, y0, x1, y1, t, color);
+    const darker = color.map((c) => c * 0.86);
+    const base = mat4.create();
+    for (const face of faces) {
+      PicoglRenderer.setBasis(base, face.origin, face.right, [0, 1, 0]);
+      this.drawLetter(face.letter, 0, 0, w, h, t, darker, base);
     }
   }
 }

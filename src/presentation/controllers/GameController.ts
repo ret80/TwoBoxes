@@ -9,16 +9,17 @@ import type { IAudio } from '../../ports/IAudio';
 import type { ISaveStorage } from '../../ports/ISaveStorage';
 import type { Statistics } from '../../core/services/statistics';
 import { InputAction } from '../../ports/IInput';
+import { createLevelFromData } from '../../core/rules/create';
 import { findHint, planSlides, type HintSlide } from '../../core/rules/hint';
 import { starsForResult, type GameResult } from '../../core/types/game-result';
 
 const SAVE_KEY = 'save';
 
 /**
- * Уровни демо-фона в главном меню: первые две карты игры. Компьютер проходит
- * их по кругу; прогресс и сохранение игрока при этом не меняются.
+ * Фон меню до прихода демо-уровней эпизода: первые две карты игры. Компьютер
+ * проходит их по кругу; прогресс и сохранение игрока при этом не меняются.
  */
-const DEMO_LEVELS: readonly { episodeId: number; levelId: number }[] = [
+const FALLBACK_DEMO_LEVELS: readonly { episodeId: number; levelId: number }[] = [
   { episodeId: 0, levelId: 0 },
   { episodeId: 0, levelId: 1 },
 ];
@@ -42,8 +43,13 @@ export class GameController {
   private testLevel: Level | null = null;
   private testLabel = 'TEST';
   private paused = false;
-  /** Индекс текущей карты демо-фона в DEMO_LEVELS. */
+  /** Индекс текущей карты демо-фона. */
   private demoIndex = 0;
+  /**
+   * Демо-уровни меню: лёгкие карты с механиками эпизода, в который игрок
+   * играл последним. Пока они не пришли, фон играет первые карты игры.
+   */
+  private demoLevels: Level[] = [];
 
   private formatLevel: (level: Level) => string;
   private lastSeenBoxes: Box[] = [];
@@ -95,8 +101,25 @@ export class GameController {
   setDemo(demo: boolean): void {
     if (demo === this.isDemo) return;
     this.isDemo = demo;
-    // Возврат в меню всегда начинает демо с первой карты (1-1).
+    // Возврат в меню всегда начинает демо с первой карты.
     if (demo) {
+      this.demoIndex = 0;
+      this.startDemoLevel();
+    }
+  }
+
+  /**
+   * Подменить фон меню демо-уровнями эпизода (приходят из воркера): короткие
+   * лёгкие карты с его механиками. Если меню открыто — перезапускаем демо с
+   * первой карты, если игра идёт — просто запоминаем на следующий возврат.
+   */
+  setDemoLevels(rows: string[][]): void {
+    const levels = rows
+      .filter((levelRows) => levelRows.length > 0)
+      .map((levelRows) => createLevelFromData(0, 0, levelRows));
+    if (levels.length === 0) return;
+    this.demoLevels = levels;
+    if (this.isDemo) {
       this.demoIndex = 0;
       this.startDemoLevel();
     }
@@ -319,13 +342,18 @@ export class GameController {
 
   /** Запуск текущей карты демо-фона. */
   private startDemoLevel(): void {
-    const demo = DEMO_LEVELS[this.demoIndex];
+    if (this.demoLevels.length > 0) {
+      this.startLevel(this.demoLevels[this.demoIndex % this.demoLevels.length]);
+      return;
+    }
+    const demo = FALLBACK_DEMO_LEVELS[this.demoIndex % FALLBACK_DEMO_LEVELS.length];
     this.startLevel(this.episodes.getLevel(demo.episodeId, demo.levelId));
   }
 
-  /** Следующая карта демо-фона (1-1 ↔ 1-2, прогресс игрока не меняется). */
+  /** Следующая карта демо-фона (прогресс игрока не меняется). */
   private nextDemoLevel(): void {
-    this.demoIndex = (this.demoIndex + 1) % DEMO_LEVELS.length;
+    const count = this.demoLevels.length > 0 ? this.demoLevels.length : FALLBACK_DEMO_LEVELS.length;
+    this.demoIndex = (this.demoIndex + 1) % count;
     this.startDemoLevel();
   }
 

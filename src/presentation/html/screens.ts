@@ -690,6 +690,177 @@ export function buildGameScreen(
   return { root, levelLabel, canvas, canvasWrap, pause, undo, resetBottom, hint, hintToast };
 }
 
+/** Элемент SVG с атрибутами — для иллюстраций в справке. */
+function svgNode<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attrs: Record<string, string>,
+): SVGElementTagNameMap[K] {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+  return node;
+}
+
+/**
+ * Иллюстрация компаса: поле сверху, оси на четыре стороны света и буквы у их
+ * концов. Слева (запад) и снизу (юг) — те же оси, что в подсказке под полем;
+ * север и восток подписаны на гранях кубиков.
+ */
+function compassFigure(): SVGSVGElement {
+  const svg = svgNode('svg', {
+    viewBox: '0 0 132 132',
+    role: 'img',
+    'aria-hidden': 'true',
+    focusable: 'false',
+  });
+  svg.classList.add('help__figure');
+  svg.append(
+    svgNode('rect', {
+      x: '14',
+      y: '14',
+      width: '104',
+      height: '104',
+      rx: '16',
+      fill: 'var(--color-blue)',
+      opacity: '0.22',
+    }),
+    // Кубики на поле: два маленьких квадрата в центре — сама сцена-поле.
+    svgNode('rect', {
+      x: '56',
+      y: '56',
+      width: '16',
+      height: '16',
+      rx: '4',
+      fill: 'var(--color-red)',
+    }),
+    svgNode('rect', {
+      x: '72',
+      y: '68',
+      width: '14',
+      height: '14',
+      rx: '4',
+      fill: 'var(--color-yellow)',
+      opacity: '0.9',
+    }),
+  );
+
+  // Оси: от центра к краям поля. Запад и юг — те, что рисует подсказка.
+  const axes: { letter: string; x: number; y: number; ax: number; ay: number; bx: number; by: number }[] = [
+    { letter: 'N', x: 66, y: 30, ax: 66, ay: 52, bx: 66, by: 40 },
+    { letter: 'S', x: 66, y: 104, ax: 66, ay: 80, bx: 66, by: 92 },
+    { letter: 'W', x: 30, y: 66, ax: 52, ay: 66, bx: 40, by: 66 },
+    { letter: 'E', x: 102, y: 66, ax: 80, ay: 66, bx: 92, by: 66 },
+  ];
+  for (const axis of axes) {
+    svg.append(
+      svgNode('line', {
+        x1: String(axis.ax),
+        y1: String(axis.ay),
+        x2: String(axis.bx),
+        y2: String(axis.by),
+        stroke: 'var(--color-coffee)',
+        'stroke-width': '3',
+        'stroke-linecap': 'round',
+        opacity: '0.7',
+      }),
+    );
+  }
+  for (const axis of axes) {
+    const text = svgNode('text', {
+      x: String(axis.x),
+      y: String(axis.y + 7),
+      'text-anchor': 'middle',
+      'font-size': '19',
+      'font-weight': '700',
+      fill: 'var(--color-coffee)',
+    });
+    text.textContent = axis.letter;
+    svg.append(text);
+  }
+  return svg;
+}
+
+/** Цвета клеток-механик: те же, что в сцене (portal A/B и ловушка). */
+const CELL_ACCENT = { portal: '#5c9ee0', portalB: '#bd73d6', trap: '#d16b57' } as const;
+
+/** Иллюстрация клетки-механики для списка «Специальные клетки». */
+function cellFigure(kind: MechanicId): SVGSVGElement {
+  const svg = svgNode('svg', {
+    viewBox: '0 0 40 40',
+    role: 'img',
+    'aria-hidden': 'true',
+    focusable: 'false',
+  });
+  svg.classList.add('help__cellIcon');
+  const dark = kind === 'trap';
+  svg.append(
+    svgNode('rect', {
+      x: '4',
+      y: '4',
+      width: '32',
+      height: '32',
+      rx: '8',
+      // Ловушка тёмная в обеих темах — как сама клетка в игре.
+      fill: dark ? '#6a5a53' : 'var(--color-blue)',
+      opacity: dark ? '1' : '0.34',
+    }),
+  );
+
+  if (kind === 'portal') {
+    svg.append(
+      svgNode('circle', { cx: '15', cy: '20', r: '6', fill: CELL_ACCENT.portal }),
+      svgNode('circle', { cx: '26', cy: '20', r: '6', fill: CELL_ACCENT.portalB }),
+    );
+  } else if (kind === 'trap') {
+    svg.append(
+      svgNode('path', {
+        d: 'M13 13 L27 27 M27 13 L13 27',
+        stroke: CELL_ACCENT.trap,
+        'stroke-width': '3.4',
+        'stroke-linecap': 'round',
+      }),
+    );
+  } else if (kind === 'rotator') {
+    // Поворот на 90°: стрелка входит снизу и выходит вправо.
+    svg.append(
+      svgNode('path', {
+        d: 'M20 28 V19 Q20 16 23 16 H28',
+        fill: 'none',
+        stroke: 'var(--color-coffee)',
+        'stroke-width': '3',
+        'stroke-linecap': 'round',
+      }),
+      svgNode('path', {
+        d: 'M25 12.5 L30.5 16 L25 19.5 Z',
+        fill: 'var(--color-coffee)',
+      }),
+    );
+  } else if (kind === 'switch') {
+    svg.append(
+      svgNode('path', {
+        d: 'M14 20 H26 M20 14 V26',
+        stroke: 'var(--color-coffee)',
+        'stroke-width': '3.2',
+        'stroke-linecap': 'round',
+      }),
+    );
+  } else {
+    // Односторонняя клетка: стрелка по разрешённому направлению.
+    svg.append(
+      svgNode('path', {
+        d: 'M13 20 H27',
+        stroke: 'var(--color-coffee)',
+        'stroke-width': '3.2',
+        'stroke-linecap': 'round',
+      }),
+      svgNode('path', {
+        d: 'M22 13.5 L29 20 L22 26.5 Z',
+        fill: 'var(--color-coffee)',
+      }),
+    );
+  }
+  return svg;
+}
+
 /** Экран помощи. */
 export function buildHelpScreen(
   i18n: LocaleManager,
@@ -707,6 +878,30 @@ export function buildHelpScreen(
   };
   section(i18n.t('HELP_GOAL_TITLE'), i18n.t('HELP_GOAL'));
   section(i18n.t('HELP_MOVE_TITLE'), i18n.t('HELP_MOVE'));
+
+  // Компас: подсказка под полем и буквы на гранях кубиков — одна и та же
+  // разметка сторон света, поэтому она идёт одним разделом с картинкой.
+  panel.appendChild(el('h3', 'help__title', i18n.t('HELP_COMPASS_TITLE')));
+  const compass = el('div', 'help__figureRow');
+  compass.append(compassFigure(), el('p', 'help__text', i18n.t('HELP_COMPASS')));
+  panel.appendChild(compass);
+
+  // Специальные клетки: название и описание — те же строки, что в отладке.
+  panel.appendChild(el('h3', 'help__title', i18n.t('HELP_CELLS_TITLE')));
+  panel.appendChild(el('p', 'help__text', i18n.t('HELP_CELLS')));
+  const cells = el('ul', 'help__cells');
+  for (const mechanic of ALL_MECHANICS) {
+    const key = `MECH_${mechanic.id.toUpperCase()}`;
+    const item = el('li', 'help__cell');
+    const text = el('span', 'help__cellText');
+    text.append(
+      el('strong', 'help__cellName', i18n.t(key)),
+      el('span', 'help__cellDesc', i18n.t(`${key}_DESC`)),
+    );
+    item.append(cellFigure(mechanic.id), text);
+    cells.appendChild(item);
+  }
+  panel.appendChild(cells);
 
   panel.appendChild(el('h3', 'help__title', i18n.t('HELP_CTRL_TITLE')));
   const controls = el('ul', 'help__list');

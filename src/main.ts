@@ -4,7 +4,12 @@ import { createGameMachine } from '@core/state/game';
 import { menuMachine } from '@core/state/menu';
 import { Config, type HintStyle, type Theme, type ThemeMode } from '@core/services/config';
 import { EpisodeManager, type SaveData } from '@core/services/episode-mng';
-import { GENERATED_EPISODES } from '@core/data/generated-episodes';
+import {
+  DEMO_LEVEL_COUNT,
+  DEMO_SEED,
+  episodeMechanics,
+  GENERATED_EPISODES,
+} from '@core/data/generated-episodes';
 import { Statistics } from '@core/services/statistics';
 import { generateTestLevel } from '@core/generation/level-generator';
 import type { MechanicId } from '@core/generation/mechanics';
@@ -28,6 +33,7 @@ import type {
   EpisodeWorkerRequest,
   EpisodeWorkerResponse,
 } from './workers/episode-protocol';
+import type { DemoWorkerRequest, DemoWorkerResponse } from './workers/demo-protocol';
 
 /**
  * Точка входа (план 14.1): сборка ядра, адаптеров, FSM и контроллеров.
@@ -260,6 +266,80 @@ const menuCtrl = new MenuController(
 );
 
 /*
+ * Демо-фон главного меню: пара лёгких уровней с механиками эпизода, в который
+ * игрок играл последним. Запрос уходит при смене эпизода (в том числе пока идёт
+ * игра), поэтому к возвращению в меню карты обычно уже готовы и фон не
+ * переключается с чужих уровней на нужные.
+ *
+ * Считает отдельный воркер: генератор перебирает состояния, на эпизоде с
+ * ловушками это секунды работы, и на главном потоке был бы заметный простой.
+ * Воркер живёт один запрос и потом уничтожается.
+ */
+const demoRows = new Map<number, string[][]>();
+let demoRequested = -1;
+let demoWorker: Worker | null = null;
+
+/** Отдать готовые демо-уровни в контроллер (если эпизод всё ещё тот же). */
+const applyDemoRows = (episodeId: number): void => {
+  const rows = demoRows.get(episodeId);
+  if (!rows || episodeId !== episodes.curEpisodeId) return;
+  game.setDemoLevels(rows);
+};
+
+const requestDemoLevels = (): void => {
+  const episodeId = episodes.curEpisodeId;
+  if (demoRequested === episodeId) return;
+  demoRequested = episodeId;
+  if (demoRows.has(episodeId)) {
+    applyDemoRows(episodeId);
+    return;
+  }
+  demoWorker?.terminate();
+  const worker = new Worker(
+    new URL('./workers/demo-generator.worker.ts', import.meta.url),
+    { type: 'module' },
+  );
+  demoWorker = worker;
+  const levels: string[][] = [];
+  const stop = (): void => {
+    worker.terminate();
+    if (demoWorker === worker) demoWorker = null;
+  };
+  worker.onmessage = (event: MessageEvent<DemoWorkerResponse>) => {
+    const message = event.data;
+    if (message.type === 'demo-level-ready') {
+      if (message.episodeId === episodeId) levels[message.levelId] = message.rows;
+      return;
+    }
+    stop();
+    if (message.type === 'demo-ready') {
+      demoRows.set(episodeId, levels);
+      applyDemoRows(episodeId);
+      return;
+    }
+    // Ошибка: следующая попытка — при следующем входе в меню.
+    demoRequested = -1;
+    console.error(
+      `Не удалось собрать демо-уровень ${message.episodeId + 1}-${message.levelId + 1}:`,
+      message.message,
+    );
+  };
+  worker.onerror = (event) => {
+    console.error('Ошибка воркера демо-уровней:', event.message);
+    stop();
+    demoRequested = -1;
+  };
+  const request: DemoWorkerRequest = {
+    type: 'generate-demo',
+    episodeId,
+    seed: DEMO_SEED,
+    count: DEMO_LEVEL_COUNT,
+    mechanics: episodeMechanics(episodeId),
+  };
+  worker.postMessage(request);
+};
+
+/*
  * HUD-панели: выезжают из-за краёв на старте уровня, уезжают за экран, когда
  * уровень пройден или поверх поля открыт любой диалог. Стартовое положение
  * держим один кадр, иначе transition не успевает сработать.
@@ -415,6 +495,8 @@ const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): voi
   }
   if (state === 'selector') menuCtrl.refreshSelector();
   if (state === 'mmenu') menuCtrl.refreshResume();
+  // Эпизод мог смениться входом в игру — демо-уровни просим под него.
+  requestDemoLevels();
 };
 menuActor.subscribe(applyMenuState);
 // XState не вызывает подписчика для текущего состояния: синхронизируем стартовое

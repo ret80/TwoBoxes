@@ -33,6 +33,20 @@ export const GENERATED_EPISODES: GeneratedEpisodeConfig[] = [
   { episodeId: 5, seed: 0x6f4f6, levelCount: GENERATED_EPISODE_LEVELS, mechanics: ['oneWay'] },
 ];
 
+/** Сколько демо-уровней показывает фон главного меню. */
+export const DEMO_LEVEL_COUNT = 2;
+
+/** Сид демо-уровней: одна и та же пара карт при каждом входе в меню. */
+export const DEMO_SEED = 0x0de40;
+
+/**
+ * Механики эпизода — тема его демо-уровней в меню. У первого (ручного)
+ * эпизода своих механик нет: его демо — просто лёгкие карты.
+ */
+export function episodeMechanics(episodeId: number): MechanicId[] {
+  return GENERATED_EPISODES.find((config) => config.episodeId === episodeId)?.mechanics ?? [];
+}
+
 /**
  * Пустые слоты генерируемых эпизодов. Список уровней в селекторе виден сразу,
  * а карту конкретного слота заполняет воркер (`EPISODES_DATA` в `./index.ts`).
