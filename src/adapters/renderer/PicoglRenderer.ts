@@ -9,6 +9,7 @@ import {
   oneWayDir,
 } from '../../core/types/cell';
 import type { PathPoint } from '../../core/types/game-state';
+import { firstTeleport, planRoute, routeCells, type RouteSegment } from './route';
 import type { Position } from '../../core/types/position';
 import { PortalRule } from '../../core/rules/portal';
 import type {
@@ -211,16 +212,18 @@ interface RenderBoxPos {
   inPortal: boolean;
 }
 
-/** План анимации одного кубика за ход: путь, его тайминги и прыжок через портал. */
+/** План анимации одного кубика за ход: отрезки маршрута и их тайминги. */
 interface MovePlan {
   item: RenderBoxPos;
-  steps: PathPoint[];
-  lengths: number[];
+  /** Проезды и прыжки через портал в порядке хода. */
+  segments: RouteSegment[];
+  /** Сколько клеток кубик проезжает (прыжки не в счёт). */
   total: number;
+  /** Длительность маршрута без прыжков, мс. */
   totalMs: number;
-  /** Клетка входа в портал (старт, если портала нет). */
-  entry: Position;
-  /** Клетка выхода из портала; null — кубик в этом ходу не телепортируется. */
+  /** Клетка входа в портал; null — кубик в этом ходу не телепортируется. */
+  entry: Position | null;
+  /** Клетка выхода из портала; null — без телепорта. */
   exit: Position | null;
   /** Второй участник обмена через портал (индекс в списке планов), -1 — нет. */
   pair: number;
@@ -602,24 +605,19 @@ export class PicoglRenderer implements IRenderer {
               { pos: m.from },
               { pos: m.to },
             ];
-      const steps = path.slice(1);
-      const lengths = steps.map((point, i) => {
-        if (point.teleport) return 0;
-        const prev = path[i].pos;
-        return Math.abs(point.pos.x - prev.x) + Math.abs(point.pos.y - prev.y);
-      });
-      const total = lengths.reduce((sum, n) => sum + n, 0);
-      // Клетка входа и клетка выхода: по ним видно, какие два кубика
-      // поменялись местами через портал.
-      const jump = steps.findIndex((point) => point.teleport);
+      // Путь склеивается в отрезки «столько-то клеток в одном направлении»:
+      // tween ведётся на отрезок, а не на клетку. Иначе кубик доскакивает до
+      // границы каждой клетки и замирает — движение выглядит рваным.
+      const segments = planRoute(path);
+      const total = routeCells(segments);
+      const jump = firstTeleport(segments);
       plans.push({
         item,
-        steps,
-        lengths,
+        segments,
         total,
         totalMs: TweenManager.moveDuration(Math.max(1, total), this.moveSpeed),
-        entry: jump >= 0 ? path[jump].pos : m.from,
-        exit: jump >= 0 ? steps[jump].pos : null,
+        entry: jump ? jump.entry : null,
+        exit: jump ? jump.exit : null,
         pair: -1,
       });
     }
@@ -628,10 +626,10 @@ export class PicoglRenderer implements IRenderer {
     // вместе — иначе один уже стоит на выходе, пока второй ещё едет к входу.
     for (let i = 0; i < plans.length; i++) {
       const a = plans[i];
-      if (!a.exit || a.pair >= 0) continue;
+      if (!a.entry || !a.exit || a.pair >= 0) continue;
       for (let j = i + 1; j < plans.length; j++) {
         const b = plans[j];
-        if (!b.exit || b.pair >= 0) continue;
+        if (!b.entry || !b.exit || b.pair >= 0) continue;
         if (PortalRule.isSwapPair({ entry: a.entry, exit: a.exit }, { entry: b.entry, exit: b.exit })) {
           a.pair = j;
           b.pair = i;
@@ -640,21 +638,27 @@ export class PicoglRenderer implements IRenderer {
       }
     }
 
-    const hop = (index: number, step: number): void => {
+    const play = (index: number, step: number): void => {
       const plan = plans[index];
-      const point = plan.steps[step];
-      if (!point) {
+      const segment = plan.segments[step];
+      if (!segment) {
         this.finishMove();
         return;
       }
-      if (!point.teleport) {
+      if (segment.kind === 'slide') {
+        // Один tween на весь прямой проезд: кубик едет ровно, без остановок
+        // на границах клеток.
         const duration =
-          plan.total > 0 ? (plan.totalMs * plan.lengths[step]) / plan.total : plan.totalMs;
+          plan.total > 0 ? (plan.totalMs * segment.cells) / plan.total : plan.totalMs;
         this.tweens.add(
           plan.item as unknown as Record<string, number>,
-          { x: point.pos.x + 0.5, z: point.pos.y + 0.5, y: BOX_Y },
+          {
+            x: plan.item.x + segment.dir.x * segment.cells,
+            z: plan.item.z + segment.dir.y * segment.cells,
+            y: BOX_Y,
+          },
           duration,
-          () => hop(index, step + 1),
+          () => play(index, step + 1),
         );
         return;
       }
@@ -662,7 +666,7 @@ export class PicoglRenderer implements IRenderer {
       // вытягивается в палку и уходит в точку, а на выходе собирается
       // обратно той же анимацией. Пока она идёт, остальные кубики стоят.
       if (plan.pair < 0) {
-        this.startPortalHop(plan.item, point.pos, () => hop(index, step + 1));
+        this.startPortalHop(plan.item, segment.exit, () => play(index, step + 1));
         return;
       }
       const key = Math.min(index, plan.pair);
@@ -673,15 +677,19 @@ export class PicoglRenderer implements IRenderer {
         return;
       }
       this.parkedHops.delete(key);
-      this.startPortalHop(
-        plans[parked.index].item,
-        plans[parked.index].steps[parked.step].pos,
-        () => hop(parked.index, parked.step + 1),
-      );
-      this.startPortalHop(plan.item, point.pos, () => hop(index, step + 1));
+      const parkedPlan = plans[parked.index];
+      const parkedSegment = parkedPlan.segments[parked.step];
+      if (parkedSegment && parkedSegment.kind === 'teleport') {
+        this.startPortalHop(parkedPlan.item, parkedSegment.exit, () =>
+          play(parked.index, parked.step + 1),
+        );
+      } else {
+        play(parked.index, parked.step + 1);
+      }
+      this.startPortalHop(plan.item, segment.exit, () => play(index, step + 1));
     };
 
-    plans.forEach((_, index) => hop(index, 0));
+    plans.forEach((_, index) => play(index, 0));
   }
 
   /**

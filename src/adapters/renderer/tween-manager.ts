@@ -2,8 +2,13 @@ import { Easing, Group, Tween } from '@tweenjs/tween.js';
 
 /**
  * Обёртка над tween.js (план 7.3).
- * Параметры оригинала (move_state.gd): EASE_OUT / TRANS_CIRC,
- * длительность = speed * distance, где speed = 0.07 (сек на клетку).
+ * Длительность как в оригинале (move_state.gd): speed * distance,
+ * где speed = 0.07 (сек на клетку).
+ *
+ * ⚠️ Отступление от оригинала по easing'у: TRANS_CIRC (Circular.Out) при
+ * 60 кадрах отдаёт почти половину пути в первом кадре, и кубик выглядит
+ * дёргающимся. Quadratic.Out разгоняется мягче, а конец хода так же плавно
+ * затухает.
  */
 export const MOVE_SPEED = 0.07; // секунд на клетку
 
@@ -24,7 +29,7 @@ export class TweenManager {
   ): Tween<Record<string, number>> {
     const tween = new Tween(target, this.group)
       .to(to, Math.max(1, Math.round(durationMs)))
-      .easing(Easing.Circular.Out)
+      .easing(Easing.Quadratic.Out)
       .onComplete(() => onComplete?.())
       .start();
     return tween;
