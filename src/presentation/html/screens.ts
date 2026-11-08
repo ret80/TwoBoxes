@@ -1,6 +1,11 @@
 import type { Locale, LocaleManager } from '../i18n/LocaleManager';
 import type { EpisodeManager } from '../../core/services/episode-mng';
-import type { CompassMode, HintStyle, MoveSpeed, Theme } from '../../core/services/config';
+import type {
+  CompassMode,
+  HintStyle,
+  MoveSpeed,
+  ThemeMode,
+} from '../../core/services/config';
 import type { ProjectionMode } from '../../ports/IRenderer';
 import { ALL_MECHANICS, type MechanicId } from '../../core/generation/mechanics';
 
@@ -328,7 +333,7 @@ export function buildSettingsScreen(
     music: number;
     speed: MoveSpeed;
     hintStyle: HintStyle;
-    theme: Theme;
+    theme: ThemeMode;
   },
   cb: {
     onBack: () => void;
@@ -337,7 +342,7 @@ export function buildSettingsScreen(
     onLocaleChange: (locale: Locale) => void;
     onSpeedChange: (value: MoveSpeed) => void;
     onHintStyleChange: (value: HintStyle) => void;
-    onThemeChange: (value: Theme) => void;
+    onThemeChange: (value: ThemeMode) => void;
   },
 ): HTMLElement {
   const root = el('div', 'screen screen--info screen--settings');
@@ -396,14 +401,15 @@ export function buildSettingsScreen(
     cb.onHintStyleChange,
   );
 
-  // Тема оформления: по умолчанию светлая, выбор сохраняется.
-  addSelectRow<Theme>(
+  // Тема оформления: светлая, тёмная или как в системе (по умолчанию светлая).
+  addSelectRow<ThemeMode>(
     panel,
     i18n.t('THEME'),
     values.theme,
     [
       ['light', i18n.t('THEME_LIGHT')],
       ['dark', i18n.t('THEME_DARK')],
+      ['system', i18n.t('THEME_SYSTEM')],
     ],
     cb.onThemeChange,
   );

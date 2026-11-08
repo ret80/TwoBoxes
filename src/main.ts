@@ -2,7 +2,7 @@ import './style.css';
 import { createActor } from 'xstate';
 import { createGameMachine } from '@core/state/game';
 import { menuMachine } from '@core/state/menu';
-import { Config, type HintStyle, type Theme } from '@core/services/config';
+import { Config, type HintStyle, type Theme, type ThemeMode } from '@core/services/config';
 import { EpisodeManager, type SaveData } from '@core/services/episode-mng';
 import { EPISODE_2_LEVELS, EPISODE_2_SEED } from '@core/data/episode-2';
 import { Statistics } from '@core/services/statistics';
@@ -65,7 +65,9 @@ if (saved) episodes.deserialize(saved as SaveData);
 // Тема — пользовательская настройка, как язык: выбор переживает перезагрузку.
 const THEME_KEY = 'theme';
 const savedTheme = storage.load(THEME_KEY);
-if (savedTheme === 'light' || savedTheme === 'dark') config.set('theme', savedTheme);
+if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') {
+  config.set('theme', savedTheme);
+}
 
 // 4–7. Адаптеры
 const renderer = new PicoglRenderer();
@@ -95,18 +97,31 @@ const FAST_MOVE_SPEED = 1.8;
 /** Фон страницы для мобильной панели браузера — тот же, что у сцены. */
 const THEME_COLORS: Record<Theme, string> = { light: '#eee7d7', dark: '#1a1715' };
 
+/** Системная настройка «тёмное оформление»: за ней следует режим «как в системе». */
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+/** Выбор из настроек → фактическая тема: системный режим спрашивает ОС. */
+const resolveTheme = (mode: ThemeMode): Theme =>
+  mode === 'system' ? (systemDark.matches ? 'dark' : 'light') : mode;
+
 /**
  * Тема переключает и интерфейс (data-theme у <html> — CSS-переменные), и
  * сцену (палитра рендера): иначе тёмные панели соседствовали бы с кремовым
  * полем. Вызывается до init — палитра попадёт в clearColor первого кадра.
  */
-const applyTheme = (theme: Theme): void => {
+const applyTheme = (mode: ThemeMode): void => {
+  const theme = resolveTheme(mode);
   document.documentElement.dataset.theme = theme;
   renderer.setTheme(theme);
   document
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute('content', THEME_COLORS[theme]);
 };
+
+// ОС переключила светлую/тёмную на лету: в режиме «как в системе» следуем сразу.
+systemDark.addEventListener('change', () => {
+  if ((config.get('theme') as ThemeMode) === 'system') applyTheme('system');
+});
 
 // Громкость из настроек применяется к аудио-адаптеру сразу, отладочные
 // переключатели, скорость хода, вид подсказки и тема — к рендеру.
@@ -122,11 +137,11 @@ config.subscribe((key, value) => {
     applyKeyGuide();
   }
   if (key === 'theme') {
-    applyTheme(value as Theme);
+    applyTheme(value as ThemeMode);
     storage.save(THEME_KEY, value);
   }
 });
-applyTheme(config.get('theme') as Theme);
+applyTheme(config.get('theme') as ThemeMode);
 
 // 9. FSM-машины
 const menuActor = createActor(menuMachine);
