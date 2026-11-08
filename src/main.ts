@@ -11,7 +11,7 @@ import {
   GENERATED_EPISODES,
 } from '@core/data/generated-episodes';
 import { Statistics } from '@core/services/statistics';
-import { generateTestLevel } from '@core/generation/level-generator';
+import { generateTestLevel, type TestLevelOptions } from '@core/generation/level-generator';
 import { formatLevelSeed } from '@core/generation/level-seed';
 import type { MechanicId } from '@core/generation/mechanics';
 import { createLevelFromData } from '@core/rules/create';
@@ -237,6 +237,8 @@ orbit.attach(gameScreen.canvasWrap);
 
 /** Тестовый уровень из отладки: стартует сразу, минуя селектор. */
 let pendingDebugLevel: Level | null = null;
+/** Параметры его генерации: по ним уровень собирается заново по сиду. */
+let pendingDebugRecipe: TestLevelOptions | null = null;
 
 const menuCtrl = new MenuController(
   screensRoot,
@@ -262,6 +264,9 @@ const menuCtrl = new MenuController(
     // тестовый уровень не должен подменять следующий обычный запуск.
     if ((menuActor.getSnapshot().value as string) !== 'debug') return null;
     pendingDebugLevel = createLevelFromData(0, 0, generated.rows);
+    // Рецепт уровня (механики, сложность, сид) — чтобы показать настоящий
+    // сид в плашке и собрать карту заново по нему.
+    pendingDebugRecipe = { mechanics, difficulty, seed: usedSeed };
     menuActor.send({ type: 'TEST_LEVEL' });
     return usedSeed;
   },
@@ -483,8 +488,10 @@ const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): voi
   if (enteringGame) {
     if (pendingDebugLevel) {
       const level = pendingDebugLevel;
+      const recipe = pendingDebugRecipe;
       pendingDebugLevel = null;
-      game.startTestLevel(level, i18n.t('DEBUG_TEST_LEVEL'));
+      pendingDebugRecipe = null;
+      game.startTestLevel(level, i18n.t('DEBUG_TEST_LEVEL'), recipe ?? undefined);
     } else {
       const selected = snapshot.context.selected;
       if (selected) episodes.setCurLevel(selected.episodeId, selected.levelId);

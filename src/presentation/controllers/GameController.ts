@@ -10,6 +10,7 @@ import type { ISaveStorage } from '../../ports/ISaveStorage';
 import type { Statistics } from '../../core/services/statistics';
 import { InputAction } from '../../ports/IInput';
 import { createLevelFromData } from '../../core/rules/create';
+import { generateTestLevel, type TestLevelOptions } from '../../core/generation/level-generator';
 import { formatLevelSeed, levelSeed } from '../../core/generation/level-seed';
 import { findHint, planSlides, type HintSlide } from '../../core/rules/hint';
 import { starsForResult, type GameResult } from '../../core/types/game-result';
@@ -52,6 +53,8 @@ export class GameController {
   /** Уровень из отладки: не трогаем прогресс, статистику и сохранение. */
   private testMode = false;
   private testLevel: Level | null = null;
+  /** С чем собирался тестовый уровень: по этим параметрам он собирается заново. */
+  private testRecipe: TestLevelOptions | null = null;
   private testLabel = 'TEST';
   private paused = false;
   /** Индекс текущей карты демо-фона. */
@@ -138,13 +141,19 @@ export class GameController {
   private rebuildFromSeed(): void {
     if (this.seedValue === null) return;
     const level = this.gameActor.getSnapshot().context.level;
-    const rows = this.episodes.rebuildLevel(level.episodeId, level.levelId);
+    // Тестовый уровень собирается по своим параметрам, эпизодный — по
+    // профилю эпизода в менеджере.
+    const rows =
+      this.testRecipe?.seed !== undefined
+        ? (generateTestLevel(this.testRecipe)?.rows ?? null)
+        : this.episodes.rebuildLevel(level.episodeId, level.levelId);
     if (rows) {
       const rebuilt = createLevelFromData(level.episodeId, level.levelId, rows);
       // Сравниваем отпечатки: одинаковое содержимое — тот же уровень.
       if (levelSeed(rebuilt) === levelSeed(level)) {
         this.flashSeed(true);
-        this.startLevel(rebuilt);
+        if (this.testRecipe) this.startTestLevel(rebuilt, this.testLabel);
+        else this.startLevel(rebuilt);
         return;
       }
     }
@@ -207,7 +216,13 @@ export class GameController {
     this.levelLabelClicks = 0;
     // У сгенерированных карт сид настоящий (его можно ввести и получить ту же
     // карту), у ручных — отпечаток содержимого, который только опознаёт карту.
-    this.seedValue = this.episodes.getLevelSeed(level.episodeId, level.levelId);
+    if (testMode) {
+      this.seedValue = this.testRecipe?.seed ?? null;
+    } else {
+      // Обычный режим — тестовый рецепт больше не действует.
+      this.testRecipe = null;
+      this.seedValue = this.episodes.getLevelSeed(level.episodeId, level.levelId);
+    }
     this.seedLabel.textContent = this.formatSeed(this.seedValue ?? levelSeed(level));
     const rebuildable = this.seedValue !== null;
     this.seedLabel.classList.toggle('game-seed--actionable', rebuildable);
@@ -220,9 +235,14 @@ export class GameController {
     if (!this.isDemo && !this.testMode) this.save();
   }
 
-  /** Тестовый уровень из отладки: играется как обычный, но без прогресса. */
-  startTestLevel(level: Level, label = 'TEST'): void {
+  /**
+   * Тестовый уровень из отладки: играется как обычный, но без прогресса.
+   * `recipe` — параметры генерации, если уровень собран по сиду: тогда в
+   * плашке виден настоящий сид и карту можно собрать заново.
+   */
+  startTestLevel(level: Level, label = 'TEST', recipe?: TestLevelOptions): void {
     this.testLabel = label;
+    if (recipe) this.testRecipe = recipe;
     this.startLevel(level, true);
   }
 

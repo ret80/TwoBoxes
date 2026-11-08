@@ -7,6 +7,9 @@ import type { IAudio } from '../../ports/IAudio';
 import type { IRenderer, MoveAnimation, RenderState } from '../../ports/IRenderer';
 import type { ISaveStorage } from '../../ports/ISaveStorage';
 import { GameController } from './GameController';
+import { generateTestLevel } from '../../core/generation/level-generator';
+import { formatLevelSeed } from '../../core/generation/level-seed';
+import { createLevelFromData } from '../../core/rules/create';
 
 /** Рендер-заглушка: анимации завершаются синхронно. */
 class FakeRenderer implements IRenderer {
@@ -136,4 +139,21 @@ describe('GameController: завершение уровня', () => {
     // По умолчанию (без i18n) сид показывается как hex из восьми цифр.
     expect(seed.textContent).toMatch(/^0x[0-9a-f]{8}$/);
   });
+
+  it('тестовый уровень из отладки показывает настоящий сид и собирается заново', () => {
+    const { game, label, seed } = setup(false);
+    const recipe = { mechanics: ['portal' as const], difficulty: 20, seed: 0x1234 };
+    const generated = generateTestLevel(recipe);
+    expect(generated).not.toBeNull();
+    game.startTestLevel(createLevelFromData(0, 0, generated!.rows), 'TEST', recipe);
+
+    // Сид генератора, а не отпечаток карты, — значит, плашка кликабельна.
+    expect(seed.textContent).toBe(formatLevelSeed(recipe.seed));
+    expect(seed.classList.contains('game-seed--actionable')).toBe(true);
+
+    for (let i = 0; i < 10; i++) label.click();
+    seed.click();
+    expect(seed.classList.contains('game-seed--ok')).toBe(true);
+    expect(label.textContent).toBe('TEST');
+  }, 20_000);
 });
