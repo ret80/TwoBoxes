@@ -84,6 +84,13 @@ export interface GenerateLevelOptions {
   candidates?: number;
   /** Подключённые механики; пусто — классический уровень. */
   mechanics?: MechanicId[];
+  /**
+   * Уровень «только обменом»: кратчайшее решение обязано использовать обмен
+   * кубиков местами через портал, и маршрута без обмена быть не должно.
+   * Порталы подключаются автоматически, а поле собирается перебором маленьких
+   * комнат (`generateSwapLevel`), поэтому `patterns` и `budget` здесь не нужны.
+   */
+  requirePortalSwap?: boolean;
 }
 
 const OPPOSITE: Record<string, string> = {
@@ -177,8 +184,18 @@ function createField(size: number, rng: () => number): Uint8Array | null {
     }
   }
 
-  // Оставляем только самую большую связную область: иначе стенки могут
-  // разрезать поле на независимые комнаты и уровень выглядит сломанным.
+  return largestFloorComponent(floor, size, 30);
+}
+
+/**
+ * Оставить только самую большую связную область пола: иначе стенки могут
+ * разрезать поле на независимые комнаты и уровень выглядит сломанным.
+ */
+function largestFloorComponent(
+  floor: Uint8Array,
+  size: number,
+  minCells: number,
+): Uint8Array | null {
   const seen = new Uint8Array(size * size);
   let best: number[] = [];
   for (let y = 1; y < size - 1; y++) {
@@ -207,7 +224,7 @@ function createField(size: number, rng: () => number): Uint8Array | null {
     }
   }
 
-  if (best.length < 30) return null;
+  if (best.length < minCells) return null;
   const field = new Uint8Array(size * size);
   for (const cell of best) field[cell] = 1;
   return field;
@@ -318,10 +335,131 @@ function mechanicsInSolution(
 }
 
 /**
+ * Компактная комната для уровня-обмена: небольшой прямоугольник с парой
+ * внутренних стенок. Кубики должны мешать друг другу, поэтому комната тесная:
+ * в большом зале они расходятся по разным сторонам и обмен не нужен.
+ */
+function createSwapField(size: number, rng: () => number): Uint8Array | null {
+  const inner = Math.min(5, Math.max(4, size - 4));
+  const originX = Math.floor((size - inner) / 2);
+  const originY = Math.floor((size - inner) / 2);
+  const floor = new Uint8Array(size * size);
+  for (let y = originY; y < originY + inner; y++) {
+    for (let x = originX; x < originX + inner; x++) floor[y * size + x] = 1;
+  }
+  const walls = Math.floor(rng() * 3);
+  for (let i = 0; i < walls; i++) {
+    const x = originX + Math.floor(rng() * inner);
+    const y = originY + Math.floor(rng() * inner);
+    floor[y * size + x] = 0;
+  }
+  return largestFloorComponent(floor, size, 4 * 4 - 2);
+}
+
+/**
+ * Кандидат уровня-обмена: комната, пара порталов, два старта и две цели в
+ * случайных свободных клетках. Что из этого получилось — решает решатель.
+ */
+function buildSwapCandidate(size: number, rng: () => number): string[] | null {
+  const floor = createSwapField(size, rng);
+  if (!floor) return null;
+
+  const free: Position[] = [];
+  for (let y = 1; y < size - 1; y++) {
+    for (let x = 1; x < size - 1; x++) {
+      if (floor[y * size + x]) free.push(new Position(x, y));
+    }
+  }
+  if (free.length < 6) return null;
+  shuffle(free, rng);
+
+  const [pa, pb, startA, startB, endA, endB] = free;
+  if (!endB) return null;
+  // Портал рядом с парным порталом выглядит как один широкий портал, а не как пара.
+  if (Math.abs(pa.x - pb.x) + Math.abs(pa.y - pb.y) < 2) return null;
+
+  const cells = new Map<number, CellType>([
+    [pa.y * size + pa.x, CellType.PORTAL_A],
+    [pb.y * size + pb.x, CellType.PORTAL_B],
+  ]);
+  return render(floor, size, [startA, startB], [endA, endB], cells);
+}
+
+/**
+ * Уровень, который проходится **только** обменом кубиков через портал.
+ *
+ * Случайное блуждание таких уровней почти не даёт: чтобы обмен был нужен,
+ * порталы должны стоять вплотную к маршруту, а кубики — мешать друг другу.
+ * Поэтому здесь перебираются маленькие комнаты с случайной парой порталов,
+ * стартами и целями, и каждый кандидат проверяется решателем по двум
+ * критериям:
+ * - в кратчайшем решении есть обмен местами;
+ * - поиска без обменов (`forbidPortalSwaps`) победу не находит, то есть
+ *   обыграть уровень в обход механики нельзя.
+ *
+ * Уровни получаются короткими (2–4 хода): обмен — точная позиционная идея,
+ * а не длинный маршрут.
+ */
+function generateSwapLevel(options: GenerateLevelOptions): GeneratedLevel | null {
+  const size = Math.max(8, options.size ?? 8);
+  const maxMoves = Math.max(2, options.maxMoves ?? options.moves + 3);
+  // Уровень-обмен короткий: длинное решение здесь не собрать, а ждать его
+  // от перебора — значит не найти ничего.
+  const minMoves = Math.max(2, Math.min(options.moves, 4));
+  const allowedDeadEnds = options.deadEnds ?? 1;
+
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const rng = createRng(mixSeed(options.seed, attempt, 0x5a17));
+    const rows = buildSwapCandidate(size, rng);
+    if (!rows) continue;
+
+    const level = parse(rows);
+    if (level.boxes.length !== 2 || level.ends.length !== 2) continue;
+
+    const solved = solveLevel(level);
+    if (!solved) continue;
+    if (solved.solution.length < minMoves || solved.solution.length > maxMoves) continue;
+    // Обмен обязателен, и оба кубика в нём участвуют.
+    if (solved.swaps === 0) continue;
+    if (solved.movesByBox[0] < 1 || solved.movesByBox[1] < 1) continue;
+
+    const deadEndRatio = solved.states > 0 ? solved.deadEnds / solved.states : 0;
+    if (deadEndRatio > allowedDeadEnds) continue;
+
+    // Маршрут в обход обмена: если он есть, портал в уровне лишний.
+    if (findShortestSolution(level, undefined, { forbidPortalSwaps: true })) continue;
+
+    const score = scoreDifficulty({
+      moves: solved.solution.length,
+      states: solved.states,
+      deadEndRatio,
+      branching: solved.branching,
+    });
+    if (options.score !== undefined && options.scoreTolerance !== undefined) {
+      if (Math.abs(score - options.score) > options.scoreTolerance) continue;
+    }
+
+    return {
+      rows,
+      solution: solved.solution,
+      score,
+      deadEndRatio,
+      mechanics: ['portal'],
+    };
+  }
+
+  return null;
+}
+
+/**
  * Сгенерировать один уровень. Возвращает null, если за отведённое число
  * попыток не удалось получить корректную карту.
  */
 export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | null {
+  // Уровень «только обменом» собирается другим способом: перебором маленьких
+  // комнат, а не случайным блужданием по полю.
+  if (options.requirePortalSwap) return generateSwapLevel(options);
+
   const size = options.size ?? 10;
   if (size < 7 || options.moves < 2) return null;
   // Путь генератора длиннее целевого решения: запас даёт BFS место найти

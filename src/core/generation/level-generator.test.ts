@@ -177,6 +177,32 @@ describe('демо-уровни меню', () => {
   }, 20_000);
 });
 
+describe('уровни «только обменом»', () => {
+  it('генератор собирает уровень, который проходится только обменом кубиков', () => {
+    for (const seed of [1, 2, 7, 13]) {
+      const generated = generateLevel({ seed, moves: 3, size: 8, requirePortalSwap: true });
+      expect(generated, `seed ${seed}`).not.toBeNull();
+      if (!generated) continue;
+
+      // Решение проверено решателем, а не взято из пути генератора.
+      expect(replay(generated.rows, generated.solution), `seed ${seed} replay`).toBe(true);
+      expect(generated.mechanics).toEqual(['portal']);
+
+      const level = createLevelFromData(0, 0, generated.rows);
+      const solved = solveLevel(level)!;
+      expect(solved.swaps, `seed ${seed} swaps`).toBeGreaterThan(0);
+      // Оба кубика в обмене участвуют.
+      expect(solved.movesByBox[0], `seed ${seed} red`).toBeGreaterThanOrEqual(1);
+      expect(solved.movesByBox[1], `seed ${seed} yellow`).toBeGreaterThanOrEqual(1);
+      // Обхода без обмена нет — иначе портал в уровне лишний.
+      expect(
+        findShortestSolution(level, undefined, { forbidPortalSwaps: true }),
+        `seed ${seed} bypass`,
+      ).toBeNull();
+    }
+  }, 60_000);
+});
+
 describe('level solver', () => {
   it('finds a solution and reports irreversible dead ends', () => {
     // Старая карта 2-1: решение существует, но 44 из 65 состояний — тупики.
