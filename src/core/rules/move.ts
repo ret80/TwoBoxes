@@ -4,7 +4,6 @@ import {
   isEndCell,
   isMechanicCell,
   oneWayDir,
-  portalPartner,
 } from '../types/cell';
 import type { Box } from '../types/entity';
 import type { GameState, PathPoint } from '../types/game-state';
@@ -15,6 +14,7 @@ import {
   type MechanicState,
 } from '../types/mechanic-state';
 import { Position } from '../types/position';
+import { PortalRule, type PortalArrival, type PortalRun } from './portal';
 
 /**
  * Клетка проходима для скольжения. Клетки кубиков тоже проходимы: карта
@@ -32,106 +32,9 @@ function rotate(dir: Position, clockwise: boolean): Position {
     : new Position(dir.y, -dir.x);
 }
 
-/** Найти вторую клетку портала. Пара в уровне одна, но поиск не зависит от неё. */
-function findPortalExit(level: Level, from: Position, partner: CellType): Position | null {
-  for (let y = 0; y < level.height; y++) {
-    for (let x = 0; x < level.width; x++) {
-      const pos = new Position(x, y);
-      if (pos.equals(from)) continue;
-      if (level.grid.get(pos) === partner) return pos;
-    }
-  }
-  return null;
-}
-
 /** Состояние одного кубика в пределах одного хода. */
-interface BoxRun {
-  pos: Position;
+interface BoxRun extends PortalRun {
   heading: Position;
-  /** Кубик ещё едет: не упёрся, не застрял в ловушке, не заперт. */
-  moving: boolean;
-  points: PathPoint[];
-  /** Кубик уже пользовался порталом в этом ходу: второй вход не телепортирует. */
-  teleported: boolean;
-}
-
-/** Кубик, въехавший на клетку портала в текущем шаге. */
-interface PortalArrival {
-  index: number;
-  cell: CellType;
-}
-
-const cellIndex = (width: number, pos: Position): number => pos.y * width + pos.x;
-
-/**
- * Телепорт после шага. Все входы одного шага считаются вместе — иначе два
- * кубика, одновременно въехавшие в парные порталы, глушили бы друг друга.
- *
- * - Выход свободен: кубик переносится на парный портал и едет дальше в том же
- *   направлении.
- * - На выходе стоит кубик: он уезжает на вход, а вошедший — на выход, то есть
- *   кубики меняются местами. Так же решается и случай, когда второй кубик
- *   подъезжает к входу, где уже стоит первый.
- * - На выходе запертый кубик: он с места не сдвинется, поэтому вход работает
- *   как упор.
- */
-function teleportThroughPortals(
-  level: Level,
-  runs: BoxRun[],
-  occupied: Map<number, number>,
-  arrivals: PortalArrival[],
-  locked: readonly boolean[],
-): void {
-  if (arrivals.length === 0) return;
-  const width = level.width;
-  const handled = new Set<number>();
-
-  for (const arrival of arrivals) {
-    if (handled.has(arrival.index)) continue;
-    const run = runs[arrival.index];
-    const partner = portalPartner(arrival.cell);
-    const exit = partner ? findPortalExit(level, run.pos, partner) : null;
-    if (!exit) {
-      run.moving = false;
-      continue;
-    }
-
-    const occupant = occupied.get(cellIndex(width, exit));
-    if (occupant === undefined || occupant === arrival.index) {
-      // Выход свободен: перенос и продолжение движения в том же направлении.
-      occupied.delete(cellIndex(width, run.pos));
-      run.pos = exit.clone();
-      run.points.push({ pos: run.pos.clone(), teleport: true });
-      run.teleported = true;
-      occupied.set(cellIndex(width, run.pos), arrival.index);
-      continue;
-    }
-
-    if (locked[occupant]) {
-      // Запертый кубик в этом ходу не двигается: вход становится упором.
-      run.moving = false;
-      continue;
-    }
-
-    // Обмен: кубик с выхода уходит на вход, а вошедший — на выход. Оба
-    // проигрывают телепорт, поэтому один и тот же шаг годится и для двух
-    // кубиков, въехавших в порталы разом, и для второго кубика, который
-    // доехал до входа позже.
-    const entry = run.pos.clone();
-    const other = runs[occupant];
-    occupied.delete(cellIndex(width, entry));
-    occupied.delete(cellIndex(width, exit));
-    run.pos = exit;
-    run.points.push({ pos: exit.clone(), teleport: true });
-    run.teleported = true;
-    other.pos = entry;
-    other.points.push({ pos: entry.clone(), teleport: true });
-    other.teleported = true;
-    occupied.set(cellIndex(width, run.pos), arrival.index);
-    occupied.set(cellIndex(width, other.pos), occupant);
-    handled.add(arrival.index);
-    handled.add(occupant);
-  }
 }
 
 /**
@@ -147,9 +50,8 @@ function teleportThroughPortals(
  *
  * Механики — это расширения того же скольжения:
  * - портал переносит кубик на парную клетку и отпускает дальше в том же
- *   направлении; если на парной клетке стоит другой кубик, они меняются
- *   местами — и когда въехали разом, и когда второй доехал до входа позже
- *   (запертый кубик с места не сдвигается и работает как упор);
+ *   направлении, а если на выходе стоит другой кубик — они меняются местами
+ *   (все правила телепорта — в `rules/portal.ts`);
  * - ловушка останавливает кубик и отнимает два следующих хода;
  * - ротатор поворачивает движение на 90°;
  * - переключатель переворачивает все ротаторы;
@@ -188,13 +90,17 @@ export function moveBoxes(
     teleported: false,
   }));
 
+  // Все правила телепорта — в `PortalRule`: здесь только сбор входов шага.
+  const portal = new PortalRule(level);
+  const cellKey = (pos: Position): number => portal.cellKey(pos);
+
   /** Кто стоит на клетке: индекс кубика по `y * width + x`. */
   const occupied = new Map<number, number>();
-  boxes.forEach((box, index) => occupied.set(box.pos.y * level.width + box.pos.x, index));
+  boxes.forEach((box, index) => occupied.set(cellKey(box.pos), index));
 
-  const cellKey = (pos: Position): number => cellIndex(level.width, pos);
   const maxTicks = level.width * level.height * 4 + 16;
   let moved = false;
+  let swaps = 0;
 
   for (let tick = 0; tick < maxTicks; tick++) {
     const active = runs
@@ -278,13 +184,7 @@ export function moveBoxes(
     const arrivals: PortalArrival[] = [];
     for (const want of advancing) {
       const run = runs[want.index];
-      if (portalPartner(want.cell)) {
-        // Второй вход за ход не телепортирует: кубик, проехавший выход и снова
-        // доехавший до входа, иначе прыгал бы туда-обратно бесконечно.
-        if (run.teleported) {
-          run.moving = false;
-          continue;
-        }
+      if (PortalRule.isEntrance(want.cell)) {
         arrivals.push({ index: want.index, cell: want.cell });
         continue;
       }
@@ -302,7 +202,7 @@ export function moveBoxes(
         run.heading = rotate(run.heading, clockwise);
       }
     }
-    teleportThroughPortals(level, runs, occupied, arrivals, locked);
+    swaps += portal.resolve(runs, occupied, arrivals, locked);
 
     // Упёршиеся кубики больше не поедут: стена, односторонняя клетка и стоящий
     // сосед за ход не сдвинутся.
@@ -326,6 +226,7 @@ export function moveBoxes(
     time: curTime,
     mechanicState: nextState,
     paths,
+    portalSwaps: swaps,
   };
 }
 

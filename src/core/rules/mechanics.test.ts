@@ -25,6 +25,8 @@ describe('mechanic rules', () => {
     expect(next?.boxes[0].pos.x).toBe(5);
     expect(next?.boxes[0].pos.y).toBe(3);
     expect(next?.paths?.[0].some((point) => point.teleport)).toBe(true);
+    // Обычный перенос — не обмен: признак для генератора уровней остаётся нулём.
+    expect(next?.portalSwaps).toBe(0);
   });
 
   it('trap stops the box and makes it skip two moves', () => {
@@ -159,6 +161,7 @@ describe('mechanic rules', () => {
     // У каждого ровно один прыжок — на клетку партнёра.
     expect(jumps(0)).toEqual(['4,3']);
     expect(jumps(1)).toEqual(['5,1']);
+    expect(next.portalSwaps).toBe(1);
   });
 
   it('первый телепортируется, второй доезжает до входа и меняется с ним местами', () => {

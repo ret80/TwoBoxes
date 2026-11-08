@@ -21,6 +21,8 @@ import { moveBoxes } from '../rules/move';
 export interface SolvedLevel {
   /** Кратчайшее решение от стартовой позиции. */
   solution: Position[];
+  /** Сколько обменов местами через портал в кратчайшем решении. */
+  swaps: number;
   /** Сколько состояний достижимо из старта. */
   states: number;
   /** Сколько достижимых состояний уже не могут привести к победе. */
@@ -42,6 +44,18 @@ interface Node {
 
 const DIRECTIONS = [DIRS.up, DIRS.down, DIRS.left, DIRS.right];
 const DEFAULT_MAX_STATES = 200_000;
+
+/** Настройки поиска решения. */
+export interface SearchOptions {
+  /** Предохранитель от зависания на больших полях. */
+  maxStates?: number;
+  /**
+   * Не разрешать ходы, в которых кубики меняются местами через портал. Так
+   * генератор проверяет, что уровень проходим только обменом: если поиск без
+   * обменов тоже находит победу, уровень обыгрывается в обход механики.
+   */
+  forbidPortalSwaps?: boolean;
+}
 
 const boxesKey = (boxes: Box[]): string =>
   boxes.map((box) => `${box.pos.x},${box.pos.y}`).join('|');
@@ -77,8 +91,9 @@ function restorePath(
 export function findShortestSolution(
   level: Level,
   initialState?: MechanicState,
-  maxStates = DEFAULT_MAX_STATES,
+  options: SearchOptions = {},
 ): Position[] | null {
+  const maxStates = options.maxStates ?? DEFAULT_MAX_STATES;
   const startBoxes = cloneBoxes(level.boxes);
   if (startBoxes.length === 0) return null;
   if (checkWin(startBoxes, level.ends)) return [];
@@ -102,6 +117,7 @@ export function findShortestSolution(
     for (const dir of DIRECTIONS) {
       const next = moveBoxes(level, node.boxes, dir, 0, 0, node.state);
       if (!next) continue;
+      if (options.forbidPortalSwaps && next.portalSwaps) continue;
       const nextNode: Node = {
         boxes: next.boxes,
         state: next.mechanicState ?? node.state,
@@ -205,11 +221,13 @@ export function solveLevel(
   }
 
   const movesByBox: [number, number] = [0, 0];
+  let swaps = 0;
   let replayBoxes = cloneBoxes(level.boxes);
   let replayState = createMechanicState(replayBoxes.length);
   for (const dir of solution) {
     const next = moveBoxes(level, replayBoxes, dir, 0, 0, replayState);
     if (!next) return null;
+    swaps += next.portalSwaps ?? 0;
     next.boxes.forEach((box, index) => {
       if (!box.pos.equals(replayBoxes[index].pos)) movesByBox[index]++;
     });
@@ -219,6 +237,7 @@ export function solveLevel(
 
   return {
     solution,
+    swaps,
     states: parents.size,
     deadEnds: parents.size - canStillWin.size,
     movesByBox,

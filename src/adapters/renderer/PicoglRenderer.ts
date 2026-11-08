@@ -10,6 +10,7 @@ import {
 } from '../../core/types/cell';
 import type { PathPoint } from '../../core/types/game-state';
 import type { Position } from '../../core/types/position';
+import { PortalRule } from '../../core/rules/portal';
 import type {
   HintPath,
   IRenderer,
@@ -631,7 +632,7 @@ export class PicoglRenderer implements IRenderer {
       for (let j = i + 1; j < plans.length; j++) {
         const b = plans[j];
         if (!b.exit || b.pair >= 0) continue;
-        if (a.exit.equals(b.entry) && b.exit.equals(a.entry)) {
+        if (PortalRule.isSwapPair({ entry: a.entry, exit: a.exit }, { entry: b.entry, exit: b.exit })) {
           a.pair = j;
           b.pair = i;
           break;

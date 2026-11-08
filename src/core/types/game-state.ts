@@ -20,4 +20,6 @@ export interface GameState {
   mechanicState?: MechanicState;
   /** Фактические пути кубиков за этот ход — для анимации через порталы/ротаторы. */
   paths?: PathPoint[][];
+  /** Сколько раз кубики поменялись местами через портал в этом ходу (0 или 1). */
+  portalSwaps?: number;
 }
