@@ -58,6 +58,13 @@ export interface IRenderer {
   /** Скорость анимации хода: 1 — плавно (по умолчанию), >1 — быстрее. */
   setMoveSpeed(multiplier: number): void;
 
+  /**
+   * Слушатель старта телепорта: рендерер знает точный момент, когда кубик
+   * въезжает в портал, и длительность своей анимации (она зависит от скорости
+   * хода) — по этому времени звук попадает в фазы анимации.
+   */
+  setPortalListener(listener: (durationMs: number) => void): void;
+
   /** Счётчик кадров в левом нижнем углу. */
   setFpsVisible(visible: boolean): void;
 }

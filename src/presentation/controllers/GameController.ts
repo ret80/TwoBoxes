@@ -104,6 +104,12 @@ export class GameController {
     this.levelLabel.addEventListener('click', () => this.onLevelLabelClick());
     this.seedLabel.addEventListener('click', () => this.rebuildFromSeed());
 
+    // Телепорт: момент и длительность анимации знает рендер, поэтому звук
+    // включается оттуда — иначе он разъезжался бы с фазами хода.
+    this.renderer.setPortalListener((durationMs) => {
+      if (!this.isDemo) this.audio.playSfx('portal', undefined, durationMs);
+    });
+
     this.gameActor.subscribe((snapshot) => this.onTransition(snapshot));
     this.startLoop();
     // Подписка не вызывает колбэк для текущего состояния: без этого поле

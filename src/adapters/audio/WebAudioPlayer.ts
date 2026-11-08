@@ -43,7 +43,7 @@ function createReverb(ctx: AudioContext, seconds = 3.6): ConvolverNode {
  * AudioContext создаётся по user gesture. Если wav-ассеты недоступны —
  * fallback: синтез коротких звуков через OscillatorNode (см. правки плана, п.12).
  * Звуки: 'swipe' — движение кубиков, 'place' — кубик встал на свою площадку,
- * 'message-appear' — диалог завершения.
+ * 'portal' — телепорт, 'message-appear' — диалог завершения.
  * Музыка — генеративный эмбиент: аккорды, бас и редкая мелодия планируются
  * заранее по времени AudioContext, поэтому нет щелчков и дрейфа ритма.
  */
@@ -59,6 +59,8 @@ export class WebAudioPlayer implements IAudio {
   private chordIndex = 0;
   private nextChord = 0;
   private nextBell = 0;
+  /** Белый шум для «всоса» телепорта: секунда моно, общая на все телепорты. */
+  private noise: AudioBuffer | null = null;
 
   async init(): Promise<void> {
     if (this.ctx) return;
@@ -75,11 +77,14 @@ export class WebAudioPlayer implements IAudio {
     return this.ctx;
   }
 
-  playSfx(name: string, volume?: number): void {
+  playSfx(name: string, volume?: number, durationMs?: number): void {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const vol = (volume ?? this.sfxVolume) * this.sfxVolume;
-    if (name === 'swipe') {
+    if (name === 'portal') {
+      // Телепорт: всос → тишина → «поп» на выходе → оседание на плиту.
+      this.teleport(ctx, vol, durationMs ?? 1290);
+    } else if (name === 'swipe') {
       // Свайп: короткий pitch-slide (fallback вместо wav-файла)
       this.tone(ctx, 320, 160, 0.12, vol, 'triangle');
     } else if (name === 'place') {
@@ -93,6 +98,65 @@ export class WebAudioPlayer implements IAudio {
     } else {
       this.tone(ctx, 440, 440, 0.1, vol, 'sine');
     }
+  }
+
+  /**
+   * Телепорт. Звук идёт по тем же фазам, что и анимация кубика, и получает её
+   * длительность: подъём и сжатие — всос, на исчезновении короткая тишина,
+   * затем «поп» на выходе и тихий удар, когда кубик встал на плиту.
+   */
+  private teleport(ctx: AudioContext, volume: number, durationMs: number): void {
+    const total = Math.max(300, durationMs) / 1000;
+    const at = ctx.currentTime + 0.01;
+    // Всос: шум сквозь полосовой фильтр, уходящий вверх, и поднимающийся тон.
+    this.whoosh(ctx, at, total * 0.46, 240, 2600, volume * 0.75);
+    this.tone(ctx, 190, 720, total * 0.46, volume * 0.2, 'triangle');
+    // Выход: высота падает — кубик собирается из точки обратно в куб.
+    const out = total * 0.52;
+    this.tone(ctx, 1500, 520, total * 0.2, volume * 0.45, 'sine', out);
+    this.tone(ctx, 760, 300, total * 0.34, volume * 0.22, 'triangle', out);
+    // Кубик опустился на плиту.
+    this.tone(ctx, 200, 130, 0.1, volume * 0.28, 'sine', total * 0.94);
+  }
+
+  /**
+   * Шум сквозь полосовой фильтр с уходящей вверх частотой: так звучит
+   * втягивание. Тихо на краях, чтобы не щёлкало на старте и не обрывалось.
+   */
+  private whoosh(
+    ctx: AudioContext,
+    at: number,
+    dur: number,
+    from: number,
+    to: number,
+    volume: number,
+  ): void {
+    if (dur <= 0.01) return;
+    const source = ctx.createBufferSource();
+    source.buffer = this.noiseBuffer(ctx);
+    source.loop = true;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 2.4;
+    band.frequency.setValueAtTime(from, at);
+    band.frequency.exponentialRampToValueAtTime(to, at + dur);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), at + dur * 0.6);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    source.connect(band).connect(gain).connect(ctx.destination);
+    source.start(at);
+    source.stop(at + dur + 0.05);
+  }
+
+  private noiseBuffer(ctx: AudioContext): AudioBuffer {
+    if (this.noise && this.noise.sampleRate === ctx.sampleRate) return this.noise;
+    const length = Math.floor(ctx.sampleRate);
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    this.noise = buffer;
+    return buffer;
   }
 
   private tone(

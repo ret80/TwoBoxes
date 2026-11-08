@@ -14,6 +14,8 @@ import { createLevelFromData } from '../../core/rules/create';
 /** Рендер-заглушка: анимации завершаются синхронно. */
 class FakeRenderer implements IRenderer {
   moves: MoveAnimation[] = [];
+  /** Слушатель телепорта: заглушка запоминает его, тест зовёт его сам. */
+  portal: ((durationMs: number) => void) | null = null;
 
   init(): void {}
   resize(): void {}
@@ -43,6 +45,10 @@ class FakeRenderer implements IRenderer {
   setProjection(): void {}
   setMoveSpeed(): void {}
   setFpsVisible(): void {}
+
+  setPortalListener(listener: (durationMs: number) => void): void {
+    this.portal = listener;
+  }
 }
 
 const audio: IAudio = {
@@ -77,8 +83,9 @@ function setup(demo: boolean) {
   const showCompleted = vi.fn();
   const playSfx = vi.fn();
   const storage = makeStorage();
+  const renderer = new FakeRenderer();
   const game = new GameController(
-    new FakeRenderer(),
+    renderer,
     { ...audio, playSfx },
     episodes,
     new Statistics(),
@@ -90,7 +97,7 @@ function setup(demo: boolean) {
   game.attachDialogs({ showPause: vi.fn(), showCompleted, hideDialogs: vi.fn() });
   game.setDemo(demo);
   game.startLevel(level);
-  return { game, actor, label, seed, showCompleted, storage, playSfx };
+  return { game, actor, label, seed, showCompleted, storage, playSfx, renderer };
 }
 
 /** Проходить уровень по подсказкам, пока не выполнится `done`. */
@@ -128,6 +135,18 @@ describe('GameController: завершение уровня', () => {
     expect(label.textContent).toBe('Level #1-1');
     // прогресс и сохранение игрока демо не трогает
     expect(storage.saved).toHaveLength(0);
+  });
+
+  it('телепорт озвучивается длительностью своей анимации, а в демо молчит', () => {
+    const { renderer, playSfx } = setup(false);
+    // Рендерер сообщает о въезде в портал: звук должен получить длительность,
+    // чтобы его фазы совпали с кадрами анимации.
+    renderer.portal?.(1290);
+    expect(playSfx).toHaveBeenCalledWith('portal', undefined, 1290);
+
+    const demo = setup(true);
+    demo.renderer.portal?.(1290);
+    expect(demo.playSfx.mock.calls.some(([name]) => name === 'portal')).toBe(false);
   });
 
   it('сид уровня появляется после десяти кликов по номеру', () => {

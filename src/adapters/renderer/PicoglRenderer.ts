@@ -323,6 +323,10 @@ export class PicoglRenderer implements IRenderer {
    * по очереди.
    */
   private portalPausePending = false;
+  /** Подписчик на старт телепорта: озвучка идёт по фазам анимации. */
+  private portalListener: ((durationMs: number) => void) | null = null;
+  /** Когда последний раз было событие телепорта — чтобы два разом дали один звук. */
+  private lastPortalAt = Number.NEGATIVE_INFINITY;
 
   private lastFrameTime = 0;
   private rafId = 0;
@@ -448,6 +452,7 @@ export class PicoglRenderer implements IRenderer {
       this.portals = [];
       this.portalBlocks = 0;
       this.portalPausePending = false;
+      this.lastPortalAt = Number.NEGATIVE_INFINITY;
       this.tweens.resumeAll();
       this.boxPos = state.boxes.map((b) => ({
         x: b.pos.x + 0.5,
@@ -628,6 +633,13 @@ export class PicoglRenderer implements IRenderer {
     // Только со следующего кадра: в текущем из того же пакета tween'ов может
     // завершиться последний шаг второго кубика, и он тоже въедет в портал.
     this.portalPausePending = true;
+    // Звук начинается здесь, вместе с анимацией, и получает её длительность —
+    // на ускоренном ходе его фазы сжимаются так же, как кадры.
+    const now = performance.now();
+    if (this.portalListener && now - this.lastPortalAt > 60) {
+      this.lastPortalAt = now;
+      this.portalListener(PORTAL_TOTAL_MS / this.moveSpeed);
+    }
   }
 
   /** Кадр анимаций телепорта: поза по времени, завершение и продолжение пути. */
@@ -768,6 +780,10 @@ export class PicoglRenderer implements IRenderer {
   /** Скорость хода кубиков (настройка «Плавно / Быстро»). */
   setMoveSpeed(multiplier: number): void {
     this.moveSpeed = multiplier > 0 ? multiplier : 1;
+  }
+
+  setPortalListener(listener: (durationMs: number) => void): void {
+    this.portalListener = listener;
   }
 
   /** Вид подсказки: стрелки на полу или проволочный кубик (настройка). */
