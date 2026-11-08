@@ -132,6 +132,25 @@ const PALETTE_DARK: ScenePalette = {
 // Свечение кубика на своей площадке — насыщенный цвет кубика (не белый).
 const GLOW_ONE = [1.0, 0.42, 0.17]; // коралловый ореол
 const GLOW_TWO = [1.0, 0.66, 0.18]; // золотой ореол
+
+/**
+ * Геометрия свечения. Свет рисуется двумя квадами: свет на самой площадке
+ * (квадрат по размеру клетки) и объёмный ореол вокруг кубика (круг по его
+ * силуэту). Расстояния и радиусы — в UV квада, поэтому связаны с его размером:
+ * клетка 1.0 мира при кваде 1.9 — это половина 0.263, кубик 0.9 мира в кваде
+ * 3.6 — круг радиусом 0.125.
+ */
+const GLOW_POOL_SIZE = 1.9;
+const GLOW_POOL_RECT = 0.5 / GLOW_POOL_SIZE;
+const GLOW_POOL_RADIUS = 0.06;
+const GLOW_POOL_CORE = 0.06;
+const GLOW_POOL_WIDE = 0.09;
+const GLOW_POOL_ALPHA = 0.38;
+const GLOW_HALO_SIZE = 3.6;
+const GLOW_HALO_RADIUS = 0.45 / GLOW_HALO_SIZE;
+const GLOW_HALO_CORE = 0.05;
+const GLOW_HALO_WIDE = 0.11;
+const GLOW_HALO_ALPHA = 0.85;
 /** Компас: оси — цветом текста, но с прозрачностью недоступной кнопки отката. */
 const KEY_GUIDE_DIM_ALPHA = 0.32;
 
@@ -889,13 +908,21 @@ export class PicoglRenderer implements IRenderer {
       this.gridDraw.draw();
     }
 
-    // Кубики на своих площадках светятся ровным ореолом своего цвета
-    // (без пульсации — мигание читалось как мерцание) и лёгкой подсветкой
-    // самого кубика (uGlow). Ключ площадки — позиция и цвет, поэтому чужой
-    // кубик не подсвечивается.
+    // Кубики на своих площадках светятся своим цветом (без пульсации —
+    // мигание читалось как мерцание): свет на площадке, ореол вокруг силуэта
+    // и подсветка рёбер самого кубика (uGlow). Ключ площадки — позиция и цвет,
+    // поэтому чужой кубик не подсвечивается.
     const goals = new Set(state.ends.map((e) => `${e.pos.x},${e.pos.y},${e.color}`));
     const onGoal = (b: RenderBoxPos): boolean =>
       goals.has(`${Math.round(b.x - 0.5)},${Math.round(b.z - 0.5)},${b.color}`);
+
+    // Направление на камеру — для подсветки рёбер кубика (rim в шейдере).
+    const { yaw: camYaw, pitch: camPitch } = this.camera.getAngles();
+    this.cubeDraw.uniform('uViewDir', [
+      -Math.cos(camPitch) * Math.sin(camYaw),
+      Math.sin(camPitch),
+      Math.cos(camPitch) * Math.cos(camYaw),
+    ]);
 
     const glowing = this.boxPos.filter(onGoal);
     if (glowing.length > 0 && !animating) {
@@ -906,29 +933,39 @@ export class PicoglRenderer implements IRenderer {
       gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE);
       // Ореолы рисуются друг поверх друга на одной высоте — глубина не пишется.
       gl.depthMask(false);
-      const { yaw, pitch } = this.camera.getAngles();
-      const cosYaw = Math.cos(yaw);
-      const sinYaw = Math.sin(yaw);
-      const sinPitch = Math.sin(pitch);
-      const cosPitch = Math.cos(pitch);
+      const cosYaw = Math.cos(camYaw);
+      const sinYaw = Math.sin(camYaw);
+      const sinPitch = Math.sin(camPitch);
+      const cosPitch = Math.cos(camPitch);
       for (const b of glowing) {
         const bx = Math.round(b.x - 0.5);
         const bz = Math.round(b.z - 0.5);
         const color = b.color === ColorType.ONE ? GLOW_ONE : GLOW_TWO;
-        // Мягкое пятно на самой площадке вокруг кубика.
+        // Свет на площадке: силуэт — квадрат клетки, поэтому подсветка не
+        // выходит за край базы и читается как зажжённая плита.
         this.floorBasis(this.basisMatrix, worldX(bx), worldZ(bz), PLATFORM_TOP + 0.03, 0);
-        mat4.scale(this.decalModel, this.basisMatrix, [2.1, 2.1, 1]);
-        this.drawGlow(this.decalModel, color, 0.55);
-        // Объёмный ореол: билборд к камере вокруг центра кубика. Так свечение
-        // мягко расходится во все стороны и не читается как «раздутый куб».
+        mat4.scale(this.decalModel, this.basisMatrix, [GLOW_POOL_SIZE, GLOW_POOL_SIZE, 1]);
+        this.drawGlow(this.decalModel, color, GLOW_POOL_ALPHA, {
+          half: GLOW_POOL_RECT,
+          radius: GLOW_POOL_RADIUS,
+          core: GLOW_POOL_CORE,
+          wide: GLOW_POOL_WIDE,
+        });
+        // Объёмный ореол: билборд к камере, силуэт — круг по габариту кубика.
+        // Свечение мягко расходится во все стороны и не читается «раздутым кубом».
         PicoglRenderer.setBasis(
           this.basisMatrix,
           [b.x - state.width / 2, b.y, b.z - state.height / 2],
           [cosYaw, 0, sinYaw],
           [sinPitch * sinYaw, cosPitch, -sinPitch * cosYaw],
         );
-        mat4.scale(this.decalModel, this.basisMatrix, [2.7, 2.7, 1]);
-        this.drawGlow(this.decalModel, color, 1.0);
+        mat4.scale(this.decalModel, this.basisMatrix, [GLOW_HALO_SIZE, GLOW_HALO_SIZE, 1]);
+        this.drawGlow(this.decalModel, color, GLOW_HALO_ALPHA, {
+          half: GLOW_HALO_RADIUS,
+          radius: GLOW_HALO_RADIUS,
+          core: GLOW_HALO_CORE,
+          wide: GLOW_HALO_WIDE,
+        });
       }
       gl.depthMask(true);
       app.disable(PicoGL.BLEND);
@@ -1037,11 +1074,26 @@ export class PicoglRenderer implements IRenderer {
       .draw();
   }
 
-  private drawGlow(model: mat4, color: number[], intensity: number): void {
+  /**
+   * Квад ореола. `half` и `radius` задают силуэт в UV квада: скруглённый
+   * квадрат с половиной стороны `half`, а круг — при `half = radius`
+   * (тогда расстояние в шейдере равно `|p| - radius`). `core` и `wide` —
+   * радиусы яркого ядра и широкого ореола.
+   */
+  private drawGlow(
+    model: mat4,
+    color: number[],
+    intensity: number,
+    shape: { half: number; radius: number; core: number; wide: number },
+  ): void {
     if (!this.glowDraw) return;
     this.applyViewProj(this.glowDraw.uniform('uModel', model))
       .uniform('uColor', color)
       .uniform('uIntensity', intensity)
+      .uniform('uRect', [shape.half, shape.half])
+      .uniform('uRadius', shape.radius)
+      .uniform('uCore', shape.core)
+      .uniform('uWide', shape.wide)
       .draw();
   }
 

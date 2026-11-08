@@ -751,7 +751,9 @@ export function buildCompletedDialog(
   const root = el('div', 'dialog dialog--hidden');
   root.dataset.dialog = 'completed';
   const box = el('div', 'dialog__box panel');
-  const title = el('div', 'dialog__title', i18n.t('COMPLETED'));
+  // Заголовок — как в остальных меню: сверху, на месте заголовка экрана,
+  // а не внутри панели со звёздами и статистикой.
+  const title = el('div', 'dialog__title dialog__title--fixed', i18n.t('COMPLETED'));
   const stars = el('div', 'dialog__stars');
   const stats = el('div', 'dialog__stats');
   const reset = el<HTMLButtonElement>('button', 'btn btn--warning btn--icon');
@@ -765,7 +767,7 @@ export function buildCompletedDialog(
   next.addEventListener('click', cb.onNext);
   const row = el('div', 'dialog__actions');
   row.append(reset, home, next);
-  box.append(title, stars, stats, row);
-  root.appendChild(box);
+  box.append(stars, stats, row);
+  root.append(title, box);
   return { root, stats, stars, title };
 }

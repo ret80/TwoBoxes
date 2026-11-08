@@ -41,17 +41,29 @@
 }
 
 /*
- * Пауза: заголовок стоит на месте заголовков меню (сверху), панель кнопок
+ * Пауза и победа: заголовок стоит на месте заголовков меню (сверху), панель
  * центрирована по вертикали. HUD при открытии диалога уезжает за края,
- * поэтому заголовку ничего не мешает.
+ * поэтому заголовку ничего не мешает. Геометрия совпадает с `.screen__title`:
+ * растянут на всю ширину, поэтому длинный заголовок не выходит за края.
  */
 .dialog__title--fixed {
   position: absolute;
   top: clamp(24px, 8vh, 84px);
-  left: 50%;
+  right: 0;
+  left: 0;
   margin: 0;
-  transform: translateX(-50%);
+  padding: 0 16px;
+  transform: none;
   white-space: nowrap;
+}
+
+/*
+ * Победа: панель начинается сразу под заголовком, а не центрируется по всему
+ * экрану — иначе между стандартным заголовком сверху и звёздами зияет дыра.
+ */
+.dialog[data-dialog='completed'] {
+  align-items: flex-start;
+  padding-top: clamp(112px, 18vh, 170px);
 }
 
 .dialog[data-dialog='pause'] {
@@ -76,7 +88,12 @@
   }
 }
 
-/* Победа: звёзды над статистикой (3 — точно по минимуму ходов) */
+/*
+ * Победа: звёзды над статистикой (3 — идеально, без подсказок).
+ * Заработанная звезда — золотая с тёмной обводкой: чистый золотой на кремовой
+ * панели почти не отличался от фона. Незаработанная — контуром: пустые звезды
+ * видны, но не спорят с золотом.
+ */
 .dialog__stars {
   display: flex;
   justify-content: center;
@@ -86,14 +103,14 @@
 }
 
 .dialog__star {
-  color: var(--color-coffee);
-  font-size: clamp(1.9rem, 8vw, 2.4rem);
-  opacity: 0.18;
+  color: var(--color-star-off);
+  font-size: clamp(2rem, 8.4vw, 2.6rem);
+  -webkit-text-stroke: 1.2px var(--color-star-off-edge);
 }
 
 .dialog__star.is-on {
-  opacity: 1;
-  color: var(--color-yellow);
+  color: var(--color-star);
+  -webkit-text-stroke: 1.2px var(--color-star-edge);
   text-shadow: var(--shadow-star);
 }
 
@@ -103,7 +120,7 @@
   gap: 4px;
   margin-bottom: 8px;
   color: var(--color-coffee);
-  font-size: clamp(1rem, 4.2vw, 1.2rem);
+  font-size: clamp(1.05rem, 4.6vw, 1.3rem);
   font-weight: 600;
   line-height: 1.45;
   opacity: 0.92;

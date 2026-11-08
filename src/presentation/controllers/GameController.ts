@@ -10,7 +10,7 @@ import type { ISaveStorage } from '../../ports/ISaveStorage';
 import type { Statistics } from '../../core/services/statistics';
 import { InputAction } from '../../ports/IInput';
 import { findHint, planSlides, type HintSlide } from '../../core/rules/hint';
-import { starsForMoves, type GameResult } from '../../core/types/game-result';
+import { starsForResult, type GameResult } from '../../core/types/game-result';
 
 const SAVE_KEY = 'save';
 
@@ -295,17 +295,19 @@ export class GameController {
         this.episodes.unlockCurrent();
         this.save();
       }
-      // Минимальное число ходов уровня — база для звёзд в диалоге победы.
+      // Минимальное число ходов уровня — база для звёзд в диалоге победы;
+      // подсказки входят в оценку отдельным штрафом.
       const minMoves = this.testMode
         ? Math.max(1, ctx.moves)
         : this.episodes.minMoves(ctx.level.episodeId, ctx.level.levelId);
+      const hints = this.statistics.getHints();
       this.showCompleted?.({
         moves: ctx.moves,
         time: ctx.time,
         completed: true,
-        hints: this.statistics.getHints(),
+        hints,
         minMoves,
-        stars: starsForMoves(ctx.moves, minMoves),
+        stars: starsForResult(ctx.moves, minMoves, hints),
       });
     }
   }
