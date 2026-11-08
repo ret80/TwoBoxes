@@ -1483,50 +1483,44 @@ export class PicoglRenderer implements IRenderer {
     color: number[],
     base: mat4 = this.basisMatrix,
   ): void {
-    let points: [number, number][];
+    // Каждая литера — набор отдельных штрихов. Непрерывная ломаная здесь не
+    // годится: соединительные отрезки между перекладинами рисовались бы по
+    // грани и оставляли лишние диагонали (так «E» получала косую черту).
+    let strokes: [number, number, number, number][];
     if (letter === 'W') {
       // Вниз-вверх-вниз-вверх.
-      points = [
-        [cx - w, cy + h],
-        [cx - w / 2, cy - h],
-        [cx, cy + h * 0.12],
-        [cx + w / 2, cy - h],
-        [cx + w, cy + h],
+      strokes = [
+        [cx - w, cy + h, cx - w / 2, cy - h],
+        [cx - w / 2, cy - h, cx, cy + h * 0.12],
+        [cx, cy + h * 0.12, cx + w / 2, cy - h],
+        [cx + w / 2, cy - h, cx + w, cy + h],
       ];
     } else if (letter === 'S') {
       // Верхняя перекладина, спуск слева, середина по диагонали, спуск справа,
       // нижняя перекладина.
-      points = [
-        [cx + w, cy + h],
-        [cx - w, cy + h],
-        [cx - w, cy + h * 0.12],
-        [cx + w, cy - h * 0.12],
-        [cx + w, cy - h],
-        [cx - w, cy - h],
+      strokes = [
+        [cx + w, cy + h, cx - w, cy + h],
+        [cx - w, cy + h, cx - w, cy + h * 0.12],
+        [cx - w, cy + h * 0.12, cx + w, cy - h * 0.12],
+        [cx + w, cy - h * 0.12, cx + w, cy - h],
+        [cx + w, cy - h, cx - w, cy - h],
       ];
     } else if (letter === 'N') {
-      points = [
-        [cx - w, cy - h],
-        [cx - w, cy + h],
-        [cx + w, cy - h],
-        [cx + w, cy + h],
+      strokes = [
+        [cx - w, cy - h, cx - w, cy + h],
+        [cx - w, cy + h, cx + w, cy - h],
+        [cx + w, cy - h, cx + w, cy + h],
       ];
     } else {
       // «E»: стойка и три перекладины; средняя короче, как у наборной литеры.
-      points = [
-        [cx - w, cy - h],
-        [cx - w, cy + h],
-        [cx + w, cy + h],
-        [cx - w, cy],
-        [cx + w * 0.7, cy],
-        [cx - w, cy],
-        [cx - w, cy - h],
-        [cx + w, cy - h],
+      strokes = [
+        [cx - w, cy - h, cx - w, cy + h],
+        [cx - w, cy + h, cx + w, cy + h],
+        [cx - w, cy, cx + w * 0.7, cy],
+        [cx - w, cy - h, cx + w, cy - h],
       ];
     }
-    for (let i = 1; i < points.length; i++) {
-      const [x0, y0] = points[i - 1];
-      const [x1, y1] = points[i];
+    for (const [x0, y0, x1, y1] of strokes) {
       this.drawBar(base, x0, y0, x1, y1, t, color);
     }
   }
@@ -1553,9 +1547,11 @@ export class PicoglRenderer implements IRenderer {
     if (!this.quadXYDraw) return;
     // Литера масштабируется вместе с кубиком: на анимации появления она
     // появляется вместе с гранью, а у запертого ловушкой кубика меньше.
-    const w = halfW * 0.34;
-    const h = Math.min(halfH * 0.62, w * 1.15);
-    const t = Math.max(0.012, w * 0.26);
+    const w = halfW * 0.36;
+    const h = Math.min(halfH * 0.64, w * 1.15);
+    // Штрих в четверть ширины литеры: тоньше — и на десятке пикселей буква
+    // расплывается в пятно вместе со сглаживанием.
+    const t = Math.max(0.014, w * 0.3);
     // Отступ от плоскости грани: декаль не должна спорить с ней по глубине.
     const eps = 0.006;
     const faces: { origin: [number, number, number]; right: [number, number, number]; letter: 'W' | 'S' | 'N' | 'E' }[] = [
@@ -1565,7 +1561,7 @@ export class PicoglRenderer implements IRenderer {
       { origin: [cx - halfW - eps, cy, cz], right: [0, 0, 1], letter: 'W' },
       { origin: [cx + halfW + eps, cy, cz], right: [0, 0, -1], letter: 'E' },
     ];
-    const darker = color.map((c) => c * 0.86);
+    const darker = color.map((c) => c * 0.6);
     const base = mat4.create();
     for (const face of faces) {
       PicoglRenderer.setBasis(base, face.origin, face.right, [0, 1, 0]);
