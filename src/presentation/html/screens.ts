@@ -797,23 +797,15 @@ function compassFigure(): SVGSVGElement {
       fill: 'var(--color-blue)',
       opacity: '0.22',
     }),
-    // Кубики на поле: два маленьких квадрата в центре — сама сцена-поле.
+    // Кубик на поле: один квадрат в центре — он же точка отсчёта осей, поэтому
+    // окрашен в их цвет, а не в цвет кубика из игры.
     svgNode('rect', {
-      x: '56',
-      y: '56',
+      x: '58',
+      y: '58',
       width: '16',
       height: '16',
       rx: '4',
-      fill: 'var(--color-red)',
-    }),
-    svgNode('rect', {
-      x: '72',
-      y: '68',
-      width: '14',
-      height: '14',
-      rx: '4',
-      fill: 'var(--color-yellow)',
-      opacity: '0.9',
+      fill: 'var(--color-coffee)',
     }),
   );
 

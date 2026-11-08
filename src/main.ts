@@ -391,7 +391,7 @@ gameActor.subscribe((snapshot) => {
   if (!entered) return;
   if (state === 'create') revealHud();
   if (state === 'completed') hudRoot.classList.add('hud--hidden');
-  // Подсказки нет — «?» гаснет так же, как недоступный откат хода.
+  // Подсказки нет — лампочка гаснет так же, как недоступный откат хода.
   if (state === 'input') gameScreen.hint.disabled = game.hint() === null;
 });
 

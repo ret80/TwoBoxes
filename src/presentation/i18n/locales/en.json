@@ -52,7 +52,7 @@
   "HELP_CTRL_MOVE": "Swipe on the field or use the arrow keys to make a move.",
   "HELP_CTRL_ORBIT": "Two fingers or mouse drag rotates the level around the vertical axis so you can look behind the boxes.",
   "HELP_CTRL_UNDO": "Undo takes back the previous move; reset starts the level over.",
-  "HELP_CTRL_HINT": "The «?» button shows the first move of the shortest solution when one exists.",
+  "HELP_CTRL_HINT": "The lightbulb button shows the first move of the shortest solution when one exists.",
   "HELP_TIP": "Stuck? Step back: many levels are solved by an unexpected first move. Hotkeys: R — reset, Esc — pause.",
   "DEBUG": "Debug",
   "DEBUG_FPS": "FPS counter",
