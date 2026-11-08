@@ -345,7 +345,7 @@ function addSelectRow<T extends string>(
   panel.appendChild(row);
 }
 
-/** Настройки: громкость, язык, скорость кубиков, вид подсказки и тема. */
+/** Настройки: громкость, язык, скорость анимации, вид подсказки и тема. */
 export function buildSettingsScreen(
   i18n: LocaleManager,
   values: {
@@ -397,7 +397,8 @@ export function buildSettingsScreen(
   addSlider('SFX_VOLUME', values.sfx, cb.onSfxChange);
   addSlider('MUSIC_VOLUME', values.music, cb.onMusicChange);
 
-  // Скорость хода кубиков: плавно (как раньше) или заметно быстрее.
+  // Скорость анимации хода: плавно (как раньше) или заметно быстрее —
+  // на ускоренном режиме телепорт тоже упрощается.
   addSelectRow<MoveSpeed>(
     panel,
     i18n.t('MOVE_SPEED'),

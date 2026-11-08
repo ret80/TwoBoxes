@@ -30,7 +30,7 @@
   "SFX_VOLUME": "Sound effects",
   "MUSIC_VOLUME": "Music",
   "LANGUAGE": "Language",
-  "MOVE_SPEED": "Box speed",
+  "MOVE_SPEED": "Animation speed",
   "SPEED_SMOOTH": "Smooth",
   "SPEED_FAST": "Fast",
   "HINT_STYLE": "Hint look",

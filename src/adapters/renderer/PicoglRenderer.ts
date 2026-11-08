@@ -38,11 +38,7 @@ import {
 } from './shaders';
 import { Camera } from './camera';
 import { TweenManager } from './tween-manager';
-import {
-  PORTAL_TOTAL_MS,
-  portalPose,
-  type PortalPose,
-} from './portal-animation';
+import { portalDurationMs, portalPose, type PortalPose } from './portal-animation';
 import {
   CREATE_GROW_MS,
   createWaveMask,
@@ -221,6 +217,10 @@ interface PortalAnim {
   from: { x: number; z: number };
   to: { x: number; z: number };
   startedAt: number;
+  /** Длительность этой анимации: у быстрого варианта она своя. */
+  durationMs: number;
+  /** Ускоренная анимация хода: кубик просто сжимается и переносится. */
+  snappy: boolean;
   /** Продолжение пути: кубик появился на выходе и едет дальше. */
   done: () => void;
 }
@@ -621,11 +621,17 @@ export class PicoglRenderer implements IRenderer {
    * же места, когда анимация проиграет.
    */
   private startPortalHop(item: RenderBoxPos, to: Position, done: () => void): void {
+    // На ускоренном ходе телепорт упрощён и короче: кубик сжимается в
+    // маленький и переносится, без подъёма и вытягивания в палку.
+    const snappy = this.moveSpeed > 1;
+    const durationMs = portalDurationMs(snappy);
     this.portals.push({
       item,
       from: { x: item.x, z: item.z },
       to: { x: to.x + 0.5, z: to.y + 0.5 },
       startedAt: performance.now(),
+      durationMs,
+      snappy,
       done,
     });
     item.inPortal = true;
@@ -634,11 +640,11 @@ export class PicoglRenderer implements IRenderer {
     // завершиться последний шаг второго кубика, и он тоже въедет в портал.
     this.portalPausePending = true;
     // Звук начинается здесь, вместе с анимацией, и получает её длительность —
-    // на ускоренном ходе его фазы сжимаются так же, как кадры.
+    // даже у короткого быстрого варианта его фазы ложатся на те же кадры.
     const now = performance.now();
     if (this.portalListener && now - this.lastPortalAt > 60) {
       this.lastPortalAt = now;
-      this.portalListener(PORTAL_TOTAL_MS / this.moveSpeed);
+      this.portalListener(durationMs);
     }
   }
 
@@ -649,9 +655,9 @@ export class PicoglRenderer implements IRenderer {
     // По копии: `done()` может добавить новый телепорт (две пары порталов в
     // одном ходе или вторая клетка той же пары).
     for (const anim of [...this.portals]) {
-      const elapsed = (now - anim.startedAt) * this.moveSpeed;
-      if (elapsed < PORTAL_TOTAL_MS) {
-        this.applyPortalPose(anim, portalPose(elapsed));
+      const elapsed = now - anim.startedAt;
+      if (elapsed < anim.durationMs) {
+        this.applyPortalPose(anim, portalPose(elapsed, anim.snappy));
         continue;
       }
       // Кубик собрался на выходе — обычная поза, дальше его ведёт tween пути.
@@ -777,7 +783,10 @@ export class PicoglRenderer implements IRenderer {
     this.keyGuide = visible;
   }
 
-  /** Скорость хода кубиков (настройка «Плавно / Быстро»). */
+  /**
+   * Скорость анимации хода (настройка «Плавно / Быстро»). На ускоренном ходе
+   * телепорт упрощается: кубик сжимается и переносится, без вытягивания.
+   */
   setMoveSpeed(multiplier: number): void {
     this.moveSpeed = multiplier > 0 ? multiplier : 1;
   }
