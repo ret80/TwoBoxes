@@ -9,6 +9,7 @@ import {
   oneWayDir,
 } from '../../core/types/cell';
 import type { PathPoint } from '../../core/types/game-state';
+import type { Position } from '../../core/types/position';
 import type {
   HintPath,
   IRenderer,
@@ -37,6 +38,11 @@ import {
 } from './shaders';
 import { Camera } from './camera';
 import { TweenManager } from './tween-manager';
+import {
+  PORTAL_TOTAL_MS,
+  portalPose,
+  type PortalPose,
+} from './portal-animation';
 import {
   CREATE_GROW_MS,
   createWaveMask,
@@ -183,6 +189,8 @@ const HUD_INSET_BOTTOM = 76;
 const PLATFORM_TOP = 0.34;
 /** Центр кубика по высоте: стоит на верхней грани плиты. */
 const BOX_Y = PLATFORM_TOP + 0.5;
+/** Низ кубика в обычной позе — отсюда считаются подъёмы анимации телепорта. */
+const BOX_FLOOR = BOX_Y - 0.5;
 
 /**
  * Плиты есть там, где может оказаться кубик: EMPTY, целевые клетки и сами
@@ -197,8 +205,24 @@ const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 interface RenderBoxPos {
   x: number; // level coords center (pos.x + 0.5)
   z: number; // level coords center (pos.y + 0.5)
-  y: number; // мировая высота
+  y: number; // мировая высота центра
   color: ColorType;
+  /** Множитель сечения (X и Z) и высоты: телепорт меняет форму кубика. */
+  sxz: number;
+  sy: number;
+  /** Кубик в анимации телепорта: форму и высоту ведёт рендерер, а не tween. */
+  inPortal: boolean;
+}
+
+/** Активная анимация телепорта одного кубика. */
+interface PortalAnim {
+  item: RenderBoxPos;
+  /** Клетки входа и выхода в координатах сцены (центр клетки). */
+  from: { x: number; z: number };
+  to: { x: number; z: number };
+  startedAt: number;
+  /** Продолжение пути: кубик появился на выходе и едет дальше. */
+  done: () => void;
 }
 
 /**
@@ -288,6 +312,17 @@ export class PicoglRenderer implements IRenderer {
   // Активные tween движения
   private movingCount = 0;
   private moveDone: (() => void) | null = null;
+
+  /** Анимации телепорта: кадрами управляет таймер цикла, а не tween. */
+  private portals: PortalAnim[] = [];
+  /** Сколько телепортов держат остальные кубики на паузе (вложенных быть не может). */
+  private portalBlocks = 0;
+  /**
+   * Пауза отложена на следующий кадр: кубик, который въезжает в портал в этом
+   * же кадре, успевает начать свою анимацию — два портала играют разом, а не
+   * по очереди.
+   */
+  private portalPausePending = false;
 
   private lastFrameTime = 0;
   private rafId = 0;
@@ -408,11 +443,20 @@ export class PicoglRenderer implements IRenderer {
     this.updateCamera();
     // Синхронизировать позиции кубиков, если движение не анимируется
     if (this.movingCount === 0) {
+      // Новая расстановка (старт уровня, сброс): телепорт-анимации больше
+      // не относятся к делу, их позы не должны пережить смену состояния.
+      this.portals = [];
+      this.portalBlocks = 0;
+      this.portalPausePending = false;
+      this.tweens.resumeAll();
       this.boxPos = state.boxes.map((b) => ({
         x: b.pos.x + 0.5,
         z: b.pos.y + 0.5,
         y: BOX_Y,
         color: b.color,
+        sxz: 1,
+        sy: 1,
+        inPortal: false,
       }));
     }
     this.state = state;
@@ -547,10 +591,10 @@ export class PicoglRenderer implements IRenderer {
           return;
         }
         if (point.teleport) {
-          // Прыжок через портал: кубик возникает на выходе без проезда.
-          item.x = point.pos.x + 0.5;
-          item.z = point.pos.y + 0.5;
-          hop(index + 1);
+          // Прыжок через портал: вместо мгновенного переноса кубик поднимается,
+          // вытягивается в палку и уходит в точку, а на выходе собирается
+          // обратно той же анимацией. Пока она идёт, остальные кубики стоят.
+          this.startPortalHop(item, point.pos, () => hop(index + 1));
           return;
         }
         this.tweens.add(
@@ -562,6 +606,71 @@ export class PicoglRenderer implements IRenderer {
       };
       hop(0);
     }
+  }
+
+  /**
+   * Телепорт: кубик въехал на клетку портала. Анимация ведётся отдельным
+   * таймером (см. `portalPose`), а не tween'ом — у неё свои фазы (подъём,
+   * вытягивание, сужение, исчезновение) и обратный ход на выходе. Остальные
+   * кубики на это время встают: их tween'ы уходят в паузу и продолжают с того
+   * же места, когда анимация проиграет.
+   */
+  private startPortalHop(item: RenderBoxPos, to: Position, done: () => void): void {
+    this.portals.push({
+      item,
+      from: { x: item.x, z: item.z },
+      to: { x: to.x + 0.5, z: to.y + 0.5 },
+      startedAt: performance.now(),
+      done,
+    });
+    item.inPortal = true;
+    this.portalBlocks++;
+    // Только со следующего кадра: в текущем из того же пакета tween'ов может
+    // завершиться последний шаг второго кубика, и он тоже въедет в портал.
+    this.portalPausePending = true;
+  }
+
+  /** Кадр анимаций телепорта: поза по времени, завершение и продолжение пути. */
+  private updatePortals(): void {
+    if (this.portals.length === 0) return;
+    const now = performance.now();
+    // По копии: `done()` может добавить новый телепорт (две пары порталов в
+    // одном ходе или вторая клетка той же пары).
+    for (const anim of [...this.portals]) {
+      const elapsed = (now - anim.startedAt) * this.moveSpeed;
+      if (elapsed < PORTAL_TOTAL_MS) {
+        this.applyPortalPose(anim, portalPose(elapsed));
+        continue;
+      }
+      // Кубик собрался на выходе — обычная поза, дальше его ведёт tween пути.
+      anim.item.x = anim.to.x;
+      anim.item.z = anim.to.z;
+      anim.item.y = BOX_Y;
+      anim.item.sxz = 1;
+      anim.item.sy = 1;
+      anim.item.inPortal = false;
+      this.portals.splice(this.portals.indexOf(anim), 1);
+      if (this.portalBlocks > 0) this.portalBlocks--;
+      if (this.portalBlocks === 0) {
+        this.portalPausePending = false;
+        this.tweens.resumeAll();
+      }
+      anim.done();
+    }
+  }
+
+  /** Поза телепорта: клетка (вход или выход), форма кубика и высота центра. */
+  private applyPortalPose(anim: PortalAnim, pose: PortalPose): void {
+    const cell = pose.atExit ? anim.to : anim.from;
+    const item = anim.item;
+    item.x = cell.x;
+    item.z = cell.z;
+    item.sxz = pose.sxz;
+    item.sy = pose.sy;
+    // Низ кубика стоит на подъёме, поэтому растянутый кубик висит в воздухе,
+    // а не прорастает сквозь плиту.
+    item.y = BOX_FLOOR + pose.lift + 0.5 * pose.sy;
+    item.inPortal = true;
   }
 
   private finishMove(): void {
@@ -720,7 +829,13 @@ export class PicoglRenderer implements IRenderer {
       // и огромный dt мгновенно «проглатывал» анимацию появления уровня.
       const dt = Math.min(Math.max((now - this.lastFrameTime) / 1000, 0), 0.05);
       this.lastFrameTime = now;
+      // Пауза остальных кубиков включается кадром позже старта телепорта.
+      if (this.portalPausePending && this.portalBlocks > 0) {
+        this.portalPausePending = false;
+        this.tweens.pauseAll();
+      }
       this.tweens.update();
+      this.updatePortals();
       this.updateCreateAnim(dt);
       this.drawFrame();
       if (this.fpsVisible) this.updateFps(now);
@@ -997,11 +1112,14 @@ export class PicoglRenderer implements IRenderer {
       const boxScale = locked ? 0.76 : 0.9;
       const baseColor = b.color === ColorType.ONE ? this.palette.boxOne : this.palette.boxTwo;
       const color = locked ? baseColor.map((c) => c * 0.7) : baseColor;
+      // Телепорт меняет форму кубика: множители сечения и высоты из анимации.
+      // В момент исчерпания кубика не рисуем вовсе: дальше он уже на выходе.
+      if (b.inPortal && (b.sxz <= 0.001 || b.sy <= 0.001)) return;
       const centerX = b.x - state.width / 2;
-      const centerY = BOX_Y * scale + lift;
+      const centerY = b.inPortal ? b.y : BOX_Y * scale + lift;
       const centerZ = b.z - state.height / 2;
-      const width = boxScale * scale;
-      const height = (locked ? 0.82 : 1) * scale;
+      const width = boxScale * scale * b.sxz;
+      const height = (locked ? 0.82 : 1) * scale * b.sy;
       drawCube(
         centerX,
         centerY,
@@ -1012,8 +1130,12 @@ export class PicoglRenderer implements IRenderer {
         color,
         locked ? 0 : onGoal(b) ? 1 : 0,
       );
-      // Стороны света на боковых гранях: кубик сам работает компасом.
-      this.drawBoxLetters(centerX, centerY, centerZ, width / 2, height / 2, width / 2, color);
+      // Стороны света на боковых гранях: кубик сам работает компасом. На
+      // вытянутой палке буквы превратились бы в полосы — они возвращаются,
+      // когда кубик на выходе снова обычной формы.
+      if (b.sxz > 0.999 && b.sy > 0.999) {
+        this.drawBoxLetters(centerX, centerY, centerZ, width / 2, height / 2, width / 2, color);
+      }
     });
 
     // Стрелки подсказки — поверх сцены: кубик закрывает собой клетку упора,

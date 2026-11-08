@@ -9,6 +9,8 @@ export const MOVE_SPEED = 0.07; // секунд на клетку
 
 export class TweenManager {
   private group = new Group();
+  /** Tween'ы, остановленные на паузу (телепорт держит ход, пока играет анимация). */
+  private paused: Tween<Record<string, number>>[] = [];
 
   /**
    * Tween для одного числового свойства с easing оригинала.
@@ -46,11 +48,28 @@ export class TweenManager {
     this.group.update(performance.now());
   }
 
+  /**
+   * Пауза всех активных tween'ов: кубик въехал в портал, остальные ждут.
+   * Пауза сдвигает стартовое время tween'а, поэтому после `resumeAll`
+   * анимация продолжается ровно с того места, где встала.
+   */
+  pauseAll(): void {
+    this.paused = this.group.getAll() as Tween<Record<string, number>>[];
+    this.paused = this.paused.filter((tween) => tween.isPlaying() && !tween.isPaused());
+    for (const tween of this.paused) tween.pause();
+  }
+
+  resumeAll(): void {
+    for (const tween of this.paused) tween.resume();
+    this.paused = [];
+  }
+
   get active(): boolean {
     return this.group.getAll().length > 0;
   }
 
   removeAll(): void {
+    this.paused = [];
     this.group.removeAll();
   }
 }
