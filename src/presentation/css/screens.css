@@ -368,6 +368,24 @@
   min-width: 132px;
 }
 
+/* Поле ввода сида (отладочное меню): как селект, но моноширинное */
+.settings-row__input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-cream-strong);
+  color: var(--color-coffee);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+}
+
+.settings-row__input::placeholder {
+  color: var(--color-text-dim);
+  letter-spacing: 0;
+}
+
 .settings-row__select {
   width: 100%;
   padding: 8px 10px;

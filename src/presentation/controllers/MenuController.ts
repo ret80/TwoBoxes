@@ -102,8 +102,15 @@ export class MenuController {
   /** Выбранные в отладке механики и сложность тестового уровня. */
   private debugMechanics: MechanicId[] = ['portal'];
   private debugDifficulty = 50;
+  /** Последний сид тестового уровня: поле ввода отладочного экрана.
+   * Хранится в контроллере, чтобы не теряться при перестройке экранов. */
+  private debugSeed: number | null = null;
   /** Генерация тестового уровня из отладочного меню. */
-  private onTestLevel?: (mechanics: MechanicId[], difficulty: number) => Promise<boolean>;
+  private onTestLevel?: (
+    mechanics: MechanicId[],
+    difficulty: number,
+    seed: number | null,
+  ) => Promise<number | null>;
 
   constructor(
     container: HTMLElement,
@@ -113,7 +120,11 @@ export class MenuController {
     onGameSelected: (episodeId: number, levelId: number) => void,
     config: Config,
     onUnlockAll?: () => void,
-    onTestLevel?: (mechanics: MechanicId[], difficulty: number) => Promise<boolean>,
+    onTestLevel?: (
+      mechanics: MechanicId[],
+      difficulty: number,
+      seed: number | null,
+    ) => Promise<number | null>,
   ) {
     this.container = container;
     this.i18n = i18n;
@@ -181,6 +192,7 @@ export class MenuController {
         compass: this.config.get('compass') as CompassMode,
         mechanics: this.debugMechanics,
         difficulty: this.debugDifficulty,
+        seed: this.debugSeed,
       },
       {
         onBack: () => this.backFromScreen(),
@@ -194,8 +206,11 @@ export class MenuController {
         onDifficultyChange: (difficulty) => {
           this.debugDifficulty = difficulty;
         },
-        onTestLevel: (mechanics, difficulty) =>
-          this.onTestLevel?.(mechanics, difficulty) ?? Promise.resolve(false),
+        onTestLevel: async (mechanics, difficulty, seed) => {
+          const used = (await this.onTestLevel?.(mechanics, difficulty, seed)) ?? null;
+          if (used !== null) this.debugSeed = used;
+          return used;
+        },
       },
     );
     this.screens.set('debug', debug);

@@ -9,6 +9,7 @@ import type {
 import type { ProjectionMode } from '../../ports/IRenderer';
 import { ALL_MECHANICS, type MechanicId } from '../../core/generation/mechanics';
 import { episodeTheme } from '../../core/data/generated-episodes';
+import { formatLevelSeed } from '../../core/generation/level-seed';
 
 /** DOM-генераторы экранов (план 11.1 — TS-модули вместо .html, SPA/Vite). */
 
@@ -456,6 +457,25 @@ export function buildSettingsScreen(
 }
 
 /**
+ * Сид из поля ввода отладочного меню: пусто — `null` (случайный сид),
+ * неразобранный текст — `undefined`. Принимаются `0x`-hex и десятичные числа.
+ */
+function parseSeed(raw: string): number | null | undefined {
+  const text = raw.trim().toLowerCase();
+  if (text === '') return null;
+  const hex = text.startsWith('0x');
+  const digits = hex ? text.slice(2) : text;
+  if (hex) return /^[0-9a-f]{1,8}$/.test(digits) ? parseInt(digits, 16) : undefined;
+  if (/^\d{1,10}$/.test(digits)) {
+    const value = Number(digits);
+    return value <= 0xffffffff ? value : undefined;
+  }
+  // Без префикса hex тоже понятен, если в числе есть буквы: так проще копировать
+  // сид из консоли или из плашки уровня.
+  return /^[0-9a-f]{1,8}$/.test(digits) ? parseInt(digits, 16) : undefined;
+}
+
+/**
  * Отладочное меню (открывается иконкой-жуком слева от настроек при `?debug`):
  * счётчик FPS, проекция уровня, режим компаса и разблокировка всех уровней.
  */
@@ -467,6 +487,8 @@ export function buildDebugScreen(
     compass: CompassMode;
     mechanics: MechanicId[];
     difficulty: number;
+    /** Последний использованный сид тестового уровня (для поля ввода). */
+    seed?: number | null;
   },
   cb: {
     onBack: () => void;
@@ -476,7 +498,12 @@ export function buildDebugScreen(
     onUnlockAll: () => void;
     onMechanicsChange: (mechanics: MechanicId[]) => void;
     onDifficultyChange: (difficulty: number) => void;
-    onTestLevel: (mechanics: MechanicId[], difficulty: number) => Promise<boolean>;
+    /** `null` вместо сида — уровень по случайному сиду. Возвращает использованный сид. */
+    onTestLevel: (
+      mechanics: MechanicId[],
+      difficulty: number,
+      seed: number | null,
+    ) => Promise<number | null>;
   },
 ): HTMLElement {
   const root = el('div', 'screen screen--info screen--debug');
@@ -562,14 +589,42 @@ export function buildDebugScreen(
   difficultyRow.append(difficulty, difficultyOut);
   panel.appendChild(difficultyRow);
 
+  // Сид: можно ввести конкретное число (десятичное или `0x`-hex), чтобы
+  // получить тот же уровень, что и раньше. Пустое поле — случайный сид.
+  const seedRow = el('label', 'settings-row');
+  seedRow.appendChild(el('span', 'settings-row__label', i18n.t('DEBUG_SEED')));
+  const seedInput = el<HTMLInputElement>('input', 'settings-row__input');
+  seedInput.type = 'text';
+  seedInput.inputMode = 'text';
+  seedInput.spellcheck = false;
+  seedInput.autocomplete = 'off';
+  seedInput.placeholder = i18n.t('DEBUG_SEED_PLACEHOLDER');
+  if (values.seed !== null && values.seed !== undefined) {
+    seedInput.value = formatLevelSeed(values.seed);
+  }
+  seedRow.appendChild(seedInput);
+  panel.appendChild(seedRow);
+
   const generate = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_GENERATE'));
   const status = el('p', 'help__text', '');
   generate.addEventListener('click', async () => {
+    const seed = parseSeed(seedInput.value);
+    if (seed === undefined) {
+      status.textContent = i18n.t('DEBUG_SEED_INVALID');
+      return;
+    }
     generate.disabled = true;
     status.textContent = i18n.t('DEBUG_GENERATING');
-    const ok = await cb.onTestLevel([...selected], Number(difficulty.value));
+    const used = await cb.onTestLevel([...selected], Number(difficulty.value), seed);
     generate.disabled = false;
-    status.textContent = ok ? '' : i18n.t('DEBUG_GENERATE_FAILED');
+    if (used === null) {
+      status.textContent = i18n.t('DEBUG_GENERATE_FAILED');
+      return;
+    }
+    // Сид, с которым уровень получился, остаётся в поле: повторный клик даёт ту
+    // же самую карту.
+    seedInput.value = formatLevelSeed(used);
+    status.textContent = i18n.t('DEBUG_SEED_USED', formatLevelSeed(used));
   });
   panel.append(generate, status);
 

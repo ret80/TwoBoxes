@@ -249,22 +249,21 @@ const menuCtrl = new MenuController(
   config,
   // Отладка: открыть все уровни — прогресс сразу пишется в сохранение.
   () => game.saveProgress(),
-  // Отладка: собрать уровень под выбранные механики и сложность.
-  async (mechanics: MechanicId[], difficulty: number) => {
+  // Отладка: собрать уровень под выбранные механики и сложность. Сид из поля
+  // ввода (или случайный, если поле пустое) возвращается экрану, чтобы ввести
+  // его повторно и получить ту же карту.
+  async (mechanics: MechanicId[], difficulty: number, seed: number | null) => {
     // Дать экрану нарисовать статус «Генерирую…» перед синхронным перебором.
     await new Promise((resolve) => setTimeout(resolve, 30));
-    const generated = generateTestLevel({
-      mechanics,
-      difficulty,
-      seed: 0x7e57 + (Date.now() % 100000),
-    });
-    if (!generated) return false;
+    const usedSeed = seed ?? 0x7e57 + (Date.now() % 100000);
+    const generated = generateTestLevel({ mechanics, difficulty, seed: usedSeed });
+    if (!generated) return null;
     // Пока шла генерация, игрок мог уйти с отладочного экрана — тогда
     // тестовый уровень не должен подменять следующий обычный запуск.
-    if ((menuActor.getSnapshot().value as string) !== 'debug') return false;
+    if ((menuActor.getSnapshot().value as string) !== 'debug') return null;
     pendingDebugLevel = createLevelFromData(0, 0, generated.rows);
     menuActor.send({ type: 'TEST_LEVEL' });
-    return true;
+    return usedSeed;
   },
 );
 
