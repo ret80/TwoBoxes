@@ -1379,7 +1379,7 @@ export class PicoglRenderer implements IRenderer {
   /**
    * Компас клавиатуры: две оси в плоскости пола уровня. Стержень компаса —
    * **начало координат**: оси выходят из него и вся фигура вращается вокруг
-   * него же. «L» — мировая −X, «D» — мировая +Z.
+   * него же. Подписи — клавиши WASD: «W» на одной оси, «S» на другой.
    *
    * Оси блёклые (цвет недоступной кнопки отката), буквы — билборды цветом
    * активной кнопки, поэтому подписи читаются и при сильном наклоне.
@@ -1442,10 +1442,10 @@ export class PicoglRenderer implements IRenderer {
     // иначе при наклоне буквы заваливались бы вместе с полом.
     this.viewProj = this.gizmoProj;
     PicoglRenderer.setBasis(this.basisMatrix, [0, 0, 0], [1, 0, 0], [0, 1, 0]);
-    const tipL = this.viewPoint(-reach - 0.16, 0.02, 0);
-    const tipD = this.viewPoint(0, 0.02, reach + 0.16);
-    this.drawGlyphL(tipL[0], tipL[1], this.palette.ink);
-    this.drawGlyphD(tipD[0], tipD[1], this.palette.ink);
+    const tipW = this.viewPoint(-reach - 0.16, 0.02, 0);
+    const tipS = this.viewPoint(0, 0.02, reach + 0.16);
+    this.drawGlyphW(tipW[0], tipW[1], this.palette.ink);
+    this.drawGlyphS(tipS[0], tipS[1], this.palette.ink);
 
     this.warp = warp;
     app.disable(PicoGL.BLEND);
@@ -1460,33 +1460,45 @@ export class PicoglRenderer implements IRenderer {
     return [m[0] * x + m[4] * y + m[8] * z, m[1] * x + m[5] * y + m[9] * z];
   }
 
-  /** Буква «L»: подпись оси левой стрелки. */
-  private drawGlyphL(cx: number, cy: number, color: number[]): void {
+  /** Буква «W»: подпись оси верхней стрелки (WASD). */
+  private drawGlyphW(cx: number, cy: number, color: number[]): void {
     const h = 0.115;
-    const w = 0.1;
+    const w = 0.125;
     const t = 0.04;
-    const x0 = cx - w / 2;
-    this.drawBar(this.basisMatrix, x0, cy - h, x0, cy + h, t, color);
-    this.drawBar(this.basisMatrix, x0, cy - h, x0 + w, cy - h, t, color);
+    // Четыре штриха: вниз-вверх-вниз-вверх, как у литеры W.
+    const points: [number, number][] = [
+      [cx - w / 2, cy + h],
+      [cx - w / 4, cy - h],
+      [cx, cy + h * 0.12],
+      [cx + w / 4, cy - h],
+      [cx + w / 2, cy + h],
+    ];
+    for (let i = 1; i < points.length; i++) {
+      const [x0, y0] = points[i - 1];
+      const [x1, y1] = points[i];
+      this.drawBar(this.basisMatrix, x0, y0, x1, y1, t, color);
+    }
   }
 
-  /** Буква «D»: подпись оси нижней стрелки. */
-  private drawGlyphD(cx: number, cy: number, color: number[]): void {
+  /** Буква «S»: подпись оси нижней стрелки (WASD). */
+  private drawGlyphS(cx: number, cy: number, color: number[]): void {
     const h = 0.115;
-    const r = 0.115;
+    const w = 0.105;
     const t = 0.04;
-    const x0 = cx - r * 0.45;
-    this.drawBar(this.basisMatrix, x0, cy - h, x0, cy + h, t, color);
-    const steps = 6;
-    let px = x0;
-    let py = cy + h;
-    for (let i = 1; i <= steps; i++) {
-      const a = Math.PI / 2 - (Math.PI * i) / steps;
-      const nx = x0 + r * Math.cos(a);
-      const ny = cy + h * Math.sin(a);
-      this.drawBar(this.basisMatrix, px, py, nx, ny, t, color);
-      px = nx;
-      py = ny;
+    // Блочная «S»: верхняя перекладина, спуск слева, середина по диагонали,
+    // спуск справа, нижняя перекладина. Для 10-пиксельной подписи этого хватает.
+    const points: [number, number][] = [
+      [cx + w / 2, cy + h],
+      [cx - w / 2, cy + h],
+      [cx - w / 2, cy + h * 0.12],
+      [cx + w / 2, cy - h * 0.12],
+      [cx + w / 2, cy - h],
+      [cx - w / 2, cy - h],
+    ];
+    for (let i = 1; i < points.length; i++) {
+      const [x0, y0] = points[i - 1];
+      const [x1, y1] = points[i];
+      this.drawBar(this.basisMatrix, x0, y0, x1, y1, t, color);
     }
   }
 }
