@@ -188,10 +188,11 @@ function buildLogo(title: string, tagline: string): HTMLElement {
   svg.classList.add('logo__mark');
 
   // «2» рисуется толстым контуром того же цвета, что и заливка: так у цифры
-  // появляется жирный округлый штрих, как на референсе.
+  // появляется жирный округлый штрих, как на референсе. Базовая линия поднята
+  // так, чтобы просвет над цифрой и под ней до кубиков был одинаковым.
   const two = document.createElementNS(SVG_NS, 'text');
   two.setAttribute('x', '105');
-  two.setAttribute('y', '150');
+  two.setAttribute('y', '142');
   two.setAttribute('text-anchor', 'middle');
   two.setAttribute('font-size', '150');
   two.setAttribute('font-weight', '800');
