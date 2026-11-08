@@ -203,12 +203,17 @@ const ARROWS: Record<string, string> = { '1,0': '→', '-1,0': '←', '0,1': '�
 let hintTimer = 0;
 gameScreen.hint.addEventListener('click', () => {
   const plan = game.useHint();
-  gameScreen.hintToast.textContent = plan
-    ? `${i18n.t('HINT')}: ${ARROWS[`${plan.dir.x},${plan.dir.y}`] ?? ''}`
-    : i18n.t('HINT_NONE');
+  // Оба кубика в ловушке: любое направление — пропуск хода, пути нет. Стрелку
+  // такому ходу не рисуем, иначе подсказка выглядит как «ничего не произошло».
+  const wait = !!plan && plan.slides.every((slide) => slide.path.length <= 1);
+  gameScreen.hintToast.textContent = !plan
+    ? i18n.t('HINT_NONE')
+    : wait
+      ? i18n.t('HINT_WAIT')
+      : `${i18n.t('HINT')}: ${ARROWS[`${plan.dir.x},${plan.dir.y}`] ?? ''}`;
   gameScreen.hintToast.hidden = false;
   // Подсказка едет по фактическим путям кубиков: повороты и порталы учтены.
-  if (plan) renderer.showHint(plan.slides);
+  if (plan && !wait) renderer.showHint(plan.slides);
   else renderer.hideHint();
   window.clearTimeout(hintTimer);
   hintTimer = window.setTimeout(() => {

@@ -18,6 +18,7 @@
   "HINT": "Hint",
   "UNDO": "Undo move",
   "HINT_NONE": "No moves left — reset the level",
+  "HINT_WAIT": "Both boxes are trapped — skip a move with any direction",
   "MOVE": "Move",
   "COMPLETED": "Completed!",
   "BACK": "Back",
