@@ -4,7 +4,7 @@ import { createGameMachine } from '@core/state/game';
 import { menuMachine } from '@core/state/menu';
 import { Config, type HintStyle, type Theme, type ThemeMode } from '@core/services/config';
 import { EpisodeManager, type SaveData } from '@core/services/episode-mng';
-import { EPISODE_2_LEVELS, EPISODE_2_SEED } from '@core/data/episode-2';
+import { GENERATED_EPISODES } from '@core/data/generated-episodes';
 import { Statistics } from '@core/services/statistics';
 import { generateTestLevel } from '@core/generation/level-generator';
 import type { MechanicId } from '@core/generation/mechanics';
@@ -23,7 +23,7 @@ import { MenuController, type MenuDirection } from '@presentation/controllers/Me
 import { GameController } from '@presentation/controllers/GameController';
 import { PauseDialogController } from '@presentation/controllers/PauseDialogController';
 import { CompletedDialogController } from '@presentation/controllers/CompletedDialogController';
-import { buildGameScreen } from '@presentation/html/screens';
+import { buildGameScreen, setButtonIcon } from '@presentation/html/screens';
 import type {
   EpisodeWorkerRequest,
   EpisodeWorkerResponse,
@@ -175,7 +175,19 @@ const game = new GameController(
 // Панели HUD: верхняя (сброс/пауза) и нижняя (сброс/подсказка)
 gameScreen.undo.addEventListener('click', () => game.undo());
 gameScreen.resetBottom.addEventListener('click', () => game.reset());
-gameScreen.pause.addEventListener('click', () => game.pause());
+
+/**
+ * Кнопка в верхней панели: на обычном уровне — пауза, на тестовом — выход
+ * обратно в дебаг-меню (там же выбираются механики и сложность).
+ */
+const setTopbarAction = (mode: 'pause' | 'exit'): void => {
+  if (mode === 'exit') setButtonIcon(gameScreen.pause, 'exit', i18n.t('DEBUG_BACK'));
+  else setButtonIcon(gameScreen.pause, 'pause', i18n.t('PAUSE'));
+};
+gameScreen.pause.addEventListener('click', () => {
+  if (game.isTestLevel) menuActor.send({ type: 'EXIT_TEST' });
+  else game.pause();
+});
 
 // Подсказка: направление первого хода кратчайшего решения во всплывающей плашке
 const ARROWS: Record<string, string> = { '1,0': '→', '-1,0': '←', '0,1': '↓', '0,-1': '↑' };
@@ -396,6 +408,10 @@ const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): voi
       if (selected) episodes.setCurLevel(selected.episodeId, selected.levelId);
       game.startLevel(episodes.getCurLevel());
     }
+    setTopbarAction(game.isTestLevel ? 'exit' : 'pause');
+  } else if (state !== 'game') {
+    // Меню поверх игры не должно оставлять в панели чужую иконку.
+    setTopbarAction('pause');
   }
   if (state === 'selector') menuCtrl.refreshSelector();
   if (state === 'mmenu') menuCtrl.refreshResume();
@@ -406,12 +422,12 @@ menuActor.subscribe(applyMenuState);
 applyMenuState(menuActor.getSnapshot());
 
 /*
- * Эпизод 2 генерируется в фоновом потоке, пока игрок в меню: синхронная
+ * Эпизоды 2–6 генерируются в фоновом потоке, пока игрок в меню: синхронная
  * генерация при импорте данных подвешивала первый кадр и анимацию появления.
  * Уровни приходят по одному, поэтому клик по ещё не готовому уровню можно
  * обслужить вне очереди: воркер досчитает текущий (~250 мс), затем выбранный,
- * а потом продолжит остальные. Если сохранение указывает на эпизод 2,
- * Resume появится после подстановки нужной карты.
+ * а потом продолжит остальные. Если сохранение указывает на ещё не собранный
+ * эпизод, Resume появится после подстановки нужной карты.
  */
 let episodeWorker: Worker | null = null;
 
@@ -421,7 +437,7 @@ const requestEpisodeLevel = (episodeId: number, levelId: number): void => {
 };
 menuCtrl.setLevelGenerator(requestEpisodeLevel);
 
-const startEpisodeTwoGeneration = (): void => {
+const startEpisodesGeneration = (): void => {
   const worker = new Worker(
     new URL('./workers/episode-generator.worker.ts', import.meta.url),
     { type: 'module' },
@@ -442,7 +458,11 @@ const startEpisodeTwoGeneration = (): void => {
       return;
     }
     if (message.type === 'episode-ready') {
-      // Карты эпизода собраны, воркер больше не нужен.
+      // Эпизод собран: в селекторе больше нет карточек, ожидающих карту.
+      return;
+    }
+    if (message.type === 'all-ready') {
+      // Все эпизоды собраны, воркер больше не нужен.
       worker.terminate();
       if (episodeWorker === worker) episodeWorker = null;
       return;
@@ -456,20 +476,24 @@ const startEpisodeTwoGeneration = (): void => {
     }
   };
   worker.onerror = (event) => {
-    console.error('Ошибка воркера генерации эпизода 2:', event.message);
+    console.error('Ошибка воркера генерации эпизодов:', event.message);
     worker.terminate();
     if (episodeWorker === worker) episodeWorker = null;
     menuCtrl.cancelPendingSelection();
   };
-  const request: EpisodeWorkerRequest = {
-    type: 'generate-episode',
-    episodeId: 1,
-    seed: EPISODE_2_SEED,
-    count: EPISODE_2_LEVELS,
-  };
-  worker.postMessage(request);
+  // Эпизоды идут очередью: второй считается первым, остальные — за ним.
+  for (const config of GENERATED_EPISODES) {
+    const request: EpisodeWorkerRequest = {
+      type: 'generate-episode',
+      episodeId: config.episodeId,
+      seed: config.seed,
+      count: config.levelCount,
+      mechanics: config.mechanics,
+    };
+    worker.postMessage(request);
+  }
 };
-startEpisodeTwoGeneration();
+startEpisodesGeneration();
 
 // AudioContext — по user gesture (политика автозапуска)
 const initAudio = () => {

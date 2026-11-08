@@ -449,6 +449,15 @@
   margin-top: 0;
 }
 
+/* Тема эпизода рядом с номером: строчными, без разрядки номера. */
+.selector-episode__theme {
+  margin-left: 8px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.72;
+}
+
 .selector-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)); /* по 4 в ряд (раздел 6.2) */

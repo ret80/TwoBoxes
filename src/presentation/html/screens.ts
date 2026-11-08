@@ -8,6 +8,7 @@ import type {
 } from '../../core/services/config';
 import type { ProjectionMode } from '../../ports/IRenderer';
 import { ALL_MECHANICS, type MechanicId } from '../../core/generation/mechanics';
+import { episodeTheme } from '../../core/data/generated-episodes';
 
 /** DOM-генераторы экранов (план 11.1 — TS-модули вместо .html, SPA/Vite). */
 
@@ -58,6 +59,11 @@ const ICONS = {
   },
   // Две вертикальные полоски (пауза)
   pause: { style: 'fill', paths: ['M6 19h4V5H6v14Zm8-14v14h4V5h-4Z'] },
+  // Выход: дверь и стрелка наружу (тестовый уровень → дебаг-меню)
+  exit: {
+    style: 'stroke',
+    paths: ['M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5', 'M10 17l5-5-5-5', 'M15 12H3'],
+  },
   // Плоский домик (в главное меню)
   home: { style: 'fill', paths: ['M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5Z'] },
   // Две стрелки вправо (играть / следующий уровень)
@@ -232,6 +238,18 @@ function iconButton(btn: HTMLButtonElement, name: IconName, label: string): HTML
   btn.title = label;
   btn.setAttribute('aria-label', label);
   return btn;
+}
+
+/**
+ * Сменить иконку и подпись существующей кнопки: верхняя панель игры меняет
+ * «паузу» на «выход в отладку», когда запущен тестовый уровень.
+ */
+export function setButtonIcon(
+  btn: HTMLButtonElement,
+  name: IconName,
+  label: string,
+): void {
+  iconButton(btn, name, label);
 }
 
 export interface MainMenuRefs {
@@ -583,7 +601,16 @@ export function buildSelectorScreen(
     // Эпизод 2 готовит воркер: до готовности не показываем пустую секцию.
     // После генерации MenuController.refreshSelector перестроит список.
     if (episode.levelCount === 0) return;
-    gridWrap.appendChild(el('div', 'selector-episode', i18n.t('EPISODE_NUM', episode.episodeId + 1)));
+    const header = el('div', 'selector-episode', i18n.t('EPISODE_NUM', episode.episodeId + 1));
+    // Тему эпизода подсказывает подпись: сгенерированные эпизоды целиком
+    // посвящены одной механике (см. data/generated-episodes.ts).
+    const theme = episodeTheme(episode.episodeId);
+    if (theme) {
+      header.appendChild(
+        el('span', 'selector-episode__theme', i18n.t(`MECH_${theme.toUpperCase()}`)),
+      );
+    }
+    gridWrap.appendChild(header);
     const grid = el('div', 'selector-grid');
     for (let lvl = 0; lvl < episode.levelCount; lvl++) {
       const label = `${episode.episodeId + 1}-${lvl + 1}`;

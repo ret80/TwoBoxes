@@ -72,6 +72,12 @@ export interface GenerateLevelOptions {
   budget?: number;
   /** Целевая оценка сложности: из кандидатов выбирается ближайший. */
   score?: number;
+  /**
+   * Допуск к целевой оценке: кандидат вне полосы `score ± tolerance` не
+   * принимается. Без допуска берётся просто ближайший из нескольких, и
+   * соседние уровни эпизода иногда меняются сложностью местами.
+   */
+  scoreTolerance?: number;
   /** Верхняя граница длины решения (по умолчанию `moves + 3`). */
   maxMoves?: number;
   /** Сколько подходящих кандидатов сравнивать (по умолчанию 1). */
@@ -466,15 +472,22 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
     const used = mechanicsInSolution(level, solved.solution, modules);
     if (modules.length > 0 && used.length < modules.length) continue;
 
+    const score = scoreDifficulty({
+      moves: solved.solution.length,
+      states: solved.states,
+      deadEndRatio,
+      branching: solved.branching,
+    });
+    // Допуск к цели: без него ближайший кандидат может оказаться на 10–15
+    // пунктов мимо, и порядок уровней в эпизоде перестаёт быть возрастающим.
+    if (options.score !== undefined && options.scoreTolerance !== undefined) {
+      if (Math.abs(score - options.score) > options.scoreTolerance) continue;
+    }
+
     accepted.push({
       rows,
       solution: solved.solution,
-      score: scoreDifficulty({
-        moves: solved.solution.length,
-        states: solved.states,
-        deadEndRatio,
-        branching: solved.branching,
-      }),
+      score,
       deadEndRatio,
       mechanics: used.map((mechanic) => mechanic.id),
     });
@@ -543,14 +556,27 @@ export function episodeProfiles(count: number): LevelProfile[] {
  * Сгенерировать один уровень эпизода по его профилю. Воркер вызывает эту
  * функцию поштучно, поэтому приоритетный уровень можно посчитать первым, а
  * очередь остальных продолжить после него.
+ *
+ * `mechanics` — тема эпизода: все перечисленные механики обязаны встретиться в
+ * кратчайшем решении, иначе уровень отклоняется и генератор пробует новый сид.
  */
-export function generateEpisodeLevel(seed: number, index: number, count: number): string[] {
+export function generateEpisodeLevel(
+  seed: number,
+  index: number,
+  count: number,
+  mechanics: MechanicId[] = [],
+): string[] {
   const profiles = episodeProfiles(count);
   const profile = profiles[index];
   if (!profile) throw new Error(`Профиль уровня ${index + 1} не найден`);
 
   let generated: GeneratedLevel | null = null;
-  for (let attempt = 0; attempt < 200 && !generated; attempt++) {
+  for (let attempt = 0; attempt < 400 && !generated; attempt++) {
+    // Сначала ищем уровень, точно попадающий в оценку профиля (±2): так
+    // соседние уровни эпизода не меняются сложностью местами. Если узкая
+    // полоса не далась, допуск расширяется, и только в самом конце берётся
+    // что угодно близкое по сиду.
+    const scoreTolerance = attempt < 25 ? 2 : attempt < 70 ? 5 : undefined;
     generated = generateLevel({
       seed: seed + index * 104729 + attempt * 15485863,
       moves: profile.moves,
@@ -560,14 +586,18 @@ export function generateEpisodeLevel(seed: number, index: number, count: number)
       patterns: profile.patterns,
       deadEnds: profile.deadEnds,
       score: profile.score,
+      scoreTolerance,
       candidates: 4,
+      mechanics,
     });
   }
   if (!generated) {
     throw new Error(
       `Не удалось сгенерировать уровень ${index + 1} ` +
         `(${profile.moves} ходов, ${profile.size}×${profile.size}, ` +
-        `тупики ≤ ${profile.deadEnds}, оценка ≈ ${profile.score})`,
+        `тупики ≤ ${profile.deadEnds}, оценка ≈ ${profile.score}` +
+        (mechanics.length > 0 ? `, механики: ${mechanics.join(', ')}` : '') +
+        ')',
     );
   }
   return generated.rows;
@@ -577,9 +607,13 @@ export function generateEpisodeLevel(seed: number, index: number, count: number)
  * Сгенерировать эпизод по кривой сложности. Сид фиксирован, поэтому эпизод
  * детерминирован.
  */
-export function generateEpisode(seed: number, count: number): string[][] {
+export function generateEpisode(
+  seed: number,
+  count: number,
+  mechanics: MechanicId[] = [],
+): string[][] {
   const levels: string[][] = [];
-  for (let i = 0; i < count; i++) levels.push(generateEpisodeLevel(seed, i, count));
+  for (let i = 0; i < count; i++) levels.push(generateEpisodeLevel(seed, i, count, mechanics));
   return levels;
 }
 

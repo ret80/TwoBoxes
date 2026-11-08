@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { EpisodeManager } from './episode-mng';
 import { EPISODE_1 } from '../data/episode-1';
 
-/** Карты-заглушки для эпизода 2: тестам не нужна настоящая генерация. */
-const EP2_ROWS = Array.from({ length: 12 }, () => EPISODE_1[0]);
+/** Карты-заглушки для генерируемого эпизода: тестам не нужна генерация. */
+const EP2_ROWS = Array.from({ length: 8 }, () => EPISODE_1[0]);
 const readyManager = (): EpisodeManager => {
   const mng = new EpisodeManager();
   mng.applyEpisodeRows(1, EP2_ROWS);
@@ -11,12 +11,15 @@ const readyManager = (): EpisodeManager => {
 };
 
 describe('EpisodeManager', () => {
-  it('создаёт 2 эпизода; карты эпизода 2 приходят по одной', () => {
+  it('создаёт 6 эпизодов; карты генерируемых приходят по одной', () => {
     const mng = new EpisodeManager();
-    expect(mng.episodes).toHaveLength(2);
+    expect(mng.episodes).toHaveLength(6);
     expect(mng.getEpisode(0).levelCount).toBe(12);
-    // Слоты второго эпизода видны сразу, но карт в них ещё нет.
-    expect(mng.getEpisode(1).levelCount).toBe(12);
+    // Слоты сгенерированных эпизодов видны сразу, но карт в них ещё нет.
+    for (let episode = 1; episode < 6; episode++) {
+      expect(mng.getEpisode(episode).levelCount).toBe(8);
+      expect(mng.hasLevel(episode, 0)).toBe(false);
+    }
     expect(mng.hasLevel(1, 0)).toBe(false);
     expect(mng.isEpisodeReady(1)).toBe(false);
 
@@ -65,10 +68,10 @@ describe('EpisodeManager', () => {
 
   it('nextLevel в последнем эпизоде остаётся на месте', () => {
     const mng = readyManager();
-    mng.setCurLevel(1, 11);
+    mng.setCurLevel(5, 7);
     expect(mng.nextLevel()).toBe(false);
-    expect(mng.curEpisodeId).toBe(1);
-    expect(mng.curLevelId).toBe(11);
+    expect(mng.curEpisodeId).toBe(5);
+    expect(mng.curLevelId).toBe(7);
   });
 
   it('serialize/deserialize сохраняет прогресс', () => {
@@ -98,7 +101,7 @@ describe('EpisodeManager', () => {
     expect(mng.isLocked(0, 1)).toBe(true);
   });
 
-  it('первый уровень следующего эпизода — только после 7 уровней предыдущего', () => {
+  it('первый уровень следующего эпизода — только после 7 из 12 уровней предыдущего', () => {
     const mng = new EpisodeManager();
     expect(mng.isLocked(1, 0)).toBe(true);
     // шесть пройденных уровней первого эпизода недостаточно
@@ -112,13 +115,25 @@ describe('EpisodeManager', () => {
     expect(mng.isLocked(1, 0)).toBe(false);
   });
 
-  it('unlockAllLevels открывает все уровни обоих эпизодов', () => {
+  it('для короткого эпизода порог следующего считается по доле, а не по числу', () => {
+    const mng = new EpisodeManager();
+    // Первый генерируемый эпизод — 8 уровней: 4 мало, 5 хватает.
+    const episode = mng.getEpisode(1);
+    episode.lastUnlockedLevel = 4;
+    expect(mng.isLocked(2, 0)).toBe(true);
+    episode.lastUnlockedLevel = 5;
+    expect(mng.isLocked(2, 0)).toBe(false);
+  });
+
+  it('unlockAllLevels открывает все уровни всех эпизодов', () => {
     const mng = readyManager();
     mng.unlockAllLevels();
     expect(mng.isAllUnlocked()).toBe(true);
     expect(mng.isLocked(0, 11)).toBe(false);
-    expect(mng.isLocked(1, 0)).toBe(false);
-    expect(mng.isLocked(1, 11)).toBe(false);
+    for (let episode = 1; episode < 6; episode++) {
+      expect(mng.isLocked(episode, 0)).toBe(false);
+      expect(mng.isLocked(episode, 7)).toBe(false);
+    }
   });
 
   it('minMoves возвращает длину кратчайшего решения и кэширует его', () => {
@@ -135,7 +150,7 @@ describe('EpisodeManager', () => {
     mng.applyEpisodeRows(1, EP2_ROWS);
     expect(mng.getEpisode(1).unlockedAll).toBe(true);
     expect(mng.getEpisode(1).lastUnlockedLevel).toBe(4);
-    expect(mng.getEpisode(1).levelCount).toBe(12);
+    expect(mng.getEpisode(1).levelCount).toBe(8);
   });
 
   it('не предлагает Resume на уровень, которого ещё нет', () => {

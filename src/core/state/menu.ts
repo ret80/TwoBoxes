@@ -25,6 +25,7 @@ export type MenuEvent =
   | { type: 'SETTINGS' } // mmenu → settings
   | { type: 'DEBUG' } // mmenu → debug (отладочное меню, только с ?debug)
   | { type: 'TEST_LEVEL' } // debug → game (тестовый уровень с механиками)
+  | { type: 'EXIT_TEST' } // game → debug (выход из тестового уровня)
   | { type: 'BACK' } // selector/help/about/settings/debug → mmenu; game → selector (пауза «Level select»)
   | { type: 'SELECT_LEVEL'; episodeId: number; levelId: number } // selector → game
   | { type: 'HOME' } // game → mmenu (диалоги паузы/завершения)
@@ -82,6 +83,9 @@ export const menuMachine = setup({
       on: {
         HOME: { target: 'mmenu', actions: 'clearSelected' },
         BACK: { target: 'selector', actions: 'clearSelected' },
+        // Тестовый уровень — гость из отладочного меню: кнопка выхода в
+        // верхней панели возвращает туда же.
+        EXIT_TEST: { target: 'debug', actions: 'clearSelected' },
         NEXT_LEVEL: { target: 'game', reenter: true },
         RESET: { target: 'game', reenter: true },
       },

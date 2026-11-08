@@ -57,6 +57,7 @@
   "DEBUG_MECHANICS": "Mechanics",
   "DEBUG_DIFFICULTY": "Difficulty",
   "DEBUG_GENERATE": "Generate test level",
+  "DEBUG_BACK": "Back to debug",
   "DEBUG_TEST_LEVEL": "Test",
   "DEBUG_GENERATING": "Generating…",
   "DEBUG_GENERATE_FAILED": "Could not build a level with this set. Try another difficulty.",

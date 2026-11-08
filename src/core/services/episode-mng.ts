@@ -5,10 +5,18 @@ import { Episode } from '../types/episode';
 import { Level } from '../types/level';
 
 /**
- * Сколько уровней эпизода нужно пройти, чтобы открылся первый уровень
- * следующего эпизода (раздел 13 документации: «7 из 12»).
+ * Какая доля уровней эпизода должна быть пройдена, чтобы открылся первый
+ * уровень следующего (раздел 13 документации: «7 из 12»).
+ *
+ * Доля, а не число уровней: ручной эпизод длиннее генерируемых, и одно и то же
+ * число запирало бы короткие эпизоды почти целиком — 7 из 12 и 5 из 8 вместо
+ * 7 из 12 и 7 из 8.
  */
-export const EPISODE_GATE_LEVELS = 7;
+export const EPISODE_GATE_RATIO = 0.58;
+
+/** Сколько уровней эпизода нужно пройти, чтобы открылся следующий эпизод. */
+export const episodeGateLevels = (levelCount: number): number =>
+  Math.max(1, Math.min(levelCount, Math.round(levelCount * EPISODE_GATE_RATIO)));
 
 export interface SaveData {
   version: number;
@@ -152,14 +160,19 @@ export class EpisodeManager {
    * Проверка блокировки уровня.
    *
    * Внутри эпизода действует свой прогресс, но первый уровень любого
-   * следующего эпизода открывается только после EPISODE_GATE_LEVELS пройденных
+   * следующего эпизода открывается только после `episodeGateLevels` пройденных
    * уровней в предыдущем: иначе эпизод 2 начинался бы сразу, минуя эпизод 1.
    */
   isLocked(episodeId: number, levelId: number): boolean {
     const ep = this.getEpisode(episodeId);
     if (!ep.unlockedAll && levelId === 0 && episodeId > 0) {
       const prev = this.episodes[episodeId - 1];
-      if (!prev.unlockedAll && prev.lastUnlockedLevel < EPISODE_GATE_LEVELS) return true;
+      if (
+        !prev.unlockedAll &&
+        prev.lastUnlockedLevel < episodeGateLevels(prev.levelCount)
+      ) {
+        return true;
+      }
     }
     return ep.isLocked(levelId);
   }

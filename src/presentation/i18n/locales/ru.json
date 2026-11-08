@@ -57,6 +57,7 @@
   "DEBUG_MECHANICS": "Механики",
   "DEBUG_DIFFICULTY": "Сложность",
   "DEBUG_GENERATE": "Сгенерировать тестовый уровень",
+  "DEBUG_BACK": "В отладку",
   "DEBUG_TEST_LEVEL": "Тест",
   "DEBUG_GENERATING": "Генерирую…",
   "DEBUG_GENERATE_FAILED": "Не удалось собрать уровень с этим набором. Попробуйте другую сложность.",

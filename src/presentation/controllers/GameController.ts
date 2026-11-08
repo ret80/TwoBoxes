@@ -129,6 +129,11 @@ export class GameController {
     this.startLevel(level, true);
   }
 
+  /** Идёт тестовый уровень из отладки: вход в игру заменён выходом в отладку. */
+  get isTestLevel(): boolean {
+    return this.testMode;
+  }
+
   /** Обработка ввода направления (в т.ч. из DemoInput). */
   handleDirection(dir: Position): void {
     if (this.paused) return;
