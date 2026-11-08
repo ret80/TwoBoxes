@@ -27,13 +27,13 @@
 .btn:hover,
 .btn:focus-visible {
   background: var(--color-cream-strong);
-  box-shadow: 0 8px 22px rgba(74, 53, 39, 0.18);
+  box-shadow: var(--shadow-btn-hover);
   outline: none;
 }
 
 .btn:active {
   transform: translateY(1px);
-  box-shadow: 0 3px 10px rgba(74, 53, 39, 0.16);
+  box-shadow: var(--shadow-btn-press);
 }
 
 /* Смысловые варианты больше не меняют палитру: подложка и текст общие */
@@ -128,7 +128,7 @@
 
 .lvl-card--locked {
   background: var(--color-locked);
-  box-shadow: inset 0 0 0 1px rgba(74, 53, 39, 0.12);
+  box-shadow: inset 0 0 0 1px var(--color-inset-line);
   color: var(--color-text-dim);
   pointer-events: none;
 }

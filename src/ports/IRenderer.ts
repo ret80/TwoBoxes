@@ -2,6 +2,7 @@ import { ColorType } from '../core/types/color';
 import type { PathPoint } from '../core/types/game-state';
 import type { MechanicState } from '../core/types/mechanic-state';
 import { Position } from '../core/types/position';
+import type { HintStyle, Theme } from '../core/services/config';
 
 /**
  * Порт рендера. Реализация — picogl-адаптер (Фаза 7).
@@ -33,14 +34,20 @@ export interface IRenderer {
   /** Текущие углы камеры (радианы). */
   getCameraAngles(): { yaw: number; pitch: number };
 
-  /** Показать стрелки подсказки: скользят от кубиков до упора и гаснут. */
-  showHint(arrows: HintArrow[]): void;
+  /** Показать подсказку: едет по фактическим путям кубиков и гаснет. */
+  showHint(paths: HintPath[]): void;
 
-  /** Убрать стрелки подсказки сразу. */
+  /** Убрать подсказку сразу. */
   hideHint(): void;
 
-  /** Плавно погасить стрелки подсказки (игрок уже сделал ход). */
+  /** Плавно погасить подсказку (игрок уже сделал ход). */
   fadeHintOut(): void;
+
+  /** Вид подсказки: стрелки на полу или проволочный кубик. */
+  setHintStyle(style: HintStyle): void;
+
+  /** Тема сцены: палитра фона, плит, механик и подписей. */
+  setTheme(theme: Theme): void;
 
   /** Подсказка осей для клавиатуры (плоскость L/D) видна только в игре. */
   setKeyGuideVisible(visible: boolean): void;
@@ -61,11 +68,14 @@ export interface IRenderer {
  */
 export type ProjectionMode = 'ortho' | 'iso' | 'isoReverse';
 
-/** Стрелка подсказки: от клетки кубика до клетки упора. */
-export interface HintArrow {
+/**
+ * Путь подсказки: куда и каким маршрутом проедет один кубик. Точки берутся из
+ * правил (`GameState.paths`), поэтому путь повторяет повороты на ротаторах и
+ * прыжок через портал.
+ */
+export interface HintPath {
   color: ColorType;
-  from: Position;
-  to: Position;
+  path: PathPoint[];
 }
 
 /** Всё, что нужно отрисовщику на кадр. */

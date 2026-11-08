@@ -1,6 +1,6 @@
 import type { Locale, LocaleManager } from '../i18n/LocaleManager';
 import type { EpisodeManager } from '../../core/services/episode-mng';
-import type { CompassMode, MoveSpeed } from '../../core/services/config';
+import type { CompassMode, HintStyle, MoveSpeed, Theme } from '../../core/services/config';
 import type { ProjectionMode } from '../../ports/IRenderer';
 import { ALL_MECHANICS, type MechanicId } from '../../core/generation/mechanics';
 
@@ -184,8 +184,9 @@ function buildLogo(title: string, tagline: string): HTMLElement {
   two.setAttribute('font-size', '150');
   two.setAttribute('font-weight', '800');
   two.setAttribute('stroke-linejoin', 'round');
-  two.setAttribute('fill', '#4a3527');
-  two.setAttribute('stroke', '#4a3527');
+  // Цвет цифры наследуется от темы (currentColor): в тёмной теме она кремовая.
+  two.setAttribute('fill', 'currentColor');
+  two.setAttribute('stroke', 'currentColor');
   two.setAttribute('stroke-width', '10');
   two.textContent = '2';
 
@@ -319,16 +320,24 @@ function addSelectRow<T extends string>(
   panel.appendChild(row);
 }
 
-/** Настройки: громкость эффектов и музыки, язык и скорость кубиков. */
+/** Настройки: громкость, язык, скорость кубиков, вид подсказки и тема. */
 export function buildSettingsScreen(
   i18n: LocaleManager,
-  values: { sfx: number; music: number; speed: MoveSpeed },
+  values: {
+    sfx: number;
+    music: number;
+    speed: MoveSpeed;
+    hintStyle: HintStyle;
+    theme: Theme;
+  },
   cb: {
     onBack: () => void;
     onSfxChange: (value: number) => void;
     onMusicChange: (value: number) => void;
     onLocaleChange: (locale: Locale) => void;
     onSpeedChange: (value: MoveSpeed) => void;
+    onHintStyleChange: (value: HintStyle) => void;
+    onThemeChange: (value: Theme) => void;
   },
 ): HTMLElement {
   const root = el('div', 'screen screen--info screen--settings');
@@ -373,6 +382,30 @@ export function buildSettingsScreen(
       ['fast', i18n.t('SPEED_FAST')],
     ],
     cb.onSpeedChange,
+  );
+
+  // Вид подсказки: стрелки на полу или проволочный кубик вдоль того же пути.
+  addSelectRow<HintStyle>(
+    panel,
+    i18n.t('HINT_STYLE'),
+    values.hintStyle,
+    [
+      ['arrows', i18n.t('HINT_STYLE_ARROWS')],
+      ['cube', i18n.t('HINT_STYLE_CUBE')],
+    ],
+    cb.onHintStyleChange,
+  );
+
+  // Тема оформления: по умолчанию светлая, выбор сохраняется.
+  addSelectRow<Theme>(
+    panel,
+    i18n.t('THEME'),
+    values.theme,
+    [
+      ['light', i18n.t('THEME_LIGHT')],
+      ['dark', i18n.t('THEME_DARK')],
+    ],
+    cb.onThemeChange,
   );
 
   // Язык интерфейса: подписи всегда на своём языке, чтобы было понятно без перевода.

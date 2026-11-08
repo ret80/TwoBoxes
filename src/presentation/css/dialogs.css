@@ -7,7 +7,7 @@
   justify-content: center;
   padding: 20px;
   /* Подложка диалога — лёгкая дымка; сцену под ним размывает filter канваса */
-  background: rgba(238, 231, 215, 0.2);
+  background: var(--veil-dialog);
   z-index: 10;
 }
 
@@ -94,7 +94,7 @@
 .dialog__star.is-on {
   opacity: 1;
   color: var(--color-yellow);
-  text-shadow: 0 2px 8px rgba(232, 192, 94, 0.45);
+  text-shadow: var(--shadow-star);
 }
 
 .dialog__stats {

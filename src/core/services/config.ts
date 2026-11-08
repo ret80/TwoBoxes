@@ -1,7 +1,8 @@
 /**
  * Конфигурация (аналог `script/global/config.gd`).
  * Переменные: `sfxVolume`, `musicVolume` (по умолчанию 0.5/0.3), `demoMode`,
- * скорость анимации `moveSpeed`, режим компаса `compass`, а также отладочные
+ * скорость анимации `moveSpeed`, режим компаса `compass`, вид подсказки
+ * `hintStyle`, тема `theme` (по умолчанию светлая), а также отладочные
  * `showFps` и `projection`.
  * Событие `change` — подписка адаптеров (например, WebAudio на изменение громкости).
  */
@@ -11,6 +12,12 @@ export type MoveSpeed = 'smooth' | 'fast';
 /** Показ компаса L/D: авто (по последнему вводу) или всегда включён. */
 export type CompassMode = 'auto' | 'on';
 
+/** Вид подсказки: стрелки на полу или проволочный кубик, едущий по тому же пути. */
+export type HintStyle = 'arrows' | 'cube';
+
+/** Тема оформления интерфейса и сцены. */
+export type Theme = 'light' | 'dark';
+
 export type ConfigKey =
   | 'sfxVolume'
   | 'musicVolume'
@@ -18,7 +25,9 @@ export type ConfigKey =
   | 'showFps'
   | 'projection'
   | 'moveSpeed'
-  | 'compass';
+  | 'compass'
+  | 'hintStyle'
+  | 'theme';
 
 type ConfigValue = number | boolean | string;
 type ChangeListener = (key: ConfigKey, value: ConfigValue) => void;
@@ -34,6 +43,8 @@ export class Config {
     projection: 'iso',
     moveSpeed: 'smooth',
     compass: 'auto',
+    hintStyle: 'arrows',
+    theme: 'light',
   };
 
   private listeners = new Set<ChangeListener>();

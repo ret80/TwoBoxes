@@ -10,12 +10,13 @@ import {
 } from '../../core/types/cell';
 import type { PathPoint } from '../../core/types/game-state';
 import type {
-  HintArrow,
+  HintPath,
   IRenderer,
   MoveAnimation,
   ProjectionMode,
   RenderState,
 } from '../../ports/IRenderer';
+import type { HintStyle, Theme } from '../../core/services/config';
 import {
   buildGridLines,
   CUBE_NORMALS,
@@ -43,43 +44,105 @@ import {
   WAVE_INTERVAL_MS,
 } from './create-animation';
 
-// Палитра атласа: тёплый крем, бирюзовые плиты, коралловый и золотой кубики.
-// Цвета заданы «базовыми»: шейдер умножает их на 0.78 + 0.30·diff, поэтому
-// верхние грани выходят светлее, боковые — темнее (мягкий свет как в оригинале).
-const COLOR_PLATFORM = [0.594, 0.727, 0.697]; // бирюзовая плита пути
-const COLOR_BOX = [0.898, 0.596, 0.482]; // куб mat_color_one (коралл)
-const COLOR_BOX_TWO = [0.914, 0.786, 0.462]; // куб mat_color_two (золото)
-const COLOR_GOAL_ONE = [0.933, 0.541, 0.404]; // контур цели красного кубика
-const COLOR_GOAL_TWO = [0.925, 0.788, 0.404]; // контур цели жёлтого кубика
-const COLOR_RECESS = [0.404, 0.529, 0.51]; // углубление целевой площадки
-const COLOR_GRID = [0.9, 0.96, 0.94]; // светлая сетка на плитах
-const COLOR_BG = [0.933, 0.906, 0.843]; // тёплый желтоватый фон сцены
-// Механики: цветные вставки на плитах, чтобы тип клетки читался без легенды.
-const COLOR_PORTAL_A = [0.36, 0.62, 0.88];
-const COLOR_PORTAL_B = [0.74, 0.45, 0.84];
-const COLOR_TRAP = [0.38, 0.3, 0.27];
-const COLOR_TRAP_MARK = [0.82, 0.42, 0.34];
-const COLOR_ROTOR = [0.34, 0.57, 0.55];
-const COLOR_ROTOR_MARK = [0.94, 0.86, 0.62];
-const COLOR_SWITCH = [0.72, 0.58, 0.32];
-const COLOR_SWITCH_MARK = [1.0, 0.92, 0.72];
-const COLOR_ONEWAY = [0.5, 0.63, 0.58];
-const COLOR_ONEWAY_MARK = [0.95, 0.97, 0.9];
+/**
+ * Цвета сцены — та же палитра атласа, что и в CSS: тёплый крем, бирюзовые
+ * плиты, коралловый и золотой кубики. Цвета заданы «базовыми»: шейдер умножает
+ * их на 0.78 + 0.30·diff, поэтому верхние грани выходят светлее, боковые —
+ * темнее (мягкий свет как в оригинале).
+ *
+ * Тёмная палитра собрана по мотивам светлой: поверхности тёмные и тёплые (не
+ * чёрные), плиты светлее фона, акценты чуть светлее и мягче — так они читаются
+ * на тёмном, не вибрируя.
+ */
+interface ScenePalette {
+  platform: number[];
+  boxOne: number[];
+  boxTwo: number[];
+  goalOne: number[];
+  goalTwo: number[];
+  recess: number[];
+  grid: number[];
+  background: number[];
+  portalA: number[];
+  portalB: number[];
+  trap: number[];
+  trapMark: number[];
+  rotor: number[];
+  rotorMark: number[];
+  switchColor: number[];
+  switchMark: number[];
+  oneway: number[];
+  onewayMark: number[];
+  arrowOne: number[];
+  arrowTwo: number[];
+  ink: number[];
+}
+
+const PALETTE_LIGHT: ScenePalette = {
+  platform: [0.594, 0.727, 0.697], // бирюзовая плита пути
+  boxOne: [0.898, 0.596, 0.482], // куб mat_color_one (коралл)
+  boxTwo: [0.914, 0.786, 0.462], // куб mat_color_two (золото)
+  goalOne: [0.933, 0.541, 0.404], // контур цели красного кубика
+  goalTwo: [0.925, 0.788, 0.404], // контур цели жёлтого кубика
+  recess: [0.404, 0.529, 0.51], // углубление целевой площадки
+  grid: [0.9, 0.96, 0.94], // светлая сетка на плитах
+  background: [0.933, 0.906, 0.843], // тёплый желтоватый фон сцены
+  // Механики: цветные вставки на плитах, чтобы тип клетки читался без легенды.
+  portalA: [0.36, 0.62, 0.88],
+  portalB: [0.74, 0.45, 0.84],
+  trap: [0.38, 0.3, 0.27],
+  trapMark: [0.82, 0.42, 0.34],
+  rotor: [0.34, 0.57, 0.55],
+  rotorMark: [0.94, 0.86, 0.62],
+  switchColor: [0.72, 0.58, 0.32],
+  switchMark: [1.0, 0.92, 0.72],
+  oneway: [0.5, 0.63, 0.58],
+  onewayMark: [0.95, 0.97, 0.9],
+  // Стрелки-подсказки на полу: чуть светлее кубиков, чтобы читались на плитах.
+  arrowOne: [0.93, 0.44, 0.26],
+  arrowTwo: [0.93, 0.71, 0.24],
+  // Кофейный цвет текста и иконок интерфейса (--color-coffee).
+  ink: [0.29, 0.208, 0.153],
+};
+
+const PALETTE_DARK: ScenePalette = {
+  platform: [0.21, 0.31, 0.3], // плита светлее фона — «приподнятая» поверхность
+  boxOne: [0.93, 0.62, 0.5],
+  boxTwo: [0.94, 0.81, 0.48],
+  goalOne: [0.98, 0.6, 0.45],
+  goalTwo: [0.97, 0.82, 0.45],
+  recess: [0.1, 0.16, 0.155], // углубление остаётся темнее плиты
+  grid: [0.42, 0.53, 0.51],
+  background: [0.102, 0.09, 0.082], // тёплый уголь вместо чисто чёрного
+  portalA: [0.42, 0.67, 0.95],
+  portalB: [0.78, 0.52, 0.9],
+  trap: [0.13, 0.12, 0.11],
+  trapMark: [0.9, 0.5, 0.42],
+  rotor: [0.24, 0.42, 0.4],
+  rotorMark: [0.94, 0.86, 0.62],
+  switchColor: [0.62, 0.5, 0.28],
+  switchMark: [1.0, 0.92, 0.72],
+  oneway: [0.3, 0.42, 0.39],
+  onewayMark: [0.95, 0.97, 0.9],
+  arrowOne: [1.0, 0.55, 0.34],
+  arrowTwo: [1.0, 0.79, 0.32],
+  ink: [0.92, 0.88, 0.83], // компас: кремовые оси и буквы
+};
 
 // Свечение кубика на своей площадке — насыщенный цвет кубика (не белый).
 const GLOW_ONE = [1.0, 0.42, 0.17]; // коралловый ореол
 const GLOW_TWO = [1.0, 0.66, 0.18]; // золотой ореол
-// Стрелки-подсказки на полу: чуть светлее кубиков, чтобы читались на плитах.
-const ARROW_ONE = [0.93, 0.44, 0.26];
-const ARROW_TWO = [0.93, 0.71, 0.24];
-// Кофейный цвет текста и иконок интерфейса (--color-coffee).
-// Компас: оси — им же, но с прозрачностью недоступной кнопки отката (45%),
-// буквы «L»/«D» — полным цветом активной кнопки отката.
-const COLOR_INK = [0.29, 0.208, 0.153];
+/** Компас: оси — цветом текста, но с прозрачностью недоступной кнопки отката. */
 const KEY_GUIDE_DIM_ALPHA = 0.32;
 
-/** Стрелки подсказки: доехали до упора → держатся → гаснут (как плашка HUD). */
+/** Подсказка: проехали путь → держатся → гаснут (как плашка HUD). */
 const HINT_SLIDE_MS = 560;
+/** Время проезда одной клетки: длинный путь читается дольше короткого. */
+const HINT_MS_PER_CELL = 130;
+/** Потолок проезда: совсем длинные пути не должны тянуть подсказку. */
+const HINT_MAX_SLIDE_MS = 1600;
+/** Прозрачность блёклого следа из стрелок по клеткам пройденного пути. */
+const HINT_TRAIL_ALPHA = 0.3;
 const HINT_FADE_START_MS = 1750;
 const HINT_TOTAL_MS = 2200;
 /** Ход игрока прерывает показ подсказки: стрелки гаснут коротким плавным затуханием. */
@@ -143,6 +206,10 @@ export class PicoglRenderer implements IRenderer {
   private tweens = new TweenManager();
   /** Множитель скорости хода: 1 — штатная плавность, >1 — быстрее (настройка). */
   private moveSpeed = 1;
+  /** Палитра сцены выбранной темы (см. PALETTE_LIGHT / PALETTE_DARK). */
+  private palette: ScenePalette = PALETTE_LIGHT;
+  /** Вид подсказки: стрелки на полу или проволочный кубик. */
+  private hintStyle: HintStyle = 'arrows';
 
   // Матрицы-скретч: декали (стрелки, буквы) собираются из них каждый кадр.
   private viewProj: mat4 = mat4.create();
@@ -152,10 +219,12 @@ export class PicoglRenderer implements IRenderer {
   private readonly decalModel = mat4.create();
   private readonly scratchRot = mat4.create();
 
-  // Стрелки подсказки и компас клавиатуры (плоскость L/D)
+  // Подсказка и компас клавиатуры (плоскость L/D)
   private hint: {
-    arrows: HintArrow[];
+    paths: HintPath[];
     start: number;
+    /** Длительность проезда по самому длинному пути, мс. */
+    duration: number;
     /** Начало досрочного затухания (ход игрока) или null — обычный таймер. */
     fadeAt: number | null;
     /** Прозрачность в момент старта досрочного затухания. */
@@ -246,7 +315,7 @@ export class PicoglRenderer implements IRenderer {
       // Отсечение задних граней: без него совпадающие грани соседних клеток
       // (пол/стена, стена/стена) дают z-fighting с мерцающими швами.
       .enable(PicoGL.CULL_FACE)
-      .clearColor(COLOR_BG[0], COLOR_BG[1], COLOR_BG[2], 1);
+      .clearColor(this.palette.background[0], this.palette.background[1], this.palette.background[2], 1);
     // Грани куба/квада обходятся по часовой стрелке снаружи.
     this.app.gl.frontFace(this.app.gl.CW);
     // Синхронная компиляция — программ три, источник мал
@@ -502,15 +571,31 @@ export class PicoglRenderer implements IRenderer {
     return this.camera.getAngles();
   }
 
-  /** Стрелки подсказки: от кубиков по свободным клеткам до упора. */
-  showHint(arrows: HintArrow[]): void {
-    if (arrows.length === 0) {
+  /**
+   * Подсказка: путь каждого кубика при подсказанном ходе. Пути приходят из
+   * правил (`moveBoxes`), поэтому подсказка едет по реальному маршруту:
+   * поворачивает на ротаторах, упирается в односторонние клетки и прыгает
+   * через портал так же, как это сделал бы кубик.
+   */
+  showHint(paths: HintPath[]): void {
+    const drawable = paths
+      .map((item) => ({
+        color: item.color,
+        path: item.path.map((point) => ({ ...point, pos: point.pos.clone() })),
+      }))
+      .filter((item) => PicoglRenderer.pathDistance(item.path) > 0);
+    if (drawable.length === 0) {
       this.hint = null;
       return;
     }
+    const cells = Math.max(...drawable.map((item) => PicoglRenderer.pathDistance(item.path)));
     this.hint = {
-      arrows: arrows.map((a) => ({ ...a })),
+      paths: drawable,
       start: performance.now(),
+      duration: Math.min(
+        HINT_MAX_SLIDE_MS,
+        Math.max(HINT_SLIDE_MS, cells * HINT_MS_PER_CELL),
+      ),
       fadeAt: null,
       fadeFrom: 1,
     };
@@ -545,6 +630,20 @@ export class PicoglRenderer implements IRenderer {
   /** Скорость хода кубиков (настройка «Плавно / Быстро»). */
   setMoveSpeed(multiplier: number): void {
     this.moveSpeed = multiplier > 0 ? multiplier : 1;
+  }
+
+  /** Вид подсказки: стрелки на полу или проволочный кубик (настройка). */
+  setHintStyle(style: HintStyle): void {
+    this.hintStyle = style;
+  }
+
+  /** Тема сцены: фон, плиты, механики и цвет иконок компаса. */
+  setTheme(theme: Theme): void {
+    this.palette = theme === 'dark' ? PALETTE_DARK : PALETTE_LIGHT;
+    if (this.app) {
+      const [r, g, b] = this.palette.background;
+      this.app.clearColor(r, g, b, 1);
+    }
   }
 
   /** Проекция сцены: ортогональная, изометрическая или обратная изометрическая. */
@@ -718,11 +817,11 @@ export class PicoglRenderer implements IRenderer {
           scale,
           PLATFORM_TOP * scale,
           scale,
-          COLOR_PLATFORM,
+          this.palette.platform,
         );
 
         if (isEndCell(cell)) {
-          const goalColor = cell === CellType.END ? COLOR_GOAL_ONE : COLOR_GOAL_TWO;
+          const goalColor = cell === CellType.END ? this.palette.goalOne : this.palette.goalTwo;
           const surface = PLATFORM_TOP + lift;
           // Углубление и контур цели. Квады без поворота: в изометрии
           // осевой квадрат проецируется ромбом — как в атласе.
@@ -730,9 +829,9 @@ export class PicoglRenderer implements IRenderer {
           // ≈ 0.003): при 0.002 контур цели дрожал и мерцал (уровень 1-2).
           // Плашка цели растёт вместе с плитой: конец уровня появляется
           // одновременно с площадкой, а не следом за ней.
-          drawQuad(worldX(x), surface + 0.012, worldZ(y), 0.82 * scale, COLOR_RECESS);
+          drawQuad(worldX(x), surface + 0.012, worldZ(y), 0.82 * scale, this.palette.recess);
           drawQuad(worldX(x), surface + 0.024, worldZ(y), 0.68 * scale, goalColor);
-          drawQuad(worldX(x), surface + 0.036, worldZ(y), 0.48 * scale, COLOR_RECESS);
+          drawQuad(worldX(x), surface + 0.036, worldZ(y), 0.48 * scale, this.palette.recess);
         }
 
         // Клетки механик: цветная вставка и простой знак. Рисуются после
@@ -740,37 +839,37 @@ export class PicoglRenderer implements IRenderer {
         if (isMechanicCell(cell)) {
           const surface = PLATFORM_TOP + lift + 0.045;
           if (cell === CellType.PORTAL_A || cell === CellType.PORTAL_B) {
-            const color = cell === CellType.PORTAL_A ? COLOR_PORTAL_A : COLOR_PORTAL_B;
+            const color = cell === CellType.PORTAL_A ? this.palette.portalA : this.palette.portalB;
             drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, color);
-            drawQuad(worldX(x), surface + 0.012, worldZ(y), 0.38 * scale, COLOR_GRID);
+            drawQuad(worldX(x), surface + 0.012, worldZ(y), 0.38 * scale, this.palette.grid);
           } else if (cell === CellType.TRAP) {
-            drawQuad(worldX(x), surface, worldZ(y), 0.68 * scale, COLOR_TRAP);
+            drawQuad(worldX(x), surface, worldZ(y), 0.68 * scale, this.palette.trap);
             this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
-            this.drawBar(this.basisMatrix, -0.16, -0.16, 0.16, 0.16, 0.055, COLOR_TRAP_MARK);
-            this.drawBar(this.basisMatrix, 0.16, -0.16, -0.16, 0.16, 0.055, COLOR_TRAP_MARK);
+            this.drawBar(this.basisMatrix, -0.16, -0.16, 0.16, 0.16, 0.055, this.palette.trapMark);
+            this.drawBar(this.basisMatrix, 0.16, -0.16, -0.16, 0.16, 0.055, this.palette.trapMark);
           } else if (cell === CellType.ROTOR_CW || cell === CellType.ROTOR_CCW) {
-            drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, COLOR_ROTOR);
+            drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, this.palette.rotor);
             this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
             const flip = state.mechanicState?.rotorFlip ? -1 : 1;
             const clockwise = (cell === CellType.ROTOR_CW) !== !!state.mechanicState?.rotorFlip;
             const side = clockwise ? 1 : -1;
-            this.drawBar(this.basisMatrix, -0.16, -0.13, 0.13, -0.13, 0.06, COLOR_ROTOR_MARK);
-            this.drawBar(this.basisMatrix, 0.13, -0.13, 0.13, 0.13 * flip, 0.06, COLOR_ROTOR_MARK);
-            this.drawBar(this.basisMatrix, 0.13, 0.13 * flip, 0.01, 0.02 * side, 0.06, COLOR_ROTOR_MARK);
+            this.drawBar(this.basisMatrix, -0.16, -0.13, 0.13, -0.13, 0.06, this.palette.rotorMark);
+            this.drawBar(this.basisMatrix, 0.13, -0.13, 0.13, 0.13 * flip, 0.06, this.palette.rotorMark);
+            this.drawBar(this.basisMatrix, 0.13, 0.13 * flip, 0.01, 0.02 * side, 0.06, this.palette.rotorMark);
           } else if (cell === CellType.SWITCH) {
-            drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, COLOR_SWITCH);
+            drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, this.palette.switchColor);
             this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
-            this.drawBar(this.basisMatrix, -0.13, 0, 0.13, 0, 0.06, COLOR_SWITCH_MARK);
-            this.drawBar(this.basisMatrix, 0, -0.13, 0, 0.13, 0.06, COLOR_SWITCH_MARK);
+            this.drawBar(this.basisMatrix, -0.13, 0, 0.13, 0, 0.06, this.palette.switchMark);
+            this.drawBar(this.basisMatrix, 0, -0.13, 0, 0.13, 0.06, this.palette.switchMark);
           } else {
             const dir = oneWayDir(cell);
             if (!dir) continue;
-            drawQuad(worldX(x), surface, worldZ(y), 0.68 * scale, COLOR_ONEWAY);
+            drawQuad(worldX(x), surface, worldZ(y), 0.68 * scale, this.palette.oneway);
             const angle = Math.atan2(dir.y, dir.x);
             this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, angle);
-            this.drawBar(this.basisMatrix, -0.2, 0, 0.16, 0, 0.06, COLOR_ONEWAY_MARK);
-            this.drawBar(this.basisMatrix, 0.16, 0, 0.02, -0.11, 0.06, COLOR_ONEWAY_MARK);
-            this.drawBar(this.basisMatrix, 0.16, 0, 0.02, 0.11, 0.06, COLOR_ONEWAY_MARK);
+            this.drawBar(this.basisMatrix, -0.2, 0, 0.16, 0, 0.06, this.palette.onewayMark);
+            this.drawBar(this.basisMatrix, 0.16, 0, 0.02, -0.11, 0.06, this.palette.onewayMark);
+            this.drawBar(this.basisMatrix, 0.16, 0, 0.02, 0.11, 0.06, this.palette.onewayMark);
           }
         }
       }
@@ -785,7 +884,7 @@ export class PicoglRenderer implements IRenderer {
       mat4.identity(model);
       this.applyViewProj(this.gridDraw.uniform('uModel', model)).uniform(
         'uColor',
-        COLOR_GRID,
+        this.palette.grid,
       );
       this.gridDraw.draw();
     }
@@ -848,7 +947,7 @@ export class PicoglRenderer implements IRenderer {
       // следующий ход, не открывая отдельной иконки.
       const locked = (state.mechanicState?.locks[index] ?? 0) > 0;
       const boxScale = locked ? 0.76 : 0.9;
-      const baseColor = b.color === ColorType.ONE ? COLOR_BOX : COLOR_BOX_TWO;
+      const baseColor = b.color === ColorType.ONE ? this.palette.boxOne : this.palette.boxTwo;
       const color = locked ? baseColor.map((c) => c * 0.7) : baseColor;
       drawCube(
         b.x - state.width / 2,
@@ -864,7 +963,7 @@ export class PicoglRenderer implements IRenderer {
 
     // Стрелки подсказки — поверх сцены: кубик закрывает собой клетку упора,
     // и без этого половина стрелок оставалась за ним.
-    this.drawHintArrows(state);
+    this.drawHint(state);
 
     // Компас клавиатуры — в своём маленьком вьюпорте, поверх сцены.
     this.drawKeyGuide();
@@ -946,11 +1045,77 @@ export class PicoglRenderer implements IRenderer {
       .draw();
   }
 
+  /** Дистанция пути в клетках: прыжок через портал не проезжается (0 клеток). */
+  private static pathDistance(path: PathPoint[]): number {
+    let total = 0;
+    for (let i = 1; i < path.length; i++) {
+      if (path[i].teleport) continue;
+      total +=
+        Math.abs(path[i].pos.x - path[i - 1].pos.x) +
+        Math.abs(path[i].pos.y - path[i - 1].pos.y);
+    }
+    return total;
+  }
+
   /**
-   * Стрелки подсказки: двойной шеврон «»» на полу, который скользит от клетки
-   * кубика до клетки упора, а затем плавно гаснет.
+   * Точка пути на расстоянии `travelled` клеток от старта. Телепорт кубик
+   * проходит мгновенно, поэтому голова подсказки исчезает на входе в портал
+   * и появляется на выходе — точно так же, как прыгает сам кубик.
    */
-  private drawHintArrows(state: RenderState): void {
+  private static samplePath(
+    path: PathPoint[],
+    travelled: number,
+  ): { x: number; z: number; dx: number; dz: number } {
+    let left = travelled;
+    let cur = path[0].pos;
+    let dx = 0;
+    let dz = 0;
+    for (let i = 1; i < path.length; i++) {
+      const to = path[i].pos;
+      dx = to.x - cur.x;
+      dz = to.y - cur.y;
+      if (path[i].teleport) {
+        cur = to;
+        continue;
+      }
+      const len = Math.abs(dx) + Math.abs(dz);
+      if (len === 0) continue;
+      if (left <= len) {
+        const t = left / len;
+        return { x: cur.x + dx * t, z: cur.y + dz * t, dx, dz };
+      }
+      left -= len;
+      cur = to;
+    }
+    return { x: cur.x, z: cur.y, dx, dz };
+  }
+
+  /** Направление от точки `index` к следующей клетке (для следа подсказки). */
+  private static outgoing(path: PathPoint[], index: number): { dx: number; dz: number } | null {
+    const next = path[index + 1];
+    // Из клетки входа в портал стрелка не рисуется: дальше прыжок, а не проезд.
+    if (!next || next.teleport) return null;
+    const dx = next.pos.x - path[index].pos.x;
+    const dz = next.pos.y - path[index].pos.y;
+    return dx === 0 && dz === 0 ? null : { dx, dz };
+  }
+
+  /** Направление, с которым кубик пришёл в точку `index`. */
+  private static incoming(path: PathPoint[], index: number): { dx: number; dz: number } | null {
+    const cur = path[index];
+    const prev = path[index - 1];
+    if (!prev || cur.teleport) return null;
+    const dx = cur.pos.x - prev.pos.x;
+    const dz = cur.pos.y - prev.pos.y;
+    return dx === 0 && dz === 0 ? null : { dx, dz };
+  }
+
+  /**
+   * Подсказка: голова (шевроны или проволочный кубик) едет по фактическому
+   * пути от старта до упора, а по клеткам пути остаётся блёклый след стрелок —
+   * так видно, что маршрут идёт через ротатор или портал, а не по прямой.
+   */
+  private drawHint(state: RenderState): void {
     const hint = this.hint;
     const app = this.app;
     if (!hint || !app || !this.quadXYDraw) return;
@@ -960,7 +1125,7 @@ export class PicoglRenderer implements IRenderer {
       this.hint = null;
       return;
     }
-    const slide = easeOutCubic(Math.min(1, elapsed / HINT_SLIDE_MS));
+    const slide = easeOutCubic(Math.min(1, elapsed / hint.duration));
     const fade =
       hint.fadeAt === null
         ? this.hintAlpha(elapsed)
@@ -975,24 +1140,135 @@ export class PicoglRenderer implements IRenderer {
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE);
     gl.depthMask(false);
     app.disable(PicoGL.DEPTH_TEST);
-    for (const arrow of hint.arrows) {
-      const dx = arrow.to.x - arrow.from.x;
-      const dz = arrow.to.y - arrow.from.y;
-      // Кубик, которому некуда ехать, стрелку не показывает.
-      if (dx === 0 && dz === 0) continue;
-      // Стрелка доезжает до самой клетки упора — там, куда встанет кубик.
-      const cx = arrow.from.x + dx * slide + 0.5 - state.width / 2;
-      const cz = arrow.from.y + dz * slide + 0.5 - state.height / 2;
-      const color = arrow.color === ColorType.ONE ? ARROW_ONE : ARROW_TWO;
-      this.floorBasis(this.basisMatrix, cx, cz, PLATFORM_TOP + 0.035, Math.atan2(dz, dx));
-      for (const tip of [0.16, -0.14]) {
-        this.drawBar(this.basisMatrix, tip - 0.26, -0.26, tip, 0, 0.1, color, fade);
-        this.drawBar(this.basisMatrix, tip - 0.26, 0.26, tip, 0, 0.1, color, fade);
+
+    const offsetX = 0.5 - state.width / 2;
+    const offsetZ = 0.5 - state.height / 2;
+    for (const item of hint.paths) {
+      const total = PicoglRenderer.pathDistance(item.path);
+      if (total <= 0) continue;
+      const color = item.color === ColorType.ONE ? this.palette.arrowOne : this.palette.arrowTwo;
+      // След маршрута: стрелка на каждой клетке пути, блёклая, чтобы не
+      // перебивать голову подсказки.
+      for (let i = 1; i < item.path.length; i++) {
+        const heading =
+          PicoglRenderer.outgoing(item.path, i) ?? PicoglRenderer.incoming(item.path, i);
+        if (!heading) continue;
+        const pos = item.path[i].pos;
+        this.drawChevrons(
+          pos.x + offsetX,
+          pos.y + offsetZ,
+          Math.atan2(heading.dz, heading.dx),
+          color,
+          fade * HINT_TRAIL_ALPHA,
+        );
+      }
+      // Голова доезжает до самой клетки упора — там, куда встанет кубик.
+      const at = PicoglRenderer.samplePath(item.path, total * slide);
+      if (this.hintStyle === 'cube') {
+        this.drawHintCube(at.x + offsetX, at.z + offsetZ, color, fade);
+      } else {
+        this.drawChevrons(
+          at.x + offsetX,
+          at.z + offsetZ,
+          Math.atan2(at.dz, at.dx),
+          color,
+          fade,
+        );
       }
     }
+
     gl.depthMask(true);
     app.enable(PicoGL.DEPTH_TEST);
     app.disable(PicoGL.BLEND);
+  }
+
+  /** Двойной шеврон на полу клетки; `angle` — направление движения. */
+  private drawChevrons(
+    wx: number,
+    wz: number,
+    angle: number,
+    color: number[],
+    alpha: number,
+  ): void {
+    this.floorBasis(this.basisMatrix, wx, wz, PLATFORM_TOP + 0.035, angle);
+    for (const tip of [0.16, -0.14]) {
+      this.drawBar(this.basisMatrix, tip - 0.26, -0.26, tip, 0, 0.1, color, alpha);
+      this.drawBar(this.basisMatrix, tip - 0.26, 0.26, tip, 0, 0.1, color, alpha);
+    }
+  }
+
+  /**
+   * Проволочный кубик подсказки: 12 рёбер того же объёма, что и настоящий
+   * кубик. Рёбра — плоские полоски, развёрнутые к камере, поэтому контур
+   * одинаково читается при любом ракурсе орбиты.
+   */
+  private drawHintCube(wx: number, wz: number, color: number[], alpha: number): void {
+    const { yaw, pitch } = this.camera.getAngles();
+    const right: [number, number, number] = [Math.cos(yaw), 0, Math.sin(yaw)];
+    const up: [number, number, number] = [
+      Math.sin(pitch) * Math.sin(yaw),
+      Math.cos(pitch),
+      -Math.sin(pitch) * Math.cos(yaw),
+    ];
+    // Нормаль к экрану: по ней видно, какие рёбра дальние — их рисуем бледнее,
+    // чтобы каркас читался объёмным, а не плоской сеткой линий.
+    const normal: [number, number, number] = [
+      right[1] * up[2] - right[2] * up[1],
+      right[2] * up[0] - right[0] * up[2],
+      right[0] * up[1] - right[1] * up[0],
+    ];
+    const half = 0.45;
+    const halfHeight = 0.5;
+    // Углы куба: младшие три бита индекса — знаки по x, z и y.
+    const corners: [number, number, number][] = [];
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        for (const sx of [-1, 1]) {
+          corners.push([wx + sx * half, BOX_Y + sy * halfHeight, wz + sz * half]);
+        }
+      }
+    }
+    for (let a = 0; a < corners.length; a++) {
+      for (let b = a + 1; b < corners.length; b++) {
+        // Ребро соединяет углы, различающиеся ровно одной координатой.
+        const diff = a ^ b;
+        if (diff !== 1 && diff !== 2 && diff !== 4) continue;
+        const ca = corners[a];
+        const cb = corners[b];
+        const depth =
+          ((ca[0] + cb[0]) / 2 - wx) * normal[0] +
+          ((ca[1] + cb[1]) / 2 - BOX_Y) * normal[1] +
+          ((ca[2] + cb[2]) / 2 - wz) * normal[2];
+        this.drawScreenBar(ca, cb, 0.05, color, depth < 0 ? alpha * 0.4 : alpha, right, up);
+      }
+    }
+  }
+
+  /** Полоска между двумя мировыми точками: квад, развёрнутый к камере. */
+  private drawScreenBar(
+    a: [number, number, number],
+    b: [number, number, number],
+    thick: number,
+    color: number[],
+    alpha: number,
+    right: [number, number, number],
+    up: [number, number, number],
+  ): void {
+    const dx = (b[0] - a[0]) * right[0] + (b[1] - a[1]) * right[1] + (b[2] - a[2]) * right[2];
+    const dy = (b[0] - a[0]) * up[0] + (b[1] - a[1]) * up[1] + (b[2] - a[2]) * up[2];
+    const len = Math.hypot(dx, dy);
+    if (len <= 0.001 || !this.quadXYDraw) return;
+    const mid: [number, number, number] = [
+      (a[0] + b[0]) / 2,
+      (a[1] + b[1]) / 2,
+      (a[2] + b[2]) / 2,
+    ];
+    PicoglRenderer.setBasis(this.basisMatrix, mid, right, up);
+    mat4.identity(this.decalModel);
+    mat4.rotateZ(this.decalModel, this.decalModel, Math.atan2(dy, dx));
+    mat4.scale(this.decalModel, this.decalModel, [len, thick, 1]);
+    mat4.multiply(this.decalModel, this.basisMatrix, this.decalModel);
+    this.drawDecal(this.decalModel, color, alpha);
   }
 
   /**
@@ -1044,17 +1320,17 @@ export class PicoglRenderer implements IRenderer {
     const reach = 0.61;
     const thick = 0.058;
     const alpha = KEY_GUIDE_DIM_ALPHA;
-    this.drawBar(this.basisMatrix, 0, 0, -reach, 0, thick, COLOR_INK, alpha);
-    this.drawBar(this.basisMatrix, 0, 0, 0, -reach, thick, COLOR_INK, alpha);
+    this.drawBar(this.basisMatrix, 0, 0, -reach, 0, thick, this.palette.ink, alpha);
+    this.drawBar(this.basisMatrix, 0, 0, 0, -reach, thick, this.palette.ink, alpha);
     // Наконечники осей.
     // Стержень компаса: точка, вокруг которой вся фигура вращается.
-    this.drawBar(this.basisMatrix, -0.045, 0, 0.045, 0, 0.09, COLOR_INK, alpha);
+    this.drawBar(this.basisMatrix, -0.045, 0, 0.045, 0, 0.09, this.palette.ink, alpha);
     const head = 0.095;
     const spread = 0.058;
-    this.drawBar(this.basisMatrix, -reach, 0, -reach + head, spread, thick, COLOR_INK, alpha);
-    this.drawBar(this.basisMatrix, -reach, 0, -reach + head, -spread, thick, COLOR_INK, alpha);
-    this.drawBar(this.basisMatrix, 0, -reach, spread, -reach + head, thick, COLOR_INK, alpha);
-    this.drawBar(this.basisMatrix, 0, -reach, -spread, -reach + head, thick, COLOR_INK, alpha);
+    this.drawBar(this.basisMatrix, -reach, 0, -reach + head, spread, thick, this.palette.ink, alpha);
+    this.drawBar(this.basisMatrix, -reach, 0, -reach + head, -spread, thick, this.palette.ink, alpha);
+    this.drawBar(this.basisMatrix, 0, -reach, spread, -reach + head, thick, this.palette.ink, alpha);
+    this.drawBar(this.basisMatrix, 0, -reach, -spread, -reach + head, thick, this.palette.ink, alpha);
 
     // Буквы — билборды: точку кончика переносим в пространство взгляда тем же
     // поворотом, а саму надпись кладём уже в экранной плоскости (без поворота),
@@ -1063,8 +1339,8 @@ export class PicoglRenderer implements IRenderer {
     PicoglRenderer.setBasis(this.basisMatrix, [0, 0, 0], [1, 0, 0], [0, 1, 0]);
     const tipL = this.viewPoint(-reach - 0.16, 0.02, 0);
     const tipD = this.viewPoint(0, 0.02, reach + 0.16);
-    this.drawGlyphL(tipL[0], tipL[1], COLOR_INK);
-    this.drawGlyphD(tipD[0], tipD[1], COLOR_INK);
+    this.drawGlyphL(tipL[0], tipL[1], this.palette.ink);
+    this.drawGlyphD(tipD[0], tipD[1], this.palette.ink);
 
     this.warp = warp;
     app.disable(PicoGL.BLEND);

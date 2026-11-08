@@ -1,5 +1,6 @@
 import { ColorType } from '../types/color';
 import type { Box } from '../types/entity';
+import type { PathPoint } from '../types/game-state';
 import type { Level } from '../types/level';
 import {
   createMechanicState,
@@ -84,17 +85,18 @@ function firstDir(
   return dir;
 }
 
-/** Куда доедет кубик при ходе в `dir` (для стрелок-подсказок на полу). */
+/** Как и куда проедет кубик при ходе в `dir` (для визуальной подсказки). */
 export interface HintSlide {
   color: ColorType;
-  from: Position;
-  to: Position;
+  /** Фактический путь: повороты на ротаторах и прыжок через портал. */
+  path: PathPoint[];
 }
 
 /**
  * План хода для визуальной подсказки: путь каждого кубика при сдвиге в `dir`.
- * Считается тем же `moveBoxes`, что и настоящий ход, поэтому конечные точки
- * совпадают с игрой (прямые стрелки на полу — упрощение для порталов).
+ * Пути берутся из того же `moveBoxes`, что и настоящий ход (поле `paths`),
+ * поэтому подсказка идёт по реальному маршруту, а не по прямой: она огибает
+ * ротаторы, упирается в односторонние клетки и телепортируется через портал.
  */
 export function planSlides(
   level: Level,
@@ -105,7 +107,9 @@ export function planSlides(
   const next = moveBoxes(level, boxes, dir, 0, 0, state);
   return boxes.map((box, index) => ({
     color: box.color,
-    from: box.pos.clone(),
-    to: next ? next.boxes[index].pos.clone() : box.pos.clone(),
+    // Кубик, которому некуда ехать, остаётся точкой-стартом: стрелки не будет.
+    path: next?.paths?.[index]?.length
+      ? next.paths[index]
+      : [{ pos: box.pos.clone() }],
   }));
 }

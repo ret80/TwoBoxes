@@ -13,7 +13,7 @@ import {
   type MainMenuRefs,
   type MenuItemId,
 } from '../html/screens';
-import type { CompassMode, MoveSpeed } from '../../core/services/config';
+import type { CompassMode, HintStyle, MoveSpeed, Theme } from '../../core/services/config';
 import type { MechanicId } from '../../core/generation/mechanics';
 import type { ProjectionMode } from '../../ports/IRenderer';
 
@@ -136,6 +136,8 @@ export class MenuController {
         sfx: Number(this.config.get('sfxVolume')),
         music: Number(this.config.get('musicVolume')),
         speed: this.config.get('moveSpeed') as MoveSpeed,
+        hintStyle: this.config.get('hintStyle') as HintStyle,
+        theme: this.config.get('theme') as Theme,
       },
       {
         onBack: () => this.backFromScreen(),
@@ -143,6 +145,8 @@ export class MenuController {
         onMusicChange: (value) => this.config.set('musicVolume', value),
         onLocaleChange: (locale: Locale) => this.i18n.setLocale(locale),
         onSpeedChange: (value: MoveSpeed) => this.config.set('moveSpeed', value),
+        onHintStyleChange: (value: HintStyle) => this.config.set('hintStyle', value),
+        onThemeChange: (value: Theme) => this.config.set('theme', value),
       },
     );
     this.screens.set('settings', settings);

@@ -2,7 +2,7 @@ import './style.css';
 import { createActor } from 'xstate';
 import { createGameMachine } from '@core/state/game';
 import { menuMachine } from '@core/state/menu';
-import { Config } from '@core/services/config';
+import { Config, type HintStyle, type Theme } from '@core/services/config';
 import { EpisodeManager, type SaveData } from '@core/services/episode-mng';
 import { EPISODE_2_LEVELS, EPISODE_2_SEED } from '@core/data/episode-2';
 import { Statistics } from '@core/services/statistics';
@@ -62,6 +62,11 @@ const storage = new LocalStorageSave();
 const saved = storage.load('save');
 if (saved) episodes.deserialize(saved as SaveData);
 
+// Тема — пользовательская настройка, как язык: выбор переживает перезагрузку.
+const THEME_KEY = 'theme';
+const savedTheme = storage.load(THEME_KEY);
+if (savedTheme === 'light' || savedTheme === 'dark') config.set('theme', savedTheme);
+
 // 4–7. Адаптеры
 const renderer = new PicoglRenderer();
 const audio = new WebAudioPlayer();
@@ -87,19 +92,41 @@ modality.subscribe((m) => {
 /** Во сколько раз быстрее едут кубики в настройке «Быстро». */
 const FAST_MOVE_SPEED = 1.8;
 
+/** Фон страницы для мобильной панели браузера — тот же, что у сцены. */
+const THEME_COLORS: Record<Theme, string> = { light: '#eee7d7', dark: '#1a1715' };
+
+/**
+ * Тема переключает и интерфейс (data-theme у <html> — CSS-переменные), и
+ * сцену (палитра рендера): иначе тёмные панели соседствовали бы с кремовым
+ * полем. Вызывается до init — палитра попадёт в clearColor первого кадра.
+ */
+const applyTheme = (theme: Theme): void => {
+  document.documentElement.dataset.theme = theme;
+  renderer.setTheme(theme);
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', THEME_COLORS[theme]);
+};
+
 // Громкость из настроек применяется к аудио-адаптеру сразу, отладочные
-// переключатели и скорость хода — к рендеру (счётчик кадров, проекция, компас).
+// переключатели, скорость хода, вид подсказки и тема — к рендеру.
 config.subscribe((key, value) => {
   if (key === 'sfxVolume') audio.setSfxVolume(value as number);
   if (key === 'musicVolume') audio.setMusicVolume(value as number);
   if (key === 'projection') renderer.setProjection(value as ProjectionMode);
   if (key === 'showFps') renderer.setFpsVisible(value === true);
   if (key === 'moveSpeed') renderer.setMoveSpeed(value === 'fast' ? FAST_MOVE_SPEED : 1);
+  if (key === 'hintStyle') renderer.setHintStyle(value as HintStyle);
   if (key === 'compass') {
     compassAlways = value === 'on';
     applyKeyGuide();
   }
+  if (key === 'theme') {
+    applyTheme(value as Theme);
+    storage.save(THEME_KEY, value);
+  }
 });
+applyTheme(config.get('theme') as Theme);
 
 // 9. FSM-машины
 const menuActor = createActor(menuMachine);
@@ -144,7 +171,7 @@ gameScreen.hint.addEventListener('click', () => {
     ? `${i18n.t('HINT')}: ${ARROWS[`${plan.dir.x},${plan.dir.y}`] ?? ''}`
     : i18n.t('HINT_NONE');
   gameScreen.hintToast.hidden = false;
-  // Стрелки скользят по полу от кубиков до упора в выбранном направлении.
+  // Подсказка едет по фактическим путям кубиков: повороты и порталы учтены.
   if (plan) renderer.showHint(plan.slides);
   else renderer.hideHint();
   window.clearTimeout(hintTimer);
@@ -158,6 +185,7 @@ renderer.init(gameScreen.canvas);
 renderer.setProjection(config.get('projection') as ProjectionMode);
 renderer.setFpsVisible(config.get('showFps') === true);
 renderer.setMoveSpeed(config.get('moveSpeed') === 'fast' ? FAST_MOVE_SPEED : 1);
+renderer.setHintStyle(config.get('hintStyle') as HintStyle);
 const onResize = () => renderer.resize(window.innerWidth, window.innerHeight);
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);

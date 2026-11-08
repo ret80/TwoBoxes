@@ -37,7 +37,7 @@
   position: fixed;
   inset: 0;
   z-index: -1;
-  background: rgba(238, 231, 215, 0.16);
+  background: var(--veil-screen);
 }
 
 .screen > * {
@@ -99,12 +99,12 @@
   width: clamp(151px, 48vw, 211px);
   height: auto;
   overflow: visible;
-  filter: drop-shadow(0 6px 12px rgba(74, 53, 39, 0.1));
+  filter: var(--shadow-logo);
 }
 
 .logo__subtitle {
   margin-top: 2px;
-  color: #b3a99c;
+  color: var(--color-text-muted);
   font-size: clamp(0.72rem, 3.4vw, 0.95rem);
   font-weight: 600;
   letter-spacing: 0.16em;
@@ -118,7 +118,7 @@
  */
 .screen--menu::before {
   /* Демо-уровень должен быть виден на фоне, поэтому вуаль почти прозрачная */
-  background: rgba(238, 231, 215, 0.06);
+  background: var(--veil-menu);
 }
 
 .xmb {
@@ -195,10 +195,7 @@
   z-index: 2;
   opacity: 1;
   background: var(--color-cream-strong);
-  box-shadow:
-    0 14px 30px rgba(74, 53, 39, 0.2),
-    0 0 0 2px rgba(74, 53, 39, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  box-shadow: var(--shadow-active);
 }
 
 /* Подпись под каруселью: название активной иконки — только текст, без плашки */
@@ -251,13 +248,13 @@
   opacity: 0.85;
 }
 
-/* Настройки: две шкалы громкости */
+/* Настройки: шкалы громкости и списки выбора */
 .screen--info .settings-panel {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
   width: min(460px, 92vw);
-  padding: 22px 24px;
+  padding: 18px 22px;
 }
 
 .settings-row {
@@ -314,7 +311,7 @@
 .settings-row__select {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid rgba(74, 53, 39, 0.18);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-cream-strong);
   color: var(--color-coffee);
@@ -331,7 +328,7 @@
   z-index: 60;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(251, 248, 243, 0.85);
+  background: var(--color-fps-bg);
   box-shadow: var(--shadow-btn);
   color: var(--color-text);
   font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
@@ -347,7 +344,7 @@
   gap: 4px;
   padding: 4px;
   border-radius: 12px;
-  background: rgba(74, 53, 39, 0.08);
+  background: var(--color-track);
 }
 
 .lang-switch__btn {
@@ -540,14 +537,14 @@
 .game-topbar .btn:focus-visible,
 .game-bottombar .btn:hover,
 .game-bottombar .btn:focus-visible {
-  background: rgba(74, 53, 39, 0.07);
+  background: var(--color-tint-hover);
   box-shadow: none;
   color: var(--color-coffee-hover);
 }
 
 .game-topbar .btn:active,
 .game-bottombar .btn:active {
-  background: rgba(74, 53, 39, 0.12);
+  background: var(--color-tint-press);
   transform: none;
   box-shadow: none;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createLevelFromData } from './create';
+import { planSlides } from './hint';
 import { moveBoxes } from './move';
 import { DIRS, Position } from '../types/position';
 
@@ -100,6 +101,23 @@ describe('mechanic rules', () => {
     );
     expect(second?.boxes[0].pos.x).toBe(1);
     expect(second?.boxes[0].pos.y).toBe(1);
+  });
+
+  it('hint path follows the portal jump instead of a straight line', () => {
+    const level = levelOf([
+      '#######',
+      '#R..a.#',
+      '#.....#',
+      '#b....#',
+      '#....y#',
+      '#######',
+    ]);
+    const [slide] = planSlides(level, level.boxes, DIRS.right);
+    // Путь идёт по клеткам до входа в портал...
+    expect(slide.path.some((point) => point.pos.equals(new Position(4, 1)))).toBe(true);
+    // ...затем прыжок на парный выход и продолжение движения уже из него.
+    expect(slide.path.some((point) => point.teleport)).toBe(true);
+    expect(slide.path[slide.path.length - 1].pos.equals(new Position(5, 3))).toBe(true);
   });
 
   it('one-way cell blocks entry against its arrow and allows entry with it', () => {
