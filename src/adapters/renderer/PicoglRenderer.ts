@@ -252,6 +252,15 @@ interface PortalAnim {
   done: () => void;
 }
 
+/** Телепорт, ждущий своей очереди: портал занят предыдущей анимацией. */
+interface PendingPortalHop {
+  item: RenderBoxPos;
+  to: Position;
+  done: () => void;
+  /** Общий ключ у пары обмена: такие прыжки стартуют вдвоём. */
+  group: number | null;
+}
+
 /**
  * Рендер-адаптер на picogl (WebGL2). Реализация IRenderer.
  * Стиль оригинала: изометрическая ортокамера, простые примитивы, flat-цвета
@@ -352,6 +361,8 @@ export class PicoglRenderer implements IRenderer {
   private portalPausePending = false;
   /** Прыжки, ждущие партнёра по обмену: оба стартуют одновременно. */
   private parkedHops = new Map<number, { index: number; step: number }>();
+  /** Очередь телепортов: не больше одной анимации портала за раз. */
+  private portalQueue: PendingPortalHop[] = [];
   /** Подписчик на старт телепорта: озвучка идёт по фазам анимации. */
   private portalListener: ((durationMs: number) => void) | null = null;
   /** Когда последний раз было событие телепорта — чтобы два разом дали один звук. */
@@ -479,6 +490,7 @@ export class PicoglRenderer implements IRenderer {
       // Новая расстановка (старт уровня, сброс): телепорт-анимации больше
       // не относятся к делу, их позы не должны пережить смену состояния.
       this.portals = [];
+      this.portalQueue = [];
       this.parkedHops.clear();
       this.portalBlocks = 0;
       this.portalPausePending = false;
@@ -688,13 +700,16 @@ export class PicoglRenderer implements IRenderer {
       const parkedPlan = plans[parked.index];
       const parkedSegment = parkedPlan.segments[parked.step];
       if (parkedSegment && parkedSegment.kind === 'teleport') {
-        this.startPortalHop(parkedPlan.item, parkedSegment.exit, () =>
-          play(parked.index, parked.step + 1),
+        this.startPortalHop(
+          parkedPlan.item,
+          parkedSegment.exit,
+          () => play(parked.index, parked.step + 1),
+          key,
         );
       } else {
         play(parked.index, parked.step + 1);
       }
-      this.startPortalHop(plan.item, segment.exit, () => play(index, step + 1));
+      this.startPortalHop(plan.item, segment.exit, () => play(index, step + 1), key);
     };
 
     plans.forEach((_, index) => play(index, 0));
@@ -707,7 +722,60 @@ export class PicoglRenderer implements IRenderer {
    * кубики на это время встают: их tween'ы уходят в паузу и продолжают с того
    * же места, когда анимация проиграет.
    */
-  private startPortalHop(item: RenderBoxPos, to: Position, done: () => void): void {
+  private startPortalHop(
+    item: RenderBoxPos,
+    to: Position,
+    done: () => void,
+    group: number | null = null,
+  ): void {
+    this.portalQueue.push({ item, to, done, group });
+    this.drainPortalQueue();
+  }
+
+  /**
+   * Запустить телепорт, если портал свободен. Обычные прыжки идут строго по
+   * одному: второй кубик ждёт, пока первый не закончит анимацию. Пара обмена
+   * стартует вдвоём, иначе один кубик успел бы уехать с выхода до партнёра.
+   */
+  private drainPortalQueue(): void {
+    if (this.portals.length > 0 || this.portalQueue.length === 0) return;
+
+    let group: number | null = null;
+    for (const hop of this.portalQueue) {
+      if (hop.group === null) continue;
+      if (this.portalQueue.filter((other) => other.group === hop.group).length > 1) {
+        group = hop.group;
+        break;
+      }
+    }
+
+    // Одинокий участник пары ждёт второго: иначе он стартует раньше партнёра
+    // и обмен перестаёт быть одновременным.
+    if (
+      group === null &&
+      this.portalQueue.some(
+        (hop) =>
+          hop.group !== null &&
+          this.portalQueue.filter((other) => other.group === hop.group).length === 1,
+      )
+    ) {
+      return;
+    }
+
+    const batch =
+      group === null
+        ? [this.portalQueue.shift()!]
+        : (() => {
+            const pair = this.portalQueue.filter((hop) => hop.group === group);
+            this.portalQueue = this.portalQueue.filter((hop) => hop.group !== group);
+            return pair;
+          })();
+    for (const hop of batch) this.beginPortalHop(hop, batch.length > 1);
+  }
+
+  /** Начать одну анимацию телепорта (или пару обмена) из очереди. */
+  private beginPortalHop(hop: PendingPortalHop, paired: boolean): void {
+    const { item, to, done } = hop;
     // На ускоренном ходе телепорт упрощён и короче: кубик сжимается в
     // маленький и переносится, без подъёма и вытягивания в палку.
     const snappy = this.moveSpeed > 1;
@@ -723,9 +791,11 @@ export class PicoglRenderer implements IRenderer {
     });
     item.inPortal = true;
     this.portalBlocks++;
-    // Только со следующего кадра: в текущем из того же пакета tween'ов может
-    // завершиться последний шаг второго кубика, и он тоже въедет в портал.
-    this.portalPausePending = true;
+    // Обычный прыжок сразу останавливает остальные кубики: второй не должен
+    // въезжать в занятый портал. Паре обмена даём кадр, чтобы второй участник
+    // успел дойти до своего входа и стартовал одновременно.
+    if (paired) this.portalPausePending = true;
+    else this.tweens.pauseAll();
     // Звук начинается здесь, вместе с анимацией, и получает её длительность —
     // даже у короткого быстрого варианта его фазы ложатся на те же кадры.
     const now = performance.now();
@@ -757,8 +827,11 @@ export class PicoglRenderer implements IRenderer {
       this.portals.splice(this.portals.indexOf(anim), 1);
       if (this.portalBlocks > 0) this.portalBlocks--;
       if (this.portalBlocks === 0) {
-        this.portalPausePending = false;
-        this.tweens.resumeAll();
+        this.drainPortalQueue();
+        if (this.portals.length === 0) {
+          this.portalPausePending = false;
+          this.tweens.resumeAll();
+        }
       }
       anim.done();
     }
@@ -789,6 +862,9 @@ export class PicoglRenderer implements IRenderer {
   }
 
   animateCreate(state: RenderState, onComplete: () => void): void {
+    // Новый уровень мог начаться посреди старой анимации (например, из
+    // отладочного меню): её tween/телепорт нельзя переносить на новую карту.
+    this.resetTransient();
     this.render(state);
     // Новый уровень — старые стрелки подсказки больше не применимы.
     this.hint = null;
@@ -801,6 +877,19 @@ export class PicoglRenderer implements IRenderer {
     this.createStartedAt = performance.now();
     this.createElapsed = 0;
     this.createDone = onComplete;
+  }
+
+  /** Сбросить всё, что относится к анимации предыдущего уровня. */
+  private resetTransient(): void {
+    this.tweens.removeAll();
+    this.portals = [];
+    this.portalQueue = [];
+    this.parkedHops.clear();
+    this.portalBlocks = 0;
+    this.portalPausePending = false;
+    this.lastPortalAt = Number.NEGATIVE_INFINITY;
+    this.movingCount = 0;
+    this.moveDone = null;
   }
 
   /** Орбита: рыскание вокруг Y уровня и наклон вокруг X (радианы). */

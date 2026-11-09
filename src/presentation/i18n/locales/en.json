@@ -69,6 +69,7 @@
   "DEBUG_GENERATING": "Generating…",
   "DEBUG_GENERATE_FAILED": "Could not build a level with this set. Try another difficulty.",
   "DEBUG_SEED": "Seed (empty — random)",
+  "DEBUG_SEED_CLEAR": "Clear seed",
   "DEBUG_SEED_PLACEHOLDER": "0x0de40 or 56964",
   "DEBUG_SEED_INVALID": "The seed must be a number: decimal or 0x-hex.",
   "DEBUG_SEED_USED": "Level built from seed %s",

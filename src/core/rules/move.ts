@@ -236,9 +236,11 @@ function simulate(
     ? runs.map((run) => (run.points && run.points.length > 1 ? run.points : []))
     : [];
 
-  // Все кубики были заперты: ход-пропуск нужен, чтобы ловушки истекли.
-  const waited = locked.some(Boolean) && !moved;
-  if (!moved && !waited) return null;
+  // Если хотя бы один кубик был свободен, но не сдвинулся (стена, сосед,
+  // односторонняя клетка), это не ход: ловушка не должна тикать от нажатия
+  // в стену. Ждать можно только когда заперты все кубики.
+  const allLocked = boxes.length > 0 && locked.every(Boolean);
+  if (!moved && !allLocked) return null;
 
   return {
     boxes: newBoxes,

@@ -21,6 +21,7 @@ import type {
 } from '../../core/services/config';
 import type { MechanicId } from '../../core/generation/mechanics';
 import type { ProjectionMode } from '../../ports/IRenderer';
+import { formatLevelSeed } from '../../core/generation/level-seed';
 
 export type MenuDirection = 'up' | 'down' | 'left' | 'right';
 
@@ -105,6 +106,8 @@ export class MenuController {
   /** Последний сид тестового уровня: поле ввода отладочного экрана.
    * Хранится в контроллере, чтобы не теряться при перестройке экранов. */
   private debugSeed: number | null = null;
+  /** Поле сида в отладочном экране: обновляется после «дальше» на победе. */
+  private debugSeedInput: HTMLInputElement | null = null;
   /** Генерация тестового уровня из отладочного меню. */
   private onTestLevel?: (
     mechanics: MechanicId[],
@@ -213,7 +216,8 @@ export class MenuController {
         },
       },
     );
-    this.screens.set('debug', debug);
+    this.debugSeedInput = debug.seedInput;
+    this.screens.set('debug', debug.root);
 
     this.rebuildSelector();
 
@@ -716,6 +720,14 @@ export class MenuController {
   refreshSelector(): void {
     this.rebuildSelector();
     if (this.current === 'selector') this.show('selector');
+  }
+
+  /** Показать в отладочном меню сид, сгенерированный кнопкой «дальше». */
+  setDebugSeed(seed: number | null): void {
+    this.debugSeed = seed;
+    if (this.debugSeedInput) {
+      this.debugSeedInput.value = seed === null ? '' : formatLevelSeed(seed);
+    }
   }
 
   /** Показать/скрыть «Продолжить»: пока игра не начиналась, иконки нет совсем. */

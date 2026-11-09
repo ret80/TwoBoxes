@@ -1,4 +1,4 @@
-import { CellType } from '../../types/cell';
+import { CellType, rotorElbow, rotorElbowExit } from '../../types/cell';
 import type { Position } from '../../types/position';
 import {
   freeIndexes,
@@ -203,8 +203,64 @@ export const switchMechanic: MechanicModule = {
   expectedScore: 83,
   requires: ['rotator'],
   place(draft, rng) {
-    const route = shuffle(routeIndexes(draft), rng);
-    const free = route.length > 0 ? route : shuffle(freeIndexes(draft), rng);
+    const route = [...(draft.route ?? [])].sort(
+      (a, b) => (a.step ?? 0) - (b.step ?? 0),
+    );
+    // Переключатель ставим перед углом, у которого можно закрыть
+    // «неперевёрнутый» выход. Так кнопка меняет не только картинку: без неё
+    // кубик упирается в стену на выходе угла. Кандидатов может быть много;
+    // разные попытки выбирают разные, иначе одна неудачная геометрия
+    // повторялась бы сотню раз.
+    const gates: { switchIndex: number; blockers: number[] }[] = [];
+    for (const candidate of route) {
+      if (draft.cells.has(candidate.index)) continue;
+      if (draft.reserved?.has(candidate.index)) continue;
+      if (!draft.floor[candidate.index]) continue;
+
+      const blockers = new Set<number>();
+      for (const later of route) {
+        if ((later.step ?? 0) <= (candidate.step ?? 0)) continue;
+        const elbowCellAt = draft.cells.get(later.index) ?? CellType.EMPTY;
+        const elbow = rotorElbow(elbowCellAt);
+        if (!elbow) continue;
+        if (elbow.entry.x !== later.dir.x || elbow.entry.y !== later.dir.y) continue;
+        const plainExit = rotorElbowExit(elbowCellAt, false);
+        if (!plainExit) continue;
+        const pos = indexPosition(later.index, draft.size);
+        const nx = pos.x + plainExit.x;
+        const ny = pos.y + plainExit.y;
+        if (nx < 1 || ny < 1 || nx >= draft.size - 1 || ny >= draft.size - 1) continue;
+        const blockerIndex = ny * draft.size + nx;
+        if (!draft.floor[blockerIndex]) continue;
+        if (draft.cells.has(blockerIndex) || draft.reserved?.has(blockerIndex)) continue;
+        blockers.add(blockerIndex);
+      }
+      if (blockers.size > 0) {
+        // Пробуем и минимальные ворота (один закрытый выход), и все сразу:
+        // одним уровням хватает одного упора, другим нужен полный запрет
+        // обхода через остальные углы. Режим задаёт генератор, чтобы обе
+        // стратегии были проверены детерминированно, а не по случайности.
+        const mode = draft.switchGate ?? 'single';
+        if (mode === 'all') {
+          gates.push({ switchIndex: candidate.index, blockers: [...blockers] });
+          continue;
+        }
+        gates.push({ switchIndex: candidate.index, blockers: [...blockers].slice(0, 1) });
+      }
+    }
+    if (gates.length > 0) {
+      // Для полного запрета обхода берём самые ранние ворота: их выбор не
+      // должен зависеть от случайного перебора, иначе редкая строгая
+      // раскладка теряется среди вариантов.
+      const gate = draft.switchGate === 'all' ? gates[0] : pick(gates, rng);
+      for (const blocker of gate.blockers) draft.floor[blocker] = 0;
+      draft.cells.set(gate.switchIndex, CellType.SWITCH);
+      return true;
+    }
+
+    // Запасной вариант: обычная кнопка на маршруте. Приёмка предпочтёт
+    // строгий уровень; расслабленный останется только на крайний случай.
+    const free = routeIndexes(draft);
     if (free.length === 0) return false;
     draft.cells.set(pick(free, rng), CellType.SWITCH);
     return true;

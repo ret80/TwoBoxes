@@ -83,6 +83,16 @@ describe('MenuController: карусель главного меню', () => {
     );
   });
 
+  it('кнопка справа от поля сида очищает его', () => {
+    const { root } = setup();
+    const screen = root.querySelector('.screen--debug') as HTMLElement;
+    const input = screen.querySelector<HTMLInputElement>('.settings-row__input')!;
+    const clear = screen.querySelector<HTMLButtonElement>('.settings-row__clear')!;
+    input.value = '0x1234';
+    clear.click();
+    expect(input.value).toBe('');
+  });
+
   it('«Продолжить» и «Играть» открывают игру', () => {
     const { ctrl, actor, episodes } = setup();
     episodes.markStarted();

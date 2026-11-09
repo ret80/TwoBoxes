@@ -35,6 +35,8 @@ export interface FieldDraft {
   reserved?: Set<number>;
   /** Прогресс эпизода 0..1: сила ловушки и агрессивность раскладки. */
   progress?: number;
+  /** Режим ворот переключателя (см. `BuildContext.switchGate`). */
+  switchGate?: 'single' | 'all';
 }
 
 export interface MechanicModule {

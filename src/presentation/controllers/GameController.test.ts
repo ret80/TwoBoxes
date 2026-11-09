@@ -174,5 +174,22 @@ describe('GameController: завершение уровня', () => {
     seed.click();
     expect(seed.classList.contains('game-seed--ok')).toBe(true);
     expect(label.textContent).toBe('TEST');
+
+    // «Дальше» на победе тестового уровня собирает новый сид с теми же
+    // механиками и сложностью, а не переключает эпизод кампании.
+    const nextSeed = game.nextTestLevel();
+    expect(nextSeed).toBe((recipe.seed + 1) >>> 0);
+    expect(seed.textContent).toBe(formatLevelSeed(nextSeed!));
   }, 20_000);
+
+  it('победа тестового уровня помечена как тестовая', () => {
+    const { game, actor, showCompleted } = setup(false);
+    game.startTestLevel(createLevelFromData(0, 0, ['#R.r#']), 'TEST', {
+      mechanics: [],
+      difficulty: 50,
+      seed: 1,
+    });
+    playUntil(game, () => (actor.getSnapshot().value as string) === 'completed');
+    expect(showCompleted).toHaveBeenCalledWith(expect.anything(), true);
+  });
 });

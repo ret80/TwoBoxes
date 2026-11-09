@@ -125,6 +125,7 @@ export function buildTrapGateCandidate(ctx: BuildContext): BuildOutcome {
     route: cleanWalk.route,
     reserved,
     progress: ctx.progress,
+    switchGate: ctx.switchGate,
   };
 
   // Сначала остальные механики: они не должны занять выбранные ворота.

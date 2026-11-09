@@ -397,17 +397,30 @@ gameActor.subscribe((snapshot) => {
 
 const completedDialog = new CompletedDialogController(dialogRoot, i18n, audio, {
   onNext: () => {
+    if (game.isTestLevel) {
+      const seed = game.nextTestLevel();
+      if (seed !== null) menuCtrl.setDebugSeed(seed);
+      return;
+    }
     episodes.nextLevel();
     game.startLevel(episodes.getCurLevel());
   },
-  onHome: () => menuActor.send({ type: 'HOME' }),
+  onHome: () => {
+    // На тестовом уровне «домой» — это выход в отладочное меню.
+    if (game.isTestLevel) {
+      completedDialog.hide();
+      menuActor.send({ type: 'EXIT_TEST' });
+      return;
+    }
+    menuActor.send({ type: 'HOME' });
+  },
   onReset: () => game.reset(),
   onVisibility: setDialogVisible,
 });
 
 game.attachDialogs({
   showPause: () => pauseDialog.show(),
-  showCompleted: (result) => completedDialog.show(result),
+  showCompleted: (result, testMode) => completedDialog.show(result, testMode),
   hideDialogs: () => {
     pauseDialog.hide();
     completedDialog.hide();

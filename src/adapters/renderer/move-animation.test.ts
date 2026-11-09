@@ -26,8 +26,9 @@ function internals(renderer: PicoglRenderer) {
   const group = (tweens as unknown as { group: { getAll(): unknown[]; update(time: number): void } })
     .group;
   const portals = (renderer as unknown as { portals: unknown[] }).portals;
+  const portalQueue = (renderer as unknown as { portalQueue: unknown[] }).portalQueue;
   const boxPos = (renderer as unknown as { boxPos: { x: number; z: number }[] }).boxPos;
-  return { tweens, group, portals, boxPos };
+  return { tweens, group, portals, portalQueue, boxPos };
 }
 
 const path = (...cells: [number, number, boolean?][]) =>
@@ -137,5 +138,108 @@ describe('анимация хода', () => {
     // анимация телепорта (она стартует, когда tween доедет до входа).
     expect(group.getAll()).toHaveLength(1);
     expect(portals).toHaveLength(0);
+  });
+
+  it('второй кубик ждёт, пока первый закончит телепорт', () => {
+    const renderer = new PicoglRenderer();
+    const state = field();
+    state.boxes = [
+      { pos: new Position(1, 1), color: ColorType.ONE },
+      { pos: new Position(1, 2), color: ColorType.TWO },
+    ];
+    renderer.render(state);
+    const started = performance.now();
+
+    renderer.animateMove(
+      [
+        {
+          color: ColorType.ONE,
+          from: new Position(1, 1),
+          to: new Position(5, 3),
+          path: path([1, 1], [2, 1], [5, 3, true]),
+        },
+        {
+          color: ColorType.TWO,
+          from: new Position(1, 2),
+          to: new Position(6, 3),
+          path: path([1, 2], [1, 1], [1, 0], [6, 3, true]),
+        },
+      ],
+      () => {},
+    );
+
+    const { group, portals, portalQueue, boxPos } = internals(renderer);
+    // Оба кубика ехали в одном кадре, но портал один: первый уже прыгает,
+    // второй остановлен до входа и в очередь телепортов ещё не попал.
+    group.update(started + 10_000);
+    expect(portals).toHaveLength(1);
+    expect(portalQueue).toHaveLength(0);
+    expect(boxPos[1].z).toBeGreaterThan(0.5);
+  });
+
+  it('создание нового уровня сбрасывает незаконченный телепорт', () => {
+    const renderer = new PicoglRenderer();
+    const state = field();
+    renderer.render(state);
+    const started = performance.now();
+
+    renderer.animateMove(
+      [
+        {
+          color: ColorType.ONE,
+          from: new Position(1, 1),
+          to: new Position(4, 3),
+          path: path([1, 1], [2, 1], [4, 3, true]),
+        },
+      ],
+      () => {},
+    );
+    internals(renderer).group.update(started + 10_000);
+    expect(internals(renderer).portals).toHaveLength(1);
+
+    const next = field();
+    next.boxes = [{ pos: new Position(5, 5), color: ColorType.ONE }];
+    renderer.animateCreate(next, () => {});
+
+    const { portals, portalQueue, boxPos } = internals(renderer);
+    expect(portals).toHaveLength(0);
+    expect(portalQueue).toHaveLength(0);
+    // Кубик уже на старте новой карты, а не там, где его застал старый прыжок.
+    expect(boxPos[0].x).toBe(5.5);
+    expect(boxPos[0].z).toBe(5.5);
+  });
+
+  it('обмен через портал запускает оба прыжка одновременно', () => {
+    const renderer = new PicoglRenderer();
+    const state = field();
+    state.boxes = [
+      { pos: new Position(1, 1), color: ColorType.ONE },
+      { pos: new Position(4, 3), color: ColorType.TWO },
+    ];
+    renderer.render(state);
+    const started = performance.now();
+
+    renderer.animateMove(
+      [
+        {
+          color: ColorType.ONE,
+          from: new Position(1, 1),
+          to: new Position(4, 3),
+          path: path([1, 1], [2, 1], [4, 3, true]),
+        },
+        {
+          color: ColorType.TWO,
+          from: new Position(4, 3),
+          to: new Position(2, 1),
+          path: path([4, 3], [2, 1, true]),
+        },
+      ],
+      () => {},
+    );
+
+    internals(renderer).group.update(started + 10_000);
+    const { portals, portalQueue } = internals(renderer);
+    expect(portals).toHaveLength(2);
+    expect(portalQueue).toHaveLength(0);
   });
 });

@@ -5,6 +5,8 @@ import { checkWin } from '../../rules/check';
 import { createMechanicState } from '../../types/mechanic-state';
 import { generateTestLevel } from '../level-generator';
 import { solveLevel } from '../solver';
+import { analyzeLevel } from '../check/analyzer';
+import { stripMechanics } from '../accept/mechanic-proof';
 import { resolveMechanics } from '.';
 import type { MechanicId } from './types';
 
@@ -91,4 +93,26 @@ describe('mechanics pipeline', () => {
       );
     }, 120_000);
   }
+
+  it('switch + oneWay: кнопка обязательна, а не декорация', () => {
+    for (const seed of [0x00013012, 0x0001aa39]) {
+      const generated = generateTestLevel({
+        mechanics: ['switch', 'oneWay'],
+        difficulty: 50,
+        seed,
+      });
+      expect(generated, `seed ${seed.toString(16)}`).not.toBeNull();
+      if (!generated) continue;
+
+      const level = createLevelFromData(0, 0, generated.rows);
+      for (const id of ['switch', 'oneWay'] as const) {
+        const without = analyzeLevel(stripMechanics(level, [id]), {
+          maxSolutionLength: generated.solution.length,
+        });
+        expect(without.kind, `${id} ${seed.toString(16)} must not be decorative`).not.toBe(
+          'solved',
+        );
+      }
+    }
+  }, 120_000);
 });

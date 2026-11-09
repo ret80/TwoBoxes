@@ -109,6 +109,30 @@ describe('mechanic rules', () => {
     expect(free.boxes[0].pos.x).toBe(5);
   });
 
+  it('trap does not tick when a free box is blocked by a wall', () => {
+    const level = levelOf([
+      '#######',
+      '#R.t..#',
+      '#Y#...#',
+      '#.....#',
+      '#######',
+    ]);
+    const first = moveBoxes(level, level.boxes, DIRS.right, 0, 0)!;
+    // Красный встал на ловушку, жёлтому мешает стена справа.
+    expect(first.mechanicState?.locks[0]).toBe(1);
+    expect(first.boxes[0].pos.equals(new Position(3, 1))).toBe(true);
+
+    // Нажатие в стену не должно списывать ход ловушки: свободный кубик
+    // остался на месте, значит хода не было.
+    const blocked = moveBoxes(level, first.boxes, DIRS.right, 1, 0, first.mechanicState);
+    expect(blocked).toBeNull();
+
+    // Жёлтый реально переехал вниз — только теперь ловушка отпускает красный.
+    const released = moveBoxes(level, first.boxes, DIRS.down, 1, 0, first.mechanicState)!;
+    expect(released.boxes[1].pos.equals(new Position(1, 3))).toBe(true);
+    expect(released.mechanicState?.locks[0]).toBe(0);
+  });
+
   it('directional elbow turns only when entered from its input side', () => {
     const level = levelOf([
       '#######',

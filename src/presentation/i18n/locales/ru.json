@@ -69,6 +69,7 @@
   "DEBUG_GENERATING": "Генерирую…",
   "DEBUG_GENERATE_FAILED": "Не удалось собрать уровень с этим набором. Попробуйте другую сложность.",
   "DEBUG_SEED": "Сид (пусто — случайный)",
+  "DEBUG_SEED_CLEAR": "Очистить сид",
   "DEBUG_SEED_PLACEHOLDER": "0x0de40 или 56964",
   "DEBUG_SEED_INVALID": "Сид должен быть числом — десятичным или 0x-hex.",
   "DEBUG_SEED_USED": "Уровень собран по сиду %s",

@@ -1,6 +1,6 @@
 import type { LocaleManager } from '../i18n/LocaleManager';
 import type { GameResult } from '../../core/types/game-result';
-import { buildCompletedDialog, el } from '../html/screens';
+import { buildCompletedDialog, el, setButtonIcon } from '../html/screens';
 
 /**
  * Контроллер диалога завершения уровня (план 11.7).
@@ -12,6 +12,7 @@ export class CompletedDialogController {
   private statsEl!: HTMLElement;
   private starsEl!: HTMLElement;
   private titleEl!: HTMLElement;
+  private homeEl!: HTMLButtonElement;
   private container: HTMLElement;
   private i18n: LocaleManager;
   private audio: { playSfx(name: string): void };
@@ -45,7 +46,7 @@ export class CompletedDialogController {
 
   private build(): void {
     this.root?.remove();
-    const { root, stats, stars, title } = buildCompletedDialog(this.i18n, {
+    const { root, stats, stars, title, home } = buildCompletedDialog(this.i18n, {
       onNext: () => this.onNextGame(),
       onHome: () => this.onHomeGame(),
       onReset: () => this.onResetGame(),
@@ -54,10 +55,11 @@ export class CompletedDialogController {
     this.statsEl = stats;
     this.starsEl = stars;
     this.titleEl = title;
+    this.homeEl = home;
     this.container.appendChild(root);
   }
 
-  show(result: GameResult): void {
+  show(result: GameResult, testMode = false): void {
     const minutes = Math.floor(result.time / 60);
     const seconds = Math.floor(result.time % 60);
     const timeStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
@@ -78,6 +80,16 @@ export class CompletedDialogController {
     rows.push(this.i18n.t('TIME', timeStr));
     for (const text of rows) this.statsEl.appendChild(el('div', 'dialog__stat', text));
 
+    // В тестовом уровне это другой экран победы: вместо выхода в главное меню
+    // возвращаемся в отладку, а «дальше» собирает новую карту.
+    this.titleEl.textContent = testMode
+      ? this.i18n.t('DEBUG_TEST_LEVEL')
+      : this.i18n.t('COMPLETED');
+    setButtonIcon(
+      this.homeEl,
+      testMode ? 'exit' : 'home',
+      testMode ? this.i18n.t('DEBUG_BACK') : this.i18n.t('MMENU'),
+    );
     this.root.classList.remove('dialog--hidden');
     this.audio.playSfx('message-appear');
     this.onVisibility?.(true);

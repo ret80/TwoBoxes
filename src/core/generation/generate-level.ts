@@ -103,11 +103,17 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
   const attempts = Math.max(1, options.buildAttempts ?? BUILD_ATTEMPTS);
 
   // Запас пути генератора: BFS должен иметь место найти короткий обход.
-  let walkMoves = maxMoves + 1;
+  const initialWalkMoves = maxMoves + 1;
+  let walkMoves = initialWalkMoves;
   const accepted: AcceptedCandidate[] = [];
 
   /** Один проход построений; останавливается, когда набрано `targetCandidates`. */
-  const collect = (from: number, to: number, requireMechanics: boolean): void => {
+  const collect = (
+    from: number,
+    to: number,
+    requireMechanics: boolean,
+    switchGate?: 'single' | 'all',
+  ): void => {
     for (let attempt = from; attempt < to; attempt++) {
       const context = {
         seed: options.seed,
@@ -119,6 +125,7 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
         patterns,
         budget,
         progress,
+        switchGate,
       };
       // Ловушки строим через «ворота»: они дают осмысленную задержку чаще,
       // чем случайная клетка на маршруте. Если геометрия не сложилась — тот
@@ -154,12 +161,29 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
   };
 
   // Сначала строгая приёмка: механика обязана быть необходимой. Для
-  // переключателя это редкое свойство — если за отведённую долю бюджета
-  // строгих кандидатов нет, добираем расслабленных, иначе эпизод не соберётся.
-  const strictEnd = Math.min(attempts, Math.max(20, Math.round(attempts * 0.45)));
-  collect(0, strictEnd, modules.length > 0);
-  if (accepted.length === 0 && attempts > strictEnd) {
-    collect(strictEnd, attempts, false);
+  // переключателя сначала перебираем весь бюджет только строгих кандидатов:
+  // кнопка, которая не влияет на решение, — баг, а не «декорация». Совсем без
+  // запаса нельзя — поздние 13×13 иногда не находят строгую раскладку, — но
+  // расслабленный проход идёт только после полного строгого.
+  if (modules.some((module) => module.id === 'switch')) {
+    for (const gateMode of ['single', 'all'] as const) {
+      walkMoves = initialWalkMoves;
+      collect(0, attempts, true, gateMode);
+      if (accepted.length >= targetCandidates) break;
+    }
+    // Поздние уровни с 13×13 иногда не находят строгую раскладку за весь
+    // бюджет. Без запасного прохода эпизод перестал бы собираться совсем;
+    // приоритет всё равно у строгих кандидатов.
+    if (accepted.length === 0) {
+      walkMoves = initialWalkMoves;
+      collect(0, attempts, false, 'single');
+    }
+  } else {
+    const strictEnd = Math.min(attempts, Math.max(20, Math.round(attempts * 0.45)));
+    collect(0, strictEnd, modules.length > 0);
+    if (accepted.length === 0 && attempts > strictEnd) {
+      collect(strictEnd, attempts, false);
+    }
   }
 
   if (accepted.length === 0) return null;

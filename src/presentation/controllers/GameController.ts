@@ -74,7 +74,7 @@ export class GameController {
 
   // Диалоги (подключаются позже)
   private showPause: (() => void) | null = null;
-  private showCompleted: ((result: GameResult) => void) | null = null;
+  private showCompleted: ((result: GameResult, testMode: boolean) => void) | null = null;
   private hideDialogs: (() => void) | null = null;
 
   constructor(
@@ -119,7 +119,7 @@ export class GameController {
 
   attachDialogs(ui: {
     showPause: () => void;
-    showCompleted: (result: GameResult) => void;
+    showCompleted: (result: GameResult, testMode: boolean) => void;
     hideDialogs: () => void;
   }): void {
     this.showPause = ui.showPause;
@@ -250,6 +250,21 @@ export class GameController {
     this.testLabel = label;
     if (recipe) this.testRecipe = recipe;
     this.startLevel(level, true);
+  }
+
+  /**
+   * Следующий тестовый уровень по тем же механикам и сложности, но с новым
+   * сидом. Возвращает использованный сид; null — собрать не удалось.
+   */
+  nextTestLevel(): number | null {
+    const recipe = this.testRecipe;
+    if (!recipe) return null;
+    const seed = recipe.seed === undefined ? undefined : (recipe.seed + 1) >>> 0;
+    const nextRecipe = { ...recipe, seed };
+    const generated = generateTestLevel(nextRecipe);
+    if (!generated) return null;
+    this.startTestLevel(createLevelFromData(0, 0, generated.rows), this.testLabel, nextRecipe);
+    return seed ?? null;
   }
 
   /** Идёт тестовый уровень из отладки: вход в игру заменён выходом в отладку. */
@@ -429,14 +444,17 @@ export class GameController {
         ? Math.max(1, ctx.moves)
         : this.episodes.minMoves(ctx.level.episodeId, ctx.level.levelId);
       const hints = this.statistics.getHints();
-      this.showCompleted?.({
-        moves: ctx.moves,
-        time: ctx.time,
-        completed: true,
-        hints,
-        minMoves,
-        stars: starsForResult(ctx.moves, minMoves, hints),
-      });
+      this.showCompleted?.(
+        {
+          moves: ctx.moves,
+          time: ctx.time,
+          completed: true,
+          hints,
+          minMoves,
+          stars: starsForResult(ctx.moves, minMoves, hints),
+        },
+        this.testMode,
+      );
     }
   }
 

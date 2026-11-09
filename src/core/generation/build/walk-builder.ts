@@ -260,6 +260,7 @@ export function buildWalkCandidate(ctx: BuildContext): BuildOutcome {
     route: cleanWalk.route,
     reserved,
     progress: ctx.progress,
+    switchGate: ctx.switchGate,
   };
 
   for (const module of ctx.modules) {

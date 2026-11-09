@@ -507,7 +507,7 @@ export function buildDebugScreen(
       seed: number | null,
     ) => Promise<number | null>;
   },
-): HTMLElement {
+): { root: HTMLElement; seedInput: HTMLInputElement } {
   const root = el('div', 'screen screen--info screen--debug');
   root.dataset.screen = 'debug';
   root.append(hideLayer('title'));
@@ -593,7 +593,7 @@ export function buildDebugScreen(
 
   // Сид: можно ввести конкретное число (десятичное или `0x`-hex), чтобы
   // получить тот же уровень, что и раньше. Пустое поле — случайный сид.
-  const seedRow = el('label', 'settings-row');
+  const seedRow = el('div', 'settings-row settings-row--seed');
   seedRow.appendChild(el('span', 'settings-row__label', i18n.t('DEBUG_SEED')));
   const seedInput = el<HTMLInputElement>('input', 'settings-row__input');
   seedInput.type = 'text';
@@ -604,7 +604,17 @@ export function buildDebugScreen(
   if (values.seed !== null && values.seed !== undefined) {
     seedInput.value = formatLevelSeed(values.seed);
   }
-  seedRow.appendChild(seedInput);
+  const seedField = el('div', 'settings-row__seedField');
+  const clearSeed = el<HTMLButtonElement>('button', 'settings-row__clear', '×');
+  clearSeed.type = 'button';
+  clearSeed.title = i18n.t('DEBUG_SEED_CLEAR');
+  clearSeed.setAttribute('aria-label', i18n.t('DEBUG_SEED_CLEAR'));
+  clearSeed.addEventListener('click', () => {
+    seedInput.value = '';
+    seedInput.focus();
+  });
+  seedField.append(seedInput, clearSeed);
+  seedRow.appendChild(seedField);
   panel.appendChild(seedRow);
 
   const generate = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_GENERATE'));
@@ -638,7 +648,7 @@ export function buildDebugScreen(
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
   root.append(panel, back, hideLayer('bottom'));
-  return root;
+  return { root, seedInput };
 }
 
 /** Экран выбора уровня: сетка по 4 в ряд, замки на закрытых (раздел 6.2). */
@@ -1056,7 +1066,13 @@ export function buildPauseDialog(
 export function buildCompletedDialog(
   i18n: LocaleManager,
   cb: { onNext: () => void; onHome: () => void; onReset: () => void },
-): { root: HTMLElement; stats: HTMLElement; stars: HTMLElement; title: HTMLElement } {
+): {
+  root: HTMLElement;
+  stats: HTMLElement;
+  stars: HTMLElement;
+  title: HTMLElement;
+  home: HTMLButtonElement;
+} {
   const root = el('div', 'dialog dialog--hidden');
   root.dataset.dialog = 'completed';
   const box = el('div', 'dialog__box panel');
@@ -1080,5 +1096,5 @@ export function buildCompletedDialog(
   // Кнопки — отдельным рядом на уровне иконок главного меню (см. dialogs.css),
   // поэтому они не в панели со звёздами и статистикой.
   root.append(title, box, row);
-  return { root, stats, stars, title };
+  return { root, stats, stars, title, home };
 }
