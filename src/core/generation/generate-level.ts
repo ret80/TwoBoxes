@@ -1,5 +1,6 @@
 import { Position } from '../types/position';
 import { buildSwapLevel } from './build/swap-builder';
+import { buildTrapGateCandidate } from './build/trap-gate';
 import { buildWalkCandidate } from './build/walk-builder';
 import { acceptCandidate, type AcceptedCandidate } from './accept/criteria';
 import type { PatternKind } from './patterns';
@@ -38,6 +39,10 @@ export interface GeneratedLevel {
   deadEndRatio: number;
   /** Механики, которые реально встречаются в решении. */
   mechanics: MechanicId[];
+  /** Сколько раз на решении сработали ловушки. */
+  trapHits: number;
+  /** Суммарная задержка ловушек на решении, в ходах. */
+  trapWaits: number;
 }
 
 export interface GenerateLevelOptions {
@@ -62,6 +67,8 @@ export interface GenerateLevelOptions {
   candidates?: number;
   /** Подключённые механики; пусто — классический уровень. */
   mechanics?: MechanicId[];
+  /** Прогресс эпизода 0..1: ранние уровни получают слабые ловушки. */
+  progress?: number;
   /**
    * Детерминированный бюджет построений на один уровень. В отличие от
    * wall-clock ограничения, он не ломает воспроизводимость по сиду.
@@ -90,6 +97,8 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
   const modules = resolveMechanics(options.mechanics ?? []);
   const patterns = options.patterns ?? [];
   const budget = options.budget ?? Math.round(size * size * 0.55);
+  const progress = Math.min(1, Math.max(0, options.progress ?? 0.5));
+  const hasTrap = modules.some((module) => module.id === 'trap');
   const targetCandidates = Math.max(1, options.candidates ?? 1);
   const attempts = Math.max(1, options.buildAttempts ?? BUILD_ATTEMPTS);
 
@@ -97,10 +106,10 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
   let walkMoves = maxMoves + 1;
   const accepted: AcceptedCandidate[] = [];
 
-  /** Один проход построений. Возвращает число принятых кандидатов. */
+  /** Один проход построений; останавливается, когда набрано `targetCandidates`. */
   const collect = (from: number, to: number, requireMechanics: boolean): void => {
     for (let attempt = from; attempt < to; attempt++) {
-      const outcome = buildWalkCandidate({
+      const context = {
         seed: options.seed,
         attempt,
         size,
@@ -109,7 +118,15 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
         modules,
         patterns,
         budget,
-      });
+        progress,
+      };
+      // Ловушки строим через «ворота»: они дают осмысленную задержку чаще,
+      // чем случайная клетка на маршруте. Если геометрия не сложилась — тот
+      // же attempt повторяем обычным способом.
+      let outcome = hasTrap
+        ? buildTrapGateCandidate(context)
+        : buildWalkCandidate(context);
+      if (!outcome.ok && hasTrap) outcome = buildWalkCandidate(context);
       if (!outcome.ok) continue;
 
       const verdict = acceptCandidate(outcome.candidate, {
@@ -154,6 +171,8 @@ export function generateLevel(options: GenerateLevelOptions): GeneratedLevel | n
     score: chosen.score,
     deadEndRatio: chosen.deadEndRatio,
     mechanics: chosen.mechanics,
+    trapHits: chosen.trapHits,
+    trapWaits: chosen.trapWaits,
   };
 }
 

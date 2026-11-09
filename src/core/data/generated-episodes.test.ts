@@ -10,8 +10,9 @@ import type { MechanicId } from '../generation/mechanics';
 
 const MECHANIC_CHARS: Record<MechanicId, string[]> = {
   portal: ['a', 'b'],
-  trap: ['t'],
-  rotator: ['c', 'w'],
+  trap: ['t', 'T'],
+  rotator: ['1', '2', '3', '4', '5', '6', '7', '8'],
+  gyro: ['c', 'w'],
   switch: ['s'],
   oneWay: ['^', 'v', '<', '>'],
 };

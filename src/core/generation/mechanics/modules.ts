@@ -1,4 +1,5 @@
 import { CellType } from '../../types/cell';
+import type { Position } from '../../types/position';
 import {
   freeIndexes,
   indexPosition,
@@ -55,31 +56,126 @@ export const portalMechanic: MechanicModule = {
   },
 };
 
-/** Останавливает кубик и заставляет пропустить два следующих хода. */
+/** Останавливает кубик и заставляет пропустить один или два следующих хода. */
 export const trapMechanic: MechanicModule = {
   id: 'trap',
   label: 'Ловушки',
-  description: 'Кубик останавливается на клетке и пропускает два следующих хода.',
+  description: 'Кубик останавливается на клетке и пропускает один или два следующих хода.',
   expectedScore: 64,
   place(draft, rng) {
     const route = shuffle(routeIndexes(draft), rng);
     const free = route.length >= 2 ? route : shuffle(freeIndexes(draft), rng);
     if (free.length === 0) return false;
     const count = Math.min(free.length, 1 + (rng() < 0.35 ? 1 : 0));
-    for (let i = 0; i < count; i++) draft.cells.set(free[i], CellType.TRAP);
+    const progress = draft.progress ?? 0.5;
+    for (let i = 0; i < count; i++) {
+      // Ранние уровни щадят одним ходом, поздние всё чаще ставят сильную.
+      const strong = rng() < 0.15 + progress * 0.7;
+      draft.cells.set(free[i], strong ? CellType.TRAP_2 : CellType.TRAP_1);
+    }
     return true;
   },
   owns(cell) {
-    return cell === CellType.TRAP;
+    return cell === CellType.TRAP_1 || cell === CellType.TRAP_2;
   },
 };
 
-/** Поворачивает движение кубика на 90°. */
+const ELBOW_BY_ENTRY: Record<string, Record<'cw' | 'ccw', CellType>> = {
+  '0,-1': {
+    cw: CellType.ROTOR_ELBOW_UP_CW,
+    ccw: CellType.ROTOR_ELBOW_UP_CCW,
+  },
+  '1,0': {
+    cw: CellType.ROTOR_ELBOW_RIGHT_CW,
+    ccw: CellType.ROTOR_ELBOW_RIGHT_CCW,
+  },
+  '0,1': {
+    cw: CellType.ROTOR_ELBOW_DOWN_CW,
+    ccw: CellType.ROTOR_ELBOW_DOWN_CCW,
+  },
+  '-1,0': {
+    cw: CellType.ROTOR_ELBOW_LEFT_CW,
+    ccw: CellType.ROTOR_ELBOW_LEFT_CCW,
+  },
+};
+
+function elbowCell(
+  entry: { x: number; y: number },
+  clockwise: boolean,
+): CellType | null {
+  return ELBOW_BY_ENTRY[`${entry.x},${entry.y}`]?.[clockwise ? 'cw' : 'ccw'] ?? null;
+}
+
+/** Направления, в которых кубик проезжал клетку маршрута. */
+function routeDirections(draft: FieldDraft): Map<number, Position[]> {
+  const result = new Map<number, Position[]>();
+  for (const cell of draft.route ?? []) {
+    const list = result.get(cell.index) ?? [];
+    if (!list.some((dir) => dir.equals(cell.dir))) list.push(cell.dir);
+    result.set(cell.index, list);
+  }
+  return result;
+}
+
+/**
+ * Направленный угол. Ориентация берётся из направления входа на маршруте.
+ * Если клетку проезжали с разных сторон, угол всё равно допустим: со стороны
+ * входа он повернёт, с остальных кубик проедет прямо.
+ */
 export const rotatorMechanic: MechanicModule = {
   id: 'rotator',
   label: 'Ротаторы',
-  description: 'Клетка поворачивает движение кубика на 90° по или против часовой стрелки.',
+  description:
+    'Угол поворачивает кубик только при въезде со стороны входа; с других сторон кубик едет прямо.',
   expectedScore: 86,
+  place(draft, rng) {
+    const dirs = routeDirections(draft);
+    const route = shuffle(
+      routeIndexes(draft).filter((index) => dirs.has(index)),
+      rng,
+    );
+    if (route.length < 2) return false;
+
+    const count = Math.min(route.length, 2 + Math.floor(rng() * 3));
+    let placed = 0;
+    for (const index of route) {
+      if (placed >= count) break;
+      const entry = dirs.get(index)?.[0];
+      if (!entry) continue;
+
+      // Предпочитаем выход, который ведёт на пол и не занят другой механикой.
+      // Если оба выхода свободны, выбор случайный, но детерминированный rng.
+      const options = ([true, false] as const).filter((clockwise) => {
+        const cell = elbowCell(entry, clockwise);
+        if (cell === null) return false;
+        const exit = clockwise
+          ? { x: -entry.y, y: entry.x }
+          : { x: entry.y, y: -entry.x };
+        const pos = indexPosition(index, draft.size);
+        const next = (pos.y + exit.y) * draft.size + (pos.x + exit.x);
+        return draft.floor[next] === 1 && !draft.cells.has(next);
+      });
+      if (options.length === 0) continue;
+
+      const clockwise = options[Math.floor(rng() * options.length)];
+      const cell = elbowCell(entry, clockwise);
+      if (cell === null) continue;
+      draft.cells.set(index, cell);
+      placed++;
+    }
+    return placed >= 2;
+  },
+  owns(cell) {
+    return cell >= CellType.ROTOR_ELBOW_UP_CW && cell <= CellType.ROTOR_ELBOW_LEFT_CCW;
+  },
+};
+
+/** Старое поведение ротатора: поворот на 90° независимо от стороны входа. */
+export const gyroMechanic: MechanicModule = {
+  id: 'gyro',
+  label: 'Гироскопы',
+  description: 'Клетка всегда поворачивает движение кубика на 90° по или против часовой стрелки.',
+  expectedScore: 84,
   place(draft, rng) {
     const route = shuffle(routeIndexes(draft), rng);
     const free = route.length >= 2 ? route : shuffle(freeIndexes(draft), rng);
@@ -88,21 +184,22 @@ export const rotatorMechanic: MechanicModule = {
     for (let i = 0; i < count; i++) {
       draft.cells.set(
         free[i],
-        rng() < 0.5 ? CellType.ROTOR_CW : CellType.ROTOR_CCW,
+        rng() < 0.5 ? CellType.GYRO_CW : CellType.GYRO_CCW,
       );
     }
     return true;
   },
   owns(cell) {
-    return cell === CellType.ROTOR_CW || cell === CellType.ROTOR_CCW;
+    return cell === CellType.GYRO_CW || cell === CellType.GYRO_CCW;
   },
 };
 
-/** Переворачивает все ротаторы; сам по себе бесполезен. */
+/** Переворачивает все углы и гироскопы; сам по себе бесполезен. */
 export const switchMechanic: MechanicModule = {
   id: 'switch',
   label: 'Переключатель',
-  description: 'Проезд по кнопке переворачивает все ротаторы: направление поворота меняется.',
+  description:
+    'Проезд по кнопке переворачивает все углы и гироскопы: направление поворота меняется.',
   expectedScore: 83,
   requires: ['rotator'],
   place(draft, rng) {

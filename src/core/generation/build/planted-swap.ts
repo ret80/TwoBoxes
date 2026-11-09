@@ -159,6 +159,8 @@ export function buildPlantedSwap(options: SwapBuildOptions): SwapLevel | null {
       score,
       deadEndRatio,
       mechanics: ['portal'],
+      trapHits: 0,
+      trapWaits: 0,
     };
   }
 

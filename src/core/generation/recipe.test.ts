@@ -53,7 +53,7 @@ describe('рецепт уровня', () => {
         seed: 0x5e3e5,
         count: 8,
         mechanics: ['switch'],
-        levels: { 0: '75ce2e08', 7: 'bea2acb0' },
+        levels: { 0: '58bd278b', 7: '0fa3b5d9' },
       },
     ];
 

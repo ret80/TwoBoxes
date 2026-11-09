@@ -13,15 +13,25 @@ export enum CellEffect {
   NONE = 0,
   TRAP = 1,
   SWITCH = 2,
-  ROTOR_CW = 3,
-  ROTOR_CCW = 4,
+  GYRO_CW = 3,
+  GYRO_CCW = 4,
+  ROTOR_ELBOW = 5,
 }
 
 const EFFECT_BY_CELL: Record<number, CellEffect> = {
-  [CellType.TRAP]: CellEffect.TRAP,
+  [CellType.TRAP_1]: CellEffect.TRAP,
+  [CellType.TRAP_2]: CellEffect.TRAP,
   [CellType.SWITCH]: CellEffect.SWITCH,
-  [CellType.ROTOR_CW]: CellEffect.ROTOR_CW,
-  [CellType.ROTOR_CCW]: CellEffect.ROTOR_CCW,
+  [CellType.GYRO_CW]: CellEffect.GYRO_CW,
+  [CellType.GYRO_CCW]: CellEffect.GYRO_CCW,
+  [CellType.ROTOR_ELBOW_UP_CW]: CellEffect.ROTOR_ELBOW,
+  [CellType.ROTOR_ELBOW_RIGHT_CW]: CellEffect.ROTOR_ELBOW,
+  [CellType.ROTOR_ELBOW_DOWN_CW]: CellEffect.ROTOR_ELBOW,
+  [CellType.ROTOR_ELBOW_LEFT_CW]: CellEffect.ROTOR_ELBOW,
+  [CellType.ROTOR_ELBOW_UP_CCW]: CellEffect.ROTOR_ELBOW,
+  [CellType.ROTOR_ELBOW_RIGHT_CCW]: CellEffect.ROTOR_ELBOW,
+  [CellType.ROTOR_ELBOW_DOWN_CCW]: CellEffect.ROTOR_ELBOW,
+  [CellType.ROTOR_ELBOW_LEFT_CCW]: CellEffect.ROTOR_ELBOW,
 };
 
 /** Прямой lookup по числу клетки: без колбэков на каждом шаге. */

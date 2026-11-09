@@ -37,6 +37,7 @@ export function generateTestLevel(options: TestLevelOptions): GeneratedLevel | n
       candidates: 4,
       buildAttempts: 100,
       mechanics: options.mechanics,
+      progress: t,
     });
     if (generated) return generated;
   }

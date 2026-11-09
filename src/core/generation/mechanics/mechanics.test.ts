@@ -17,6 +17,7 @@ const CASES: { id: MechanicId; difficulty: number; label: string }[] = [
   { id: 'portal', difficulty: 55, label: 'Порталы' },
   { id: 'trap', difficulty: 55, label: 'Ловушки' },
   { id: 'rotator', difficulty: 55, label: 'Ротаторы' },
+  { id: 'gyro', difficulty: 55, label: 'Гироскопы' },
   { id: 'switch', difficulty: 55, label: 'Переключатель' },
   { id: 'oneWay', difficulty: 55, label: 'Односторонние' },
 ];
@@ -67,11 +68,25 @@ describe('mechanics pipeline', () => {
       expect(checkWin(boxes, level.ends), `${testCase.id} replay must win`).toBe(true);
       expect(generated.mechanics).toContain(testCase.id);
 
+      const map = generated.rows.join('');
+      if (testCase.id === 'trap') {
+        expect(generated.trapHits, 'trap must actually fire').toBeGreaterThan(0);
+        expect(map).toMatch(/[tT]/);
+      }
+      if (testCase.id === 'rotator') {
+        expect(map).toMatch(/[1-8]/);
+        expect(map).not.toMatch(/[cw]/);
+      }
+      if (testCase.id === 'gyro') {
+        expect(map).toMatch(/[cw]/);
+      }
+
       // eslint-disable-next-line no-console
       console.log(
         `[mechanics] ${testCase.id}: score=${generated.score}, ` +
           `moves=${solved.solution.length}, states=${solved.states}, ` +
           `deadEnds=${(generated.deadEndRatio * 100).toFixed(1)}%, ` +
+          `traps=${generated.trapHits}/${generated.trapWaits}, ` +
           `used=${generated.mechanics.join('+')}, rows=${generated.rows.length}`,
       );
     }, 120_000);

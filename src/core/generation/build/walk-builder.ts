@@ -145,10 +145,16 @@ export function continueWalk(
     if (found.moved) {
       // Маршрут — все клетки, которые проехали кубики, с направлением входа.
       // Вторая механика ставится именно сюда, а не в случайную клетку.
-      for (const path of found.paths) {
+      for (let box = 0; box < found.paths.length; box++) {
+        const path = found.paths[box];
         for (let i = 1; i < path.length; i++) {
           const pos = path[i].pos;
-          route.push({ index: pos.y * level.width + pos.x, dir: found.dir });
+          route.push({
+            index: pos.y * level.width + pos.x,
+            dir: found.dir,
+            box,
+            step: dirs.length,
+          });
         }
       }
     }
@@ -179,7 +185,7 @@ function walk(
 }
 
 /** Свободные клетки поля, не занятые механиками. */
-function freePositions(floor: Uint8Array, size: number): Position[] {
+export function freePositions(floor: Uint8Array, size: number): Position[] {
   const result: Position[] = [];
   for (let y = 1; y < size - 1; y++) {
     for (let x = 1; x < size - 1; x++) {
@@ -189,7 +195,7 @@ function freePositions(floor: Uint8Array, size: number): Position[] {
   return result;
 }
 
-function pickStarts(free: Position[], rng: () => number): Position[] | null {
+export function pickStarts(free: Position[], rng: () => number): Position[] | null {
   shuffle(free, rng);
   for (let i = 0; i < free.length; i++) {
     for (let j = i + 1; j < free.length; j++) {
@@ -204,7 +210,7 @@ function pickStarts(free: Position[], rng: () => number): Position[] | null {
 }
 
 /** Собрать поле: паттерны эпизода или случайная комната. */
-function buildField(
+export function buildField(
   ctx: BuildContext,
   rng: () => number,
 ): { floor: Uint8Array; size: number } | null {
@@ -253,6 +259,7 @@ export function buildWalkCandidate(ctx: BuildContext): BuildOutcome {
     cells: new Map<number, CellType>(),
     route: cleanWalk.route,
     reserved,
+    progress: ctx.progress,
   };
 
   for (const module of ctx.modules) {

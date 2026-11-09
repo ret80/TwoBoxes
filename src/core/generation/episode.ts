@@ -1,4 +1,4 @@
-import { episodeProfiles } from './curve';
+import { episodeProfiles, progressAt } from './curve';
 import {
   generateLevel,
   type GeneratedLevel,
@@ -35,6 +35,7 @@ function episodeLevelOptions(
     score: profile.score,
     candidates: 4,
     mechanics,
+    progress: progressAt(index, count),
   };
 }
 

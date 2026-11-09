@@ -846,8 +846,14 @@ function compassFigure(): SVGSVGElement {
   return svg;
 }
 
-/** Цвета клеток-механик: те же, что в сцене (portal A/B и ловушка). */
-const CELL_ACCENT = { portal: '#5c9ee0', portalB: '#bd73d6', trap: '#d16b57' } as const;
+/** Цвета клеток-механик: те же, что в сцене (порталы, ловушка, угол, гироскоп). */
+const CELL_ACCENT = {
+  portal: '#5c9ee0',
+  portalB: '#bd73d6',
+  trap: '#d16b57',
+  rotor: '#8fbfb5',
+  gyro: '#8ea9d6',
+} as const;
 
 /** Иллюстрация клетки-механики для списка «Специальные клетки». */
 function cellFigure(kind: MechanicId): SVGSVGElement {
@@ -878,19 +884,18 @@ function cellFigure(kind: MechanicId): SVGSVGElement {
       svgNode('circle', { cx: '26', cy: '20', r: '6', fill: CELL_ACCENT.portalB }),
     );
   } else if (kind === 'trap') {
+    // Две точки — сильная ловушка; слабая отличается одной точкой в игре.
     svg.append(
-      svgNode('path', {
-        d: 'M13 13 L27 27 M27 13 L13 27',
-        stroke: CELL_ACCENT.trap,
-        'stroke-width': '3.4',
-        'stroke-linecap': 'round',
-      }),
+      svgNode('circle', { cx: '16', cy: '20', r: '3.2', fill: CELL_ACCENT.trap }),
+      svgNode('circle', { cx: '24', cy: '20', r: '3.2', fill: CELL_ACCENT.trap }),
     );
   } else if (kind === 'rotator') {
-    // Поворот на 90°: стрелка входит снизу и выходит вправо.
+    // Направленный угол: вход снизу, выход вправо. Точка у входа отличает
+    // его от гироскопа, который поворачивает с любой стороны.
     svg.append(
+      svgNode('circle', { cx: '20', cy: '29', r: '2.2', fill: CELL_ACCENT.rotor }),
       svgNode('path', {
-        d: 'M20 28 V19 Q20 16 23 16 H28',
+        d: 'M20 26 V19 Q20 16 23 16 H28',
         fill: 'none',
         stroke: 'var(--color-coffee)',
         'stroke-width': '3',
@@ -899,6 +904,21 @@ function cellFigure(kind: MechanicId): SVGSVGElement {
       svgNode('path', {
         d: 'M25 12.5 L30.5 16 L25 19.5 Z',
         fill: 'var(--color-coffee)',
+      }),
+    );
+  } else if (kind === 'gyro') {
+    // Круговой значок: рамка с разрывом и наконечник.
+    svg.append(
+      svgNode('path', {
+        d: 'M26 13 A9 9 0 1 1 14 13',
+        fill: 'none',
+        stroke: CELL_ACCENT.gyro,
+        'stroke-width': '3.2',
+        'stroke-linecap': 'round',
+      }),
+      svgNode('path', {
+        d: 'M22.5 8.5 L28 13 L22.5 17.5 Z',
+        fill: CELL_ACCENT.gyro,
       }),
     );
   } else if (kind === 'switch') {

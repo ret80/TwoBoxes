@@ -3,7 +3,7 @@ import type { Candidate } from '../build/types';
 import { analyzeLevel } from '../check/analyzer';
 import { scoreDifficulty } from '../difficulty';
 import type { MechanicId } from '../mechanics';
-import { mechanicsInSolution, stripMechanics } from './mechanic-proof';
+import { mechanicsInSolution, stripMechanics, trapMetrics } from './mechanic-proof';
 
 /**
  * Приёмка кандидата знает, **почему** отказала.
@@ -36,6 +36,8 @@ export interface AcceptedCandidate {
   deadEndRatio: number;
   states: number;
   mechanics: MechanicId[];
+  trapHits: number;
+  trapWaits: number;
 }
 
 export interface RejectedCandidate {
@@ -108,6 +110,9 @@ export function acceptCandidate(
 
   // Каждая выбранная механика должна встречаться на траектории решения.
   const used = mechanicsInSolution(candidate.level, analysis.solution, candidate.modules);
+  const traps = candidate.modules.some((module) => module.id === 'trap')
+    ? trapMetrics(candidate.level, analysis.solution)
+    : { hits: 0, waits: 0 };
   if (candidate.modules.length > 0 && used.length < candidate.modules.length) {
     return {
       ok: false,
@@ -148,5 +153,7 @@ export function acceptCandidate(
     deadEndRatio,
     states: analysis.states,
     mechanics: used.map((module) => module.id),
+    trapHits: traps.hits,
+    trapWaits: traps.waits,
   };
 }

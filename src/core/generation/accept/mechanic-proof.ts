@@ -1,4 +1,4 @@
-import { CellType } from '../../types/cell';
+import { CellType, trapLockTurns } from '../../types/cell';
 import type { Box } from '../../types/entity';
 import { Level } from '../../types/level';
 import { createMechanicState } from '../../types/mechanic-state';
@@ -42,6 +42,42 @@ export function mechanicsInSolution(
   }
 
   return modules.filter((module) => used.has(module.id));
+}
+
+export interface TrapMetrics {
+  /** Сколько раз кубики въехали в ловушку на кратчайшем решении. */
+  hits: number;
+  /** Сколько ходов задержки дали эти входы (1 или 2 за вход). */
+  waits: number;
+}
+
+/** Посчитать использование ловушек на уже найденном решении. */
+export function trapMetrics(level: Level, solution: Position[]): TrapMetrics {
+  let hits = 0;
+  let waits = 0;
+  let boxes: Box[] = level.boxes.map((box) => ({
+    pos: box.pos.clone(),
+    color: box.color,
+  }));
+  let state = createMechanicState(boxes.length);
+
+  for (const dir of solution) {
+    const next = moveBoxes(level, boxes, dir, 0, 0, state);
+    if (!next) break;
+    for (const path of next.paths ?? []) {
+      for (let i = 1; i < path.length; i++) {
+        const turns = trapLockTurns(level.grid.get(path[i].pos));
+        if (turns > 0) {
+          hits++;
+          waits += turns;
+        }
+      }
+    }
+    boxes = next.boxes;
+    state = next.mechanicState ?? state;
+  }
+
+  return { hits, waits };
 }
 
 /**

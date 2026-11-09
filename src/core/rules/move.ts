@@ -1,4 +1,13 @@
-import { CellType, isBoxCell, isEndCell, isMechanicCell, oneWayDir } from '../types/cell';
+import {
+  CellType,
+  isBoxCell,
+  isEndCell,
+  isMechanicCell,
+  oneWayDir,
+  rotorElbow,
+  rotorElbowExit,
+  trapLockTurns,
+} from '../types/cell';
 import type { Box } from '../types/entity';
 import type { GameState, PathPoint } from '../types/game-state';
 import type { Level } from '../types/level';
@@ -184,18 +193,30 @@ function simulate(
       }
       switch (cellEffect(want.cell)) {
         case CellEffect.TRAP:
-          nextState.locks[want.index] = 2;
+          nextState.locks[want.index] = trapLockTurns(want.cell);
           run.moving = false;
           break;
         case CellEffect.SWITCH:
           nextState.rotorFlip = !nextState.rotorFlip;
           break;
-        case CellEffect.ROTOR_CW:
+        case CellEffect.GYRO_CW:
           run.heading = rotate(run.heading, !nextState.rotorFlip);
           break;
-        case CellEffect.ROTOR_CCW:
+        case CellEffect.GYRO_CCW:
           run.heading = rotate(run.heading, nextState.rotorFlip);
           break;
+        case CellEffect.ROTOR_ELBOW: {
+          const elbow = rotorElbow(want.cell);
+          if (
+            elbow &&
+            elbow.entry.x === run.heading.x &&
+            elbow.entry.y === run.heading.y
+          ) {
+            const exit = rotorElbowExit(want.cell, nextState.rotorFlip);
+            if (exit) run.heading = new Position(exit.x, exit.y);
+          }
+          break;
+        }
         case CellEffect.NONE:
           break;
       }
@@ -242,9 +263,11 @@ function simulate(
  * - портал переносит кубик на парную клетку и отпускает дальше в том же
  *   направлении, а если на выходе стоит другой кубик — они меняются местами
  *   (все правила телепорта — в `rules/portal.ts`);
- * - ловушка останавливает кубик и отнимает два следующих хода;
- * - ротатор поворачивает движение на 90°;
- * - переключатель переворачивает все ротаторы;
+ * - ловушка останавливает кубик и отнимает один или два следующих хода;
+ * - направленный угол поворачивает движение, только если кубик въехал со
+ *   стороны входа; с других сторон клетка работает как обычный пол;
+ * - гироскоп всегда поворачивает движение на 90°;
+ * - переключатель переворачивает все углы и гироскопы;
  * - односторонняя клетка пропускает только по стрелке.
  *
  * Если все кубики в ловушках, ход всё равно засчитывается как пропуск: иначе

@@ -1,5 +1,6 @@
-import { CellType } from '../../types/cell';
+import { CellType, rotorElbowChar } from '../../types/cell';
 import {
+  gyroMechanic,
   oneWayMechanic,
   portalMechanic,
   rotatorMechanic,
@@ -16,6 +17,7 @@ export const ALL_MECHANICS: MechanicModule[] = [
   portalMechanic,
   trapMechanic,
   rotatorMechanic,
+  gyroMechanic,
   switchMechanic,
   oneWayMechanic,
 ];
@@ -49,11 +51,13 @@ export function mechanicChar(cell: CellType): string | null {
       return 'a';
     case CellType.PORTAL_B:
       return 'b';
-    case CellType.TRAP:
+    case CellType.TRAP_1:
       return 't';
-    case CellType.ROTOR_CW:
+    case CellType.TRAP_2:
+      return 'T';
+    case CellType.GYRO_CW:
       return 'c';
-    case CellType.ROTOR_CCW:
+    case CellType.GYRO_CCW:
       return 'w';
     case CellType.SWITCH:
       return 's';
@@ -66,6 +70,6 @@ export function mechanicChar(cell: CellType): string | null {
     case CellType.ONE_WAY_RIGHT:
       return '>';
     default:
-      return null;
+      return rotorElbowChar(cell);
   }
 }

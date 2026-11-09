@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createLevelFromData } from './create';
+import { CellType, rotorElbow, rotorElbowExit } from '../types/cell';
 import { ColorType } from '../types/color';
 import { planSlides } from './hint';
 import { moveBoxes } from './move';
@@ -10,6 +11,28 @@ import { DIRS, Position } from '../types/position';
 const levelOf = (rows: string[]) => createLevelFromData(0, 0, rows);
 
 describe('mechanic rules', () => {
+  it('eight elbow orientations match the documented entry/exit table', () => {
+    const cases: Array<[CellType, { x: number; y: number }, { x: number; y: number }]> = [
+      [CellType.ROTOR_ELBOW_UP_CW, { x: 0, y: -1 }, { x: 1, y: 0 }],
+      [CellType.ROTOR_ELBOW_RIGHT_CW, { x: 1, y: 0 }, { x: 0, y: 1 }],
+      [CellType.ROTOR_ELBOW_DOWN_CW, { x: 0, y: 1 }, { x: -1, y: 0 }],
+      [CellType.ROTOR_ELBOW_LEFT_CW, { x: -1, y: 0 }, { x: 0, y: -1 }],
+      [CellType.ROTOR_ELBOW_UP_CCW, { x: 0, y: -1 }, { x: -1, y: 0 }],
+      [CellType.ROTOR_ELBOW_RIGHT_CCW, { x: 1, y: 0 }, { x: 0, y: -1 }],
+      [CellType.ROTOR_ELBOW_DOWN_CCW, { x: 0, y: 1 }, { x: 1, y: 0 }],
+      [CellType.ROTOR_ELBOW_LEFT_CCW, { x: -1, y: 0 }, { x: 0, y: 1 }],
+    ];
+
+    for (const [cell, entry, exit] of cases) {
+      expect(rotorElbow(cell)?.entry, `${cell} entry`).toEqual(entry);
+      expect(rotorElbowExit(cell), `${cell} exit`).toEqual(exit);
+      expect(rotorElbowExit(cell, true), `${cell} flipped`).toEqual({
+        x: exit.x === 0 ? 0 : -exit.x,
+        y: exit.y === 0 ? 0 : -exit.y,
+      });
+    }
+  });
+
   it('portal carries a box to the paired exit and keeps sliding', () => {
     const level = levelOf([
       '#######',
@@ -29,10 +52,10 @@ describe('mechanic rules', () => {
     expect(next?.portalSwaps).toBe(0);
   });
 
-  it('trap stops the box and makes it skip two moves', () => {
+  it('strong trap stops the box and makes it skip two moves', () => {
     const level = levelOf([
       '#######',
-      '#R.t..#',
+      '#R.T..#',
       '#.....#',
       '#.....#',
       '#######',
@@ -68,7 +91,111 @@ describe('mechanic rules', () => {
     expect(free?.boxes[0].pos.x).toBe(5);
   });
 
-  it('rotator turns movement by 90 degrees', () => {
+  it('weak trap costs only one move', () => {
+    const level = levelOf([
+      '#######',
+      '#R.t..#',
+      '#.....#',
+      '#######',
+    ]);
+    const first = moveBoxes(level, level.boxes, DIRS.right, 0, 0)!;
+    expect(first.mechanicState?.locks[0]).toBe(1);
+
+    const waiting = moveBoxes(level, first.boxes, DIRS.right, 1, 0, first.mechanicState)!;
+    expect(waiting.mechanicState?.locks[0]).toBe(0);
+    expect(waiting.boxes[0].pos.x).toBe(3);
+
+    const free = moveBoxes(level, waiting.boxes, DIRS.right, 2, 0, waiting.mechanicState)!;
+    expect(free.boxes[0].pos.x).toBe(5);
+  });
+
+  it('directional elbow turns only when entered from its input side', () => {
+    const level = levelOf([
+      '#######',
+      '#R.2..#',
+      '#.....#',
+      '#.....#',
+      '#######',
+    ]);
+    const next = moveBoxes(level, level.boxes, DIRS.right, 0, 0);
+
+    expect(next?.boxes[0].pos.x).toBe(3);
+    expect(next?.boxes[0].pos.y).toBe(3);
+  });
+
+  it('directional elbow lets a box pass straight from the other three sides', () => {
+    const map = ['#######', '#.....#', '#..2..#', '#.....#', '#.....#', '#.....#', '#######'];
+    const cases: { from: Position; dir: Position; to: Position; label: string }[] = [
+      {
+        from: new Position(3, 1),
+        dir: DIRS.down,
+        to: new Position(3, 5),
+        label: 'сверху',
+      },
+      {
+        from: new Position(5, 2),
+        dir: DIRS.left,
+        to: new Position(1, 2),
+        label: 'справа',
+      },
+      {
+        from: new Position(3, 5),
+        dir: DIRS.up,
+        to: new Position(3, 1),
+        label: 'снизу',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const level = levelOf(map);
+      const next = moveBoxes(
+        level,
+        [{ pos: testCase.from, color: ColorType.ONE }],
+        testCase.dir,
+        0,
+        0,
+      );
+      expect(next?.boxes[0].pos.equals(testCase.to), testCase.label).toBe(true);
+    }
+  });
+
+  it('a box that stops on an elbow leaves by input, without turning twice', () => {
+    const level = levelOf([
+      '#######',
+      '#R2...#',
+      '#.#...#',
+      '#.....#',
+      '#######',
+    ]);
+    const first = moveBoxes(level, level.boxes, DIRS.right, 0, 0)!;
+    // Вход справа поворачивает вниз, но ниже стена: кубик остаётся на угле.
+    expect(first.boxes[0].pos.equals(new Position(2, 1))).toBe(true);
+
+    const second = moveBoxes(level, first.boxes, DIRS.right, 1, 0, first.mechanicState)!;
+    // На следующем ходу кубик уже стоит на угле: клетка не срабатывает
+    // повторно, и он едет по вводу до стены.
+    expect(second.boxes[0].pos.equals(new Position(5, 1))).toBe(true);
+  });
+
+  it('switch mirrors an elbow without changing its input side', () => {
+    const level = levelOf([
+      '#######',
+      '#R.2..#',
+      '#.....#',
+      '#.....#',
+      '#######',
+    ]);
+    const next = moveBoxes(level, level.boxes, DIRS.right, 0, 0, {
+      locks: [0],
+      rotorFlip: true,
+    });
+
+    // Без переключателя угол вёл вниз, с ним — вверх.
+    expect(next?.boxes[0].pos.x).toBe(3);
+    expect(next?.boxes[0].pos.y).toBe(1);
+  });
+
+  it('gyro keeps turning movement by 90 degrees from any side', () => {
     const level = levelOf([
       '#######',
       '#R.c..#',

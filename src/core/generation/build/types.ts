@@ -23,6 +23,8 @@ export interface BuildContext {
   modules: MechanicModule[];
   patterns: PatternKind[];
   budget: number;
+  /** Прогресс эпизода 0..1: сила ловушек и агрессивность раскладки. */
+  progress: number;
 }
 
 /** Готовый кандидат: поле, сущности и механики до проверки решателем. */

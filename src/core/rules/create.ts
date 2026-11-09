@@ -1,4 +1,4 @@
-import { CellType } from '../types/cell';
+import { CellType, rotorElbowFromChar } from '../types/cell';
 import { ColorType } from '../types/color';
 import type { Box, End } from '../types/entity';
 import { Level } from '../types/level';
@@ -26,6 +26,11 @@ export function createLevelFromData(
     const row = rows[y].padEnd(width, ' ');
     for (let x = 0; x < width; x++) {
       const pos = new Position(x, y);
+      const elbow = rotorElbowFromChar(row[x]);
+      if (elbow !== null) {
+        grid.set(pos, elbow);
+        continue;
+      }
       switch (row[x]) {
         case '#':
           grid.set(pos, CellType.WALL);
@@ -57,13 +62,16 @@ export function createLevelFromData(
           grid.set(pos, CellType.PORTAL_B);
           break;
         case 't':
-          grid.set(pos, CellType.TRAP);
+          grid.set(pos, CellType.TRAP_1);
+          break;
+        case 'T':
+          grid.set(pos, CellType.TRAP_2);
           break;
         case 'c':
-          grid.set(pos, CellType.ROTOR_CW);
+          grid.set(pos, CellType.GYRO_CW);
           break;
         case 'w':
-          grid.set(pos, CellType.ROTOR_CCW);
+          grid.set(pos, CellType.GYRO_CCW);
           break;
         case 's':
           grid.set(pos, CellType.SWITCH);

@@ -7,6 +7,8 @@ import {
   isEndCell,
   isMechanicCell,
   oneWayDir,
+  rotorElbow,
+  rotorElbowExit,
 } from '../../core/types/cell';
 import type { PathPoint } from '../../core/types/game-state';
 import { firstTeleport, planRoute, routeCells, type RouteSegment } from './route';
@@ -73,6 +75,8 @@ interface ScenePalette {
   trapMark: number[];
   rotor: number[];
   rotorMark: number[];
+  gyro: number[];
+  gyroMark: number[];
   switchColor: number[];
   switchMark: number[];
   oneway: number[];
@@ -98,6 +102,8 @@ const PALETTE_LIGHT: ScenePalette = {
   trapMark: [0.82, 0.42, 0.34],
   rotor: [0.34, 0.57, 0.55],
   rotorMark: [0.94, 0.86, 0.62],
+  gyro: [0.38, 0.5, 0.64],
+  gyroMark: [0.9, 0.94, 1.0],
   switchColor: [0.72, 0.58, 0.32],
   switchMark: [1.0, 0.92, 0.72],
   oneway: [0.5, 0.63, 0.58],
@@ -124,6 +130,8 @@ const PALETTE_DARK: ScenePalette = {
   trapMark: [0.9, 0.5, 0.42],
   rotor: [0.24, 0.42, 0.4],
   rotorMark: [0.94, 0.86, 0.62],
+  gyro: [0.3, 0.42, 0.56],
+  gyroMark: [0.86, 0.92, 1.0],
   switchColor: [0.62, 0.5, 0.28],
   switchMark: [1.0, 0.92, 0.72],
   oneway: [0.3, 0.42, 0.39],
@@ -1090,20 +1098,51 @@ export class PicoglRenderer implements IRenderer {
             const color = cell === CellType.PORTAL_A ? this.palette.portalA : this.palette.portalB;
             drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, color);
             drawQuad(worldX(x), surface + 0.012, worldZ(y), 0.38 * scale, this.palette.grid);
-          } else if (cell === CellType.TRAP) {
+          } else if (cell === CellType.TRAP_1 || cell === CellType.TRAP_2) {
             drawQuad(worldX(x), surface, worldZ(y), 0.68 * scale, this.palette.trap);
             this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
-            this.drawBar(this.basisMatrix, -0.16, -0.16, 0.16, 0.16, 0.055, this.palette.trapMark);
-            this.drawBar(this.basisMatrix, 0.16, -0.16, -0.16, 0.16, 0.055, this.palette.trapMark);
-          } else if (cell === CellType.ROTOR_CW || cell === CellType.ROTOR_CCW) {
+            // Одна или две точки — сила ловушки. Крест убран: он одинаково
+            // читался у обоих вариантов и не показывал, сколько ждать.
+            const dots = cell === CellType.TRAP_1 ? 1 : 2;
+            for (let dot = 0; dot < dots; dot++) {
+              const offset = dots === 1 ? 0 : (dot === 0 ? -0.1 : 0.1);
+              drawQuad(
+                worldX(x) + offset,
+                surface + 0.02,
+                worldZ(y),
+                0.11 * scale,
+                this.palette.trapMark,
+              );
+            }
+          } else if (cell === CellType.GYRO_CW || cell === CellType.GYRO_CCW) {
+            drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, this.palette.gyro);
+            this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
+            // Круговой значок: квадратная «рамка» с разрывом и наконечник.
+            this.drawBar(this.basisMatrix, -0.17, -0.17, 0.17, -0.17, 0.06, this.palette.gyroMark);
+            this.drawBar(this.basisMatrix, 0.17, -0.17, 0.17, 0.17, 0.06, this.palette.gyroMark);
+            this.drawBar(this.basisMatrix, 0.17, 0.17, -0.17, 0.17, 0.06, this.palette.gyroMark);
+            this.drawBar(this.basisMatrix, -0.17, 0.17, -0.17, -0.05, 0.06, this.palette.gyroMark);
+            const side = cell === CellType.GYRO_CW ? 1 : -1;
+            this.drawBar(this.basisMatrix, -0.17, 0.05, -0.17 + 0.12 * side, 0.14, 0.06, this.palette.gyroMark);
+          } else if (cell >= CellType.ROTOR_ELBOW_UP_CW && cell <= CellType.ROTOR_ELBOW_LEFT_CCW) {
             drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, this.palette.rotor);
             this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
-            const flip = state.mechanicState?.rotorFlip ? -1 : 1;
-            const clockwise = (cell === CellType.ROTOR_CW) !== !!state.mechanicState?.rotorFlip;
-            const side = clockwise ? 1 : -1;
-            this.drawBar(this.basisMatrix, -0.16, -0.13, 0.13, -0.13, 0.06, this.palette.rotorMark);
-            this.drawBar(this.basisMatrix, 0.13, -0.13, 0.13, 0.13 * flip, 0.06, this.palette.rotorMark);
-            this.drawBar(this.basisMatrix, 0.13, 0.13 * flip, 0.01, 0.02 * side, 0.06, this.palette.rotorMark);
+            const elbow = rotorElbow(cell);
+            const exit = rotorElbowExit(cell, !!state.mechanicState?.rotorFlip);
+            if (elbow && exit) {
+              // world → local: local +Y смотрит вверх (в мир −Z).
+              const ex = elbow.entry.x;
+              const ey = -elbow.entry.y;
+              const ox = exit.x;
+              const oy = -exit.y;
+              this.drawBar(this.basisMatrix, -ex * 0.26, -ey * 0.26, 0, 0, 0.06, this.palette.rotorMark);
+              this.drawBar(this.basisMatrix, 0, 0, ox * 0.24, oy * 0.24, 0.06, this.palette.rotorMark);
+              // Наконечник на выходе: две короткие линии от базы к концу.
+              const px = -oy;
+              const py = ox;
+              this.drawBar(this.basisMatrix, ox * 0.14 + px * 0.08, oy * 0.14 + py * 0.08, ox * 0.26, oy * 0.26, 0.055, this.palette.rotorMark);
+              this.drawBar(this.basisMatrix, ox * 0.14 - px * 0.08, oy * 0.14 - py * 0.08, ox * 0.26, oy * 0.26, 0.055, this.palette.rotorMark);
+            }
           } else if (cell === CellType.SWITCH) {
             drawQuad(worldX(x), surface, worldZ(y), 0.72 * scale, this.palette.switchColor);
             this.floorBasis(this.basisMatrix, worldX(x), worldZ(y), surface + 0.012, 0);
@@ -1212,7 +1251,8 @@ export class PicoglRenderer implements IRenderer {
       const lift = animating ? (1 - eased) * 1.2 : 0;
       // Запертый ловушкой кубик чуть меньше и темнее: видно, что он пропустит
       // следующий ход, не открывая отдельной иконки.
-      const locked = (state.mechanicState?.locks[index] ?? 0) > 0;
+      const lock = state.mechanicState?.locks[index] ?? 0;
+      const locked = lock > 0;
       const boxScale = locked ? 0.76 : 0.9;
       const baseColor = b.color === ColorType.ONE ? this.palette.boxOne : this.palette.boxTwo;
       const color = locked ? baseColor.map((c) => c * 0.7) : baseColor;
@@ -1239,6 +1279,20 @@ export class PicoglRenderer implements IRenderer {
       // когда кубик на выходе снова обычной формы.
       if (b.sxz > 0.999 && b.sy > 0.999) {
         this.drawBoxLetters(centerX, centerY, centerZ, width / 2, height / 2, width / 2, color);
+      }
+      // Остаток ловушки — точки на верхней грани: игрок видит, сколько ходов
+      // кубик ещё пропустит, а не просто «затемнён».
+      if (lock > 0) {
+        for (let dot = 0; dot < lock; dot++) {
+          const offset = lock === 1 ? 0 : (dot === 0 ? -0.13 : 0.13) * width;
+          drawQuad(
+            centerX + offset,
+            centerY + height / 2 + 0.012,
+            centerZ,
+            0.12 * width,
+            this.palette.trapMark,
+          );
+        }
       }
     });
 

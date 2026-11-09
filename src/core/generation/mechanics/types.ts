@@ -7,12 +7,16 @@ import type { Position } from '../../types/position';
  * полу. Сами правила входа живут в `moveBoxes`, поэтому решатель, подсказка и
  * игра всегда используют одну и ту же семантику.
  */
-export type MechanicId = 'portal' | 'trap' | 'rotator' | 'switch' | 'oneWay';
+export type MechanicId = 'portal' | 'trap' | 'rotator' | 'gyro' | 'switch' | 'oneWay';
 
 /** Клетка, по которой прошёл кубик, и направление входа в неё. */
 export interface RouteCell {
   index: number;
   dir: Position;
+  /** Индекс кубика, проехавшего клетку (для строителя ловушек-ворот). */
+  box?: number;
+  /** Номер хода блуждания, в котором проехали клетку. */
+  step?: number;
 }
 
 /** Черновик поля: маска пола плюс клетки, уже занятые другими механиками. */
@@ -29,6 +33,8 @@ export interface FieldDraft {
   route?: RouteCell[];
   /** Клетки, которые нельзя занимать: старты, цели. */
   reserved?: Set<number>;
+  /** Прогресс эпизода 0..1: сила ловушки и агрессивность раскладки. */
+  progress?: number;
 }
 
 export interface MechanicModule {
