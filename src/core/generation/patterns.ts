@@ -19,6 +19,9 @@
  * уровень нерешаемым — она просто отбрасывается по числу ходов или тупиков.
  */
 
+import { largestComponent } from './field/mask';
+import { shuffle } from './rng';
+
 /** Направления по часовой стрелке, начиная с «вверх» (ось Y вниз). */
 const VECTORS: readonly (readonly [number, number])[] = [
   [0, -1],
@@ -328,14 +331,6 @@ export function assembleField(options: AssembleOptions): AssembledField | null {
   if (!place(seedTile, seedX, seedY)) return null;
   addSockets(seedTile, seedX, seedY);
 
-  const shuffle = <T>(items: T[]): T[] => {
-    for (let i = items.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [items[i], items[j]] = [items[j], items[i]];
-    }
-    return items;
-  };
-
   let attempts = 0;
   while (tilesPlaced < maxTiles && attempts < 80) {
     attempts++;
@@ -348,7 +343,7 @@ export function assembleField(options: AssembleOptions): AssembledField | null {
       return canvas[ny][nx] === ' ' && canvas[s.y][s.x] === FLOOR;
     });
     if (open.length === 0) break;
-    shuffle(open);
+    shuffle(open, rng);
     const target = open[0];
     const [dx, dy] = VECTORS[target.dir];
     const anchorX = target.x + dx;
@@ -377,32 +372,10 @@ export function assembleField(options: AssembleOptions): AssembledField | null {
 
   // Оставляем крупнейшую связную область пола: случайное наложение тайлов
   // иногда замыкает коридор в изолированную петлю.
-  const seen = new Uint8Array(size * size);
-  let best: number[] = [];
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if (canvas[y][x] !== FLOOR || seen[y * size + x]) continue;
-      const component: number[] = [];
-      const stack = [y * size + x];
-      seen[y * size + x] = 1;
-      while (stack.length) {
-        const cell = stack.pop() as number;
-        component.push(cell);
-        const cx = cell % size;
-        const cy = Math.floor(cell / size);
-        for (const [vx, vy] of VECTORS) {
-          const nx = cx + vx;
-          const ny = cy + vy;
-          if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
-          const ni = ny * size + nx;
-          if (canvas[ny][nx] !== FLOOR || seen[ni]) continue;
-          seen[ni] = 1;
-          stack.push(ni);
-        }
-      }
-      if (component.length > best.length) best = component;
-    }
-  }
+  const best = largestComponent(
+    size,
+    (index) => canvas[Math.floor(index / size)][index % size] === FLOOR,
+  );
   if (best.length < Math.min(budget, 20)) return null;
 
   let minX = size;

@@ -89,3 +89,48 @@ export function createLevelFromData(
 
   return new Level(episodeId, levelId, grid, boxes, ends);
 }
+
+/**
+ * Создать уровень напрямую из маски пола, стартов, целей и клеток механик.
+ *
+ * Генератору это нужно, чтобы не гонять каждую попытку через `render` →
+ * `parse`: маска уже является внутренним представлением, а ASCII-карта —
+ * только форматом вывода. Координаты маски и уровня совпадают, поэтому
+ * пропадает ловушка «render обрезает края и координаты расходятся».
+ */
+export function createLevelFromMask(
+  mask: Uint8Array,
+  size: number,
+  starts: Position[],
+  ends: Position[],
+  cells: Map<number, CellType> = new Map(),
+): Level {
+  const grid = new LevelGrid(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const index = y * size + x;
+      grid.set(
+        new Position(x, y),
+        cells.get(index) ?? (mask[index] ? CellType.EMPTY : CellType.WALL),
+      );
+    }
+  }
+
+  // Порядок как у render: механики — фон, цели и старты — поверх них.
+  const endsEntities: End[] = ends.map((pos, index) => ({
+    pos: pos.clone(),
+    color: index === 0 ? ColorType.ONE : ColorType.TWO,
+  }));
+  const boxes: Box[] = starts.map((pos, index) => ({
+    pos: pos.clone(),
+    color: index === 0 ? ColorType.ONE : ColorType.TWO,
+  }));
+  endsEntities.forEach((end, index) =>
+    grid.set(end.pos, index === 0 ? CellType.END : CellType.END_TWO),
+  );
+  boxes.forEach((box, index) =>
+    grid.set(box.pos, index === 0 ? CellType.BOX : CellType.BOX_TWO),
+  );
+
+  return new Level(0, 0, grid, boxes, endsEntities);
+}

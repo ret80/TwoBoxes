@@ -30,12 +30,16 @@ export interface DifficultyMetrics {
   deadEndRatio: number;
   /** Среднее число доступных ходов из состояния. */
   branching: number;
-  /** Сколько разных клеток посещают кубики по всему графу. */
-  boxCells: number;
   /** Сколько клеток пола на карте. */
   floorCells: number;
   /** Доля клеток пола ровно с двумя соседями — «коридорность» поля. */
   narrowRatio: number;
+  /**
+   * Сколько кратчайших решений существует. Пока только измеряется: вес в
+   * `scoreDifficulty` намеренно не добавлен до стабилизации профиля (см.
+   * предупреждение в документе: новые веса калибровать после В4).
+   */
+  shortestCount: number;
   /** Итоговая оценка 0..100. */
   score: number;
 }
@@ -118,9 +122,9 @@ export function measureLevel(level: Level): DifficultyMetrics | null {
     states: solved.states,
     deadEndRatio,
     branching: solved.branching,
-    boxCells: solved.boxCells,
     floorCells,
     narrowRatio: narrowRatio(level),
+    shortestCount: solved.shortestCount,
     score: scoreDifficulty({
       moves: solved.solution.length,
       states: solved.states,

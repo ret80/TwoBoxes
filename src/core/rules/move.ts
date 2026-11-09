@@ -1,10 +1,4 @@
-import {
-  CellType,
-  isBoxCell,
-  isEndCell,
-  isMechanicCell,
-  oneWayDir,
-} from '../types/cell';
+import { CellType, isBoxCell, isEndCell, isMechanicCell, oneWayDir } from '../types/cell';
 import type { Box } from '../types/entity';
 import type { GameState, PathPoint } from '../types/game-state';
 import type { Level } from '../types/level';
@@ -14,7 +8,13 @@ import {
   type MechanicState,
 } from '../types/mechanic-state';
 import { Position } from '../types/position';
-import { PortalRule, type PortalArrival, type PortalRun } from './portal';
+import { CellEffect, cellEffect } from './cell-effects';
+import {
+  PortalRule,
+  portalRuleFor,
+  type PortalArrival,
+  type PortalRun,
+} from './portal';
 
 /**
  * Клетка проходима для скольжения. Клетки кубиков тоже проходимы: карта
@@ -37,39 +37,33 @@ interface BoxRun extends PortalRun {
   heading: Position;
 }
 
+/** Результат симуляции хода без игровой обвязки. */
+export interface StepResult {
+  boxes: Box[];
+  mechanicState: MechanicState;
+  portalSwaps: number;
+}
+
+interface Simulation extends StepResult {
+  paths: PathPoint[][];
+}
+
 /**
- * Попытка хода: **все кубики** одновременно скользят в `dir` до упора.
+ * Один переход по правилам игры.
  *
- * Ход считается пошагово: за один шаг каждый свободный кубик пробует сдвинуться
- * на клетку по своему направлению, и клетка, которую сосед покидает в этом же
- * шаге, считается свободной. Порядок «сначала ведущий до упора» здесь не
- * годится: ротатор и портал заворачивают кубик в чужую полосу, и кубик,
- * проехавший весь путь первым, оказывался там, где на самом деле уже стоит
- * другой. Пошаговая схема даёт то же самое, что видит игрок: кто ближе — тот и
- * упрётся первым, а остальные встанут за ним.
- *
- * Механики — это расширения того же скольжения:
- * - портал переносит кубик на парную клетку и отпускает дальше в том же
- *   направлении, а если на выходе стоит другой кубик — они меняются местами
- *   (все правила телепорта — в `rules/portal.ts`);
- * - ловушка останавливает кубик и отнимает два следующих хода;
- * - ротатор поворачивает движение на 90°;
- * - переключатель переворачивает все ротаторы;
- * - односторонняя клетка пропускает только по стрелке.
- *
- * Если все кубики в ловушках, ход всё равно засчитывается как пропуск: иначе
- * счётчики никогда бы не уменьшились и уровень стал бы мёртвым.
- *
- * @returns новый GameState или null, если движение невозможно.
+ * `recordPaths` — единственное отличие решателя от игры. Игра и анимация
+ * просят траектории (`paths`), поиску нужны только позиции кубиков и состояние
+ * механик. Раньше запись `points`/`paths` шла всегда, и BFS оплачивал сотни
+ * тысяч ненужных объектов. Правила при этом не дублируются: обе обёртки
+ * вызывают эту функцию.
  */
-export function moveBoxes(
+function simulate(
   level: Level,
   boxes: Box[],
   dir: Position,
-  curMoves: number,
-  curTime: number,
-  state: MechanicState = createMechanicState(boxes.length),
-): GameState | null {
+  state: MechanicState,
+  recordPaths: boolean,
+): Simulation | null {
   const nextState = cloneMechanicState(state);
   nextState.locks.length = boxes.length;
   for (let i = 0; i < boxes.length; i++) nextState.locks[i] ??= 0;
@@ -86,12 +80,12 @@ export function moveBoxes(
     pos: box.pos.clone(),
     heading: new Position(dir.x, dir.y),
     moving: !locked[index],
-    points: [{ pos: box.pos.clone() }],
+    points: recordPaths ? [{ pos: box.pos.clone() }] : undefined,
     teleported: false,
   }));
 
   // Все правила телепорта — в `PortalRule`: здесь только сбор входов шага.
-  const portal = new PortalRule(level);
+  const portal = portalRuleFor(level);
   const cellKey = (pos: Position): number => portal.cellKey(pos);
 
   /** Кто стоит на клетке: индекс кубика по `y * width + x`. */
@@ -172,7 +166,7 @@ export function moveBoxes(
       const run = runs[want.index];
       occupied.delete(cellKey(run.pos));
       run.pos = want.next.clone();
-      run.points.push({ pos: run.pos.clone() });
+      run.points?.push({ pos: run.pos.clone() });
       occupied.set(cellKey(run.pos), want.index);
       moved = true;
     }
@@ -188,18 +182,22 @@ export function moveBoxes(
         arrivals.push({ index: want.index, cell: want.cell });
         continue;
       }
-      if (want.cell === CellType.TRAP) {
-        nextState.locks[want.index] = 2;
-        run.moving = false;
-        continue;
-      }
-      if (want.cell === CellType.SWITCH) {
-        nextState.rotorFlip = !nextState.rotorFlip;
-        continue;
-      }
-      if (want.cell === CellType.ROTOR_CW || want.cell === CellType.ROTOR_CCW) {
-        const clockwise = (want.cell === CellType.ROTOR_CW) !== nextState.rotorFlip;
-        run.heading = rotate(run.heading, clockwise);
+      switch (cellEffect(want.cell)) {
+        case CellEffect.TRAP:
+          nextState.locks[want.index] = 2;
+          run.moving = false;
+          break;
+        case CellEffect.SWITCH:
+          nextState.rotorFlip = !nextState.rotorFlip;
+          break;
+        case CellEffect.ROTOR_CW:
+          run.heading = rotate(run.heading, !nextState.rotorFlip);
+          break;
+        case CellEffect.ROTOR_CCW:
+          run.heading = rotate(run.heading, nextState.rotorFlip);
+          break;
+        case CellEffect.NONE:
+          break;
       }
     }
     swaps += portal.resolve(runs, occupied, arrivals, locked);
@@ -213,20 +211,86 @@ export function moveBoxes(
     pos: run.pos,
     color: boxes[index].color,
   }));
-  const paths: PathPoint[][] = runs.map((run) => (run.points.length > 1 ? run.points : []));
+  const paths: PathPoint[][] = recordPaths
+    ? runs.map((run) => (run.points && run.points.length > 1 ? run.points : []))
+    : [];
 
   // Все кубики были заперты: ход-пропуск нужен, чтобы ловушки истекли.
   const waited = locked.some(Boolean) && !moved;
   if (!moved && !waited) return null;
 
   return {
-    level,
     boxes: newBoxes,
+    mechanicState: nextState,
+    portalSwaps: swaps,
+    paths,
+  };
+}
+
+/**
+ * Попытка хода: **все кубики** одновременно скользят в `dir` до упора.
+ *
+ * Ход считается пошагово: за один шаг каждый свободный кубик пробует сдвинуться
+ * на клетку по своему направлению, и клетка, которую сосед покидает в этом же
+ * шаге, считается свободной. Порядок «сначала ведущий до упора» здесь не
+ * годится: ротатор и портал заворачивают кубик в чужую полосу, и кубик,
+ * проехавший весь путь первым, оказывался там, где на самом деле уже стоит
+ * другой. Пошаговая схема даёт то же самое, что видит игрок: кто ближе — тот и
+ * упрётся первым, а остальные встанут за ним.
+ *
+ * Механики — это расширения того же скольжения:
+ * - портал переносит кубик на парную клетку и отпускает дальше в том же
+ *   направлении, а если на выходе стоит другой кубик — они меняются местами
+ *   (все правила телепорта — в `rules/portal.ts`);
+ * - ловушка останавливает кубик и отнимает два следующих хода;
+ * - ротатор поворачивает движение на 90°;
+ * - переключатель переворачивает все ротаторы;
+ * - односторонняя клетка пропускает только по стрелке.
+ *
+ * Если все кубики в ловушках, ход всё равно засчитывается как пропуск: иначе
+ * счётчики никогда бы не уменьшились и уровень стал бы мёртвым.
+ *
+ * @returns новый GameState или null, если движение невозможно.
+ */
+export function moveBoxes(
+  level: Level,
+  boxes: Box[],
+  dir: Position,
+  curMoves: number,
+  curTime: number,
+  state: MechanicState = createMechanicState(boxes.length),
+): GameState | null {
+  const simulation = simulate(level, boxes, dir, state, true);
+  if (!simulation) return null;
+
+  return {
+    level,
+    boxes: simulation.boxes,
     moves: curMoves + 1,
     time: curTime,
-    mechanicState: nextState,
-    paths,
-    portalSwaps: swaps,
+    mechanicState: simulation.mechanicState,
+    paths: simulation.paths,
+    portalSwaps: simulation.portalSwaps,
+  };
+}
+
+/**
+ * Тот же ход без игровой обвязки: только позиции кубиков, состояние механик и
+ * признак обмена. Ни `moves`/`time`, ни траектории для анимации не создаются.
+ * Решатель, подсказка и генератор ходят через эту функцию.
+ */
+export function stepBoxes(
+  level: Level,
+  boxes: Box[],
+  dir: Position,
+  state: MechanicState = createMechanicState(boxes.length),
+): StepResult | null {
+  const simulation = simulate(level, boxes, dir, state, false);
+  if (!simulation) return null;
+  return {
+    boxes: simulation.boxes,
+    mechanicState: simulation.mechanicState,
+    portalSwaps: simulation.portalSwaps,
   };
 }
 
@@ -237,5 +301,5 @@ export function canMoveAny(
   dir: Position,
   state?: MechanicState,
 ): boolean {
-  return moveBoxes(level, boxes, dir, 0, 0, state) !== null;
+  return stepBoxes(level, boxes, dir, state) !== null;
 }

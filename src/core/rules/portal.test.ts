@@ -48,7 +48,8 @@ describe('PortalRule', () => {
     expect(swaps).toBe(0);
     expect(runs[0].pos.equals(new Position(3, 3))).toBe(true);
     expect(runs[0].teleported).toBe(true);
-    expect(runs[0].points[runs[0].points.length - 1].teleport).toBe(true);
+    const points = runs[0].points!;
+    expect(points[points.length - 1].teleport).toBe(true);
   });
 
   it('меняет кубиков местами, если выход занят', () => {

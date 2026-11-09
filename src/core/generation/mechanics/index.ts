@@ -8,7 +8,7 @@ import {
 } from './modules';
 import type { MechanicId, MechanicModule } from './types';
 
-export type { FieldDraft, MechanicId, MechanicModule } from './types';
+export type { FieldDraft, MechanicId, MechanicModule, RouteCell } from './types';
 export { freeIndexes } from './types';
 
 /** Все механики в порядке применения. */

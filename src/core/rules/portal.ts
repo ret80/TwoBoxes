@@ -33,7 +33,8 @@ export interface PortalRun {
   pos: Position;
   /** Кубик ещё едет: не упёрся, не застрял в ловушке, не заперт. */
   moving: boolean;
-  points: PathPoint[];
+  /** Траектория для анимации; поиск её не записывает. */
+  points?: PathPoint[];
   /** Кубик уже пользовался порталом в этом ходу: второй вход не телепортирует. */
   teleported: boolean;
 }
@@ -48,6 +49,23 @@ export interface PortalArrival {
 export interface PortalHop {
   entry: Position;
   exit: Position;
+}
+
+/**
+ * Правило порталов живёт столько же, сколько уровень: парные клетки ищутся
+ * один раз, а не на каждый ход. Раньше `moveBoxes` создавал `new PortalRule`
+ * на каждый вызов, поэтому кэш не переживал один ход и `exitOf` сканировал всё
+ * поле при каждом промахе.
+ */
+const LEVEL_PORTALS = new WeakMap<Level, PortalRule>();
+
+export function portalRuleFor(level: Level): PortalRule {
+  let rule = LEVEL_PORTALS.get(level);
+  if (!rule) {
+    rule = new PortalRule(level);
+    LEVEL_PORTALS.set(level, rule);
+  }
+  return rule;
 }
 
 export class PortalRule {
@@ -174,7 +192,7 @@ export class PortalRule {
     index: number,
   ): void {
     run.pos = pos;
-    run.points.push({ pos: pos.clone(), teleport: true });
+    run.points?.push({ pos: pos.clone(), teleport: true });
     run.teleported = true;
     occupied.set(this.cellKey(run.pos), index);
   }
