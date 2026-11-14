@@ -105,10 +105,12 @@ layout(location = 2) in vec2 aUv;
 uniform mat4 uModel;
 uniform mat4 uViewProj;
 uniform float uWarp;
+/** Кусок маски, который ложится на этот квад: смещение и размер в UV. */
+uniform vec4 uUvRect;
 out vec2 vUv;
 ${PROJECT}
 void main() {
-  vUv = aUv;
+  vUv = aUv * uUvRect.zw + uUvRect.xy;
   gl_Position = projectVertex(uViewProj * uModel * vec4(aPosition, 1.0));
 }
 `;

@@ -204,10 +204,15 @@ const HUD_INSET_BOTTOM = 76;
 
 /** Высота плиты пути: кубики катаются по возвышению, а не по низкому полу. */
 const PLATFORM_TOP = 0.34;
+/**
+ * Высота кубика: на 10% выше ширины 0.9 (ребро unit-куба растянуто по Y).
+ * Центр и низ считаются от неё, чтобы кубик по-прежнему стоял на плите.
+ */
+const BOX_HEIGHT = 1.1;
 /** Центр кубика по высоте: стоит на верхней грани плиты. */
-const BOX_Y = PLATFORM_TOP + 0.5;
+const BOX_Y = PLATFORM_TOP + BOX_HEIGHT / 2;
 /** Низ кубика в обычной позе — отсюда считаются подъёмы анимации телепорта. */
-const BOX_FLOOR = BOX_Y - 0.5;
+const BOX_FLOOR = PLATFORM_TOP;
 
 /**
  * Тень под платформой. Фон вокруг платформы — «земля»; плита приподнята на
@@ -218,16 +223,18 @@ const BOX_FLOOR = BOX_Y - 0.5;
 const GROUND_SHADOW_Y = 0.004;
 const GROUND_SHADOW_ALPHA = 0.45;
 /**
- * Смещение тени в экранный низ: в мировых осях это −x и +z (по половине от
- * каждой), поэтому на экране тень уходит ровно вниз. Так плита «парит»: тень
- * выходит из-под её нижней кромки сплошной мягкой полосой.
+ * Насколько тень сдвинута в экранный низ: направление берётся от рыскания
+ * камеры, поэтому при любом повороте тень уходит вниз по экрану, а не вбок.
+ * Меньше половины клетки — полоса уже читается отдельно от плиты, но ещё не
+ * отрывается от неё.
  */
-const GROUND_SHADOW_DX = -0.4;
-const GROUND_SHADOW_DZ = 0.4;
+const GROUND_SHADOW_REACH = 0.5;
 /** Маска тени: пиксели на клетку, поле вокруг и радиус размытия в пикселях. */
 const SHADOW_PX_PER_CELL = 8;
 const SHADOW_MARGIN_CELLS = 3;
 const SHADOW_BLUR_PX = 2.5;
+/** Тень платформы проявляется уже после сборки уровня (см. `shadowVisibleAt`). */
+const SHADOW_FADE_MS = 180;
 /** Контактная тень кубика лежит на плите, чуть выше вставок механик. */
 const CONTACT_SHADOW_Y = PLATFORM_TOP + 0.05;
 const CONTACT_SHADOW_SOFT = 0.05;
@@ -270,10 +277,39 @@ function buildShadowMask(
   if (!ctx) return null;
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, w, h);
+  // Внутренние пустоты поля тоже заливаем: сквозь дырку в плите свет не
+  // проходит, и светлые пятна внутри силуэта тени читались как артефакт.
+  const outside = new Uint8Array(width * height);
+  const queue: number[] = [];
+  const push = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    const i = y * width + x;
+    if (outside[i] || walkable(x, y)) return;
+    outside[i] = 1;
+    queue.push(i);
+  };
+  for (let x = 0; x < width; x++) {
+    push(x, 0);
+    push(x, height - 1);
+  }
+  for (let y = 0; y < height; y++) {
+    push(0, y);
+    push(width - 1, y);
+  }
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q];
+    const x = i % width;
+    const y = (i - x) / width;
+    push(x - 1, y);
+    push(x + 1, y);
+    push(x, y - 1);
+    push(x, y + 1);
+  }
   ctx.fillStyle = '#fff';
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (walkable(x, y)) ctx.fillRect(margin + x * px, margin + y * px, px, px);
+      const solid = walkable(x, y) || !outside[y * width + x];
+      if (solid) ctx.fillRect(margin + x * px, margin + y * px, px, px);
     }
   }
   const blurred = document.createElement('canvas');
@@ -380,6 +416,8 @@ export class PicoglRenderer implements IRenderer {
   private gridDraw: DrawCall | null = null;
   /** Размытая маска платформы для тени: пересобирается при смене уровня. */
   private shadowMask: { key: string; texture: Texture } | null = null;
+  /** Когда тень можно показать: после окончания волны появления уровня. */
+  private shadowVisibleAt = 0;
 
   private camera = new Camera();
   private tweens = new TweenManager();
@@ -966,7 +1004,7 @@ export class PicoglRenderer implements IRenderer {
     item.sy = pose.sy;
     // Низ кубика стоит на подъёме, поэтому растянутый кубик висит в воздухе,
     // а не прорастает сквозь плиту.
-    item.y = BOX_FLOOR + pose.lift + 0.5 * pose.sy;
+    item.y = BOX_FLOOR + pose.lift + (BOX_HEIGHT / 2) * pose.sy;
     item.inPortal = true;
   }
 
@@ -990,6 +1028,8 @@ export class PicoglRenderer implements IRenderer {
     const { width, height } = state;
     const cellAt = (x: number, y: number) => state.grid[y * width + x];
     this.createMask = createWaveMask(width, height, (x, y) => cellAt(x, y) !== CellType.UNKNOWN);
+    // Пока поле собирается, тень не показываем совсем: она проявляется после.
+    this.shadowVisibleAt = Number.POSITIVE_INFINITY;
     this.createMaxWave = maxWave(this.createMask);
     // Отсчёт по «стенным» часам, а не по сумме кадровых дельт: иначе на слабом
     // устройстве/в фоновой вкладке анимация почти не продвигается.
@@ -1185,6 +1225,7 @@ export class PicoglRenderer implements IRenderer {
     const duration = this.createMaxWave * WAVE_INTERVAL_MS + CREATE_GROW_MS;
     if (this.createElapsed >= duration) {
       this.createMask = null;
+      this.shadowVisibleAt = performance.now();
       const cb = this.createDone;
       this.createDone = null;
       cb?.();
@@ -1382,9 +1423,24 @@ export class PicoglRenderer implements IRenderer {
       }
     }
 
+    // Дырки внутри поля тоже закрываем в трафарете: иначе тень просвечивала
+    // сквозь них грязными пятнами посреди самого уровня.
+    const holes = this.innerHoles(state);
+    if (holes.length > 0) {
+      gl.colorMask(false, false, false, false);
+      gl.depthMask(false);
+      for (const i of holes) {
+        const hx = i % state.width;
+        const hy = (i - hx) / state.width;
+        drawQuad(worldX(hx), PLATFORM_TOP, worldZ(hy), 1, [0, 0, 0]);
+      }
+      gl.colorMask(true, true, true, true);
+      gl.depthMask(true);
+    }
+
     // Тень под платформой — размытый силуэт плит, сдвинутый на экранный низ и
     // обрезанный трафаретом по их видимой части. Наружу выходит только мягкая
-    // полоса из-под нижней кромки, да тень у стенок в «дырках» поля.
+    // полоса из-под нижней кромки.
     gl.stencilMask(0x00);
     gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
     this.beginSoftPass();
@@ -1518,7 +1574,7 @@ export class PicoglRenderer implements IRenderer {
       const centerY = b.inPortal ? b.y : BOX_Y * scale + lift;
       const centerZ = b.z - state.height / 2;
       const width = boxScale * scale * b.sxz;
-      const height = (locked ? 0.82 : 1) * scale * b.sy;
+      const height = BOX_HEIGHT * (locked ? 0.82 : 1) * scale * b.sy;
       drawCube(
         centerX,
         centerY,
@@ -1644,6 +1700,55 @@ export class PicoglRenderer implements IRenderer {
   }
 
   /**
+   * Пустые клетки, полностью окружённые плитами: свет через них не проходит,
+   * поэтому их тоже надо закрыть в трафарете тени. Считается раз на карту.
+   */
+  private holeKey = '';
+  private holes: number[] = [];
+  private innerHoles(state: RenderState): number[] {
+    const key = gridKeyOf(state);
+    if (key === this.holeKey) return this.holes;
+    const { width, height } = state;
+    const walkable = (x: number, y: number) =>
+      isWalkableCell(state.grid[y * width + x] as CellType);
+    const outside = new Uint8Array(width * height);
+    const queue: number[] = [];
+    const push = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= width || y >= height) return;
+      const i = y * width + x;
+      if (outside[i] || walkable(x, y)) return;
+      outside[i] = 1;
+      queue.push(i);
+    };
+    for (let x = 0; x < width; x++) {
+      push(x, 0);
+      push(x, height - 1);
+    }
+    for (let y = 0; y < height; y++) {
+      push(0, y);
+      push(width - 1, y);
+    }
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q];
+      const x = i % width;
+      const y = (i - x) / width;
+      push(x - 1, y);
+      push(x + 1, y);
+      push(x, y - 1);
+      push(x, y + 1);
+    }
+    const holes: number[] = [];
+    for (let i = 0; i < width * height; i++) {
+      const x = i % width;
+      const y = (i - x) / width;
+      if (!walkable(x, y) && !outside[i]) holes.push(i);
+    }
+    this.holeKey = key;
+    this.holes = holes;
+    return holes;
+  }
+
+  /**
    * Тень платформы одним квадом: размытая маска силуэта растягивается на
    * габариты поля с полями и сдвигается на экранный низ. Маска собирается
    * заново только при смене карты.
@@ -1667,21 +1772,63 @@ export class PicoglRenderer implements IRenderer {
       this.shadowMask = { key, texture };
     }
     if (!this.maskDraw || !this.shadowMask) return;
-    const sizeX = state.width + SHADOW_MARGIN_CELLS * 2;
-    const sizeZ = state.height + SHADOW_MARGIN_CELLS * 2;
-    mat4.fromTranslation(this.decalModel, [
-      GROUND_SHADOW_DX,
-      GROUND_SHADOW_Y,
-      GROUND_SHADOW_DZ,
-    ]);
-    mat4.scale(this.decalModel, this.decalModel, [sizeX, 1, sizeZ]);
-    // Пока идёт волна появления, тень проявляется вместе с платформой.
-    const fade = this.createMask ? Math.min(1, this.createElapsed / CREATE_GROW_MS) : 1;
-    this.applyViewProj(this.maskDraw.uniform('uModel', this.decalModel))
+    // Тень проявляется только после того, как плита собралась: во время
+    // волны появления она висела бы под ещё не достроенным полем.
+    const fade = this.createMask
+      ? 0
+      : Math.min(1, (performance.now() - this.shadowVisibleAt) / SHADOW_FADE_MS);
+    if (fade <= 0) return;
+    // Крошечный сдвиг в экранный низ: тень чуть плотнее у ближней кромки.
+    const { yaw } = this.camera.getAngles();
+    const dx = -Math.sin(yaw) * GROUND_SHADOW_REACH;
+    const dz = Math.cos(yaw) * GROUND_SHADOW_REACH;
+
+    const cellsX = state.width + SHADOW_MARGIN_CELLS * 2;
+    const cellsZ = state.height + SHADOW_MARGIN_CELLS * 2;
+    const du = 1 / cellsX;
+    const dv = 1 / cellsZ;
+    this.applyViewProj(this.maskDraw)
       .texture('uMask', this.shadowMask.texture)
       .uniform('uColor', this.palette.shadow)
-      .uniform('uAlpha', GROUND_SHADOW_ALPHA * fade)
-      .draw();
+      .uniform('uAlpha', GROUND_SHADOW_ALPHA * fade);
+
+    // Тень рисуется клеточными квадами, а не одним на всё поле: проекция
+    // с варпом нелинейна по экрану, и большой квад искажался бы целиком —
+    // тень уезжала бы от плит на несколько клеток. Клетки делят одну
+    // текстуру без нахлёста, поэтому швов между ними нет.
+    for (let y = -SHADOW_MARGIN_CELLS; y < state.height + SHADOW_MARGIN_CELLS; y++) {
+      for (let x = -SHADOW_MARGIN_CELLS; x < state.width + SHADOW_MARGIN_CELLS; x++) {
+        // Рисуем только клетки, где маска вообще есть: вокруг плит и их краёв.
+        if (!this.shadowNear(state, x, y)) continue;
+        mat4.fromTranslation(this.decalModel, [
+          x - state.width / 2 + 0.5 + dx,
+          GROUND_SHADOW_Y,
+          y - state.height / 2 + 0.5 + dz,
+        ]);
+        this.maskDraw
+          .uniform('uModel', this.decalModel)
+          .uniform('uUvRect', [
+            (SHADOW_MARGIN_CELLS + x) * du,
+            (SHADOW_MARGIN_CELLS + y) * dv,
+            du,
+            dv,
+          ])
+          .draw();
+      }
+    }
+  }
+
+  /** Есть ли плита рядом с клеткой: дальше размытие тени не достаёт. */
+  private shadowNear(state: RenderState, x: number, y: number): boolean {
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const nx = x + ox;
+        const ny = y + oy;
+        if (nx < 0 || ny < 0 || nx >= state.width || ny >= state.height) continue;
+        if (isWalkableCell(state.grid[ny * state.width + nx] as CellType)) return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -1773,7 +1920,12 @@ export class PicoglRenderer implements IRenderer {
       const nx = -a[1] / len;
       const ny = a[0] / len;
       let support = 0;
-      for (const b of axes) support += Math.abs(nx * b[0] + ny * b[1]);
+      for (let j = 0; j < 3; j++) {
+        const b = axes[j] as [number, number];
+        // Кубик выше своей ширины: по оси Y половина другая (см. BOX_HEIGHT).
+        const half = j === 1 ? BOX_HEIGHT / 0.9 : 1;
+        support += Math.abs(nx * b[0] + ny * b[1]) * half;
+      }
       out[i * 3] = nx;
       out[i * 3 + 1] = ny;
       out[i * 3 + 2] = halfUv * support;
@@ -1953,7 +2105,7 @@ export class PicoglRenderer implements IRenderer {
       right[0] * up[1] - right[1] * up[0],
     ];
     const half = 0.45;
-    const halfHeight = 0.5;
+    const halfHeight = BOX_HEIGHT / 2;
     // Углы куба: младшие три бита индекса — знаки по x, z и y.
     const corners: [number, number, number][] = [];
     for (const sy of [-1, 1]) {
