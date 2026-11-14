@@ -233,8 +233,6 @@ const GROUND_SHADOW_REACH = 0.5;
 const SHADOW_PX_PER_CELL = 8;
 const SHADOW_MARGIN_CELLS = 3;
 const SHADOW_BLUR_PX = 2.5;
-/** Тень платформы проявляется уже после сборки уровня (см. `shadowVisibleAt`). */
-const SHADOW_FADE_MS = 180;
 /** Контактная тень кубика лежит на плите, чуть выше вставок механик. */
 const CONTACT_SHADOW_Y = PLATFORM_TOP + 0.05;
 const CONTACT_SHADOW_SOFT = 0.05;
@@ -416,8 +414,13 @@ export class PicoglRenderer implements IRenderer {
   private gridDraw: DrawCall | null = null;
   /** Размытая маска платформы для тени: пересобирается при смене уровня. */
   private shadowMask: { key: string; texture: Texture } | null = null;
-  /** Когда тень можно показать: после окончания волны появления уровня. */
-  private shadowVisibleAt = 0;
+  /** Готовность клеток поля для тени: по текселю на клетку, обновляется в сборке. */
+  private shadowProgress: {
+    key: string;
+    texture: Texture;
+    data: Uint8Array;
+    ready: boolean;
+  } | null = null;
 
   private camera = new Camera();
   private tweens = new TweenManager();
@@ -619,8 +622,9 @@ export class PicoglRenderer implements IRenderer {
       .vertexAttributeBuffer(0, maskPositions)
       .vertexAttributeBuffer(2, maskUvs);
     this.maskDraw = this.app.createDrawCall(this.maskProgram, this.maskVao);
-    // После потери контекста текстура невалидна — соберём маску заново.
+    // После потери контекста текстуры невалидны — соберём их заново.
     this.shadowMask = null;
+    this.shadowProgress = null;
   }
 
   resize(width: number, height: number): void {
@@ -1028,8 +1032,6 @@ export class PicoglRenderer implements IRenderer {
     const { width, height } = state;
     const cellAt = (x: number, y: number) => state.grid[y * width + x];
     this.createMask = createWaveMask(width, height, (x, y) => cellAt(x, y) !== CellType.UNKNOWN);
-    // Пока поле собирается, тень не показываем совсем: она проявляется после.
-    this.shadowVisibleAt = Number.POSITIVE_INFINITY;
     this.createMaxWave = maxWave(this.createMask);
     // Отсчёт по «стенным» часам, а не по сумме кадровых дельт: иначе на слабом
     // устройстве/в фоновой вкладке анимация почти не продвигается.
@@ -1225,7 +1227,6 @@ export class PicoglRenderer implements IRenderer {
     const duration = this.createMaxWave * WAVE_INTERVAL_MS + CREATE_GROW_MS;
     if (this.createElapsed >= duration) {
       this.createMask = null;
-      this.shadowVisibleAt = performance.now();
       const cb = this.createDone;
       this.createDone = null;
       cb?.();
@@ -1771,13 +1772,10 @@ export class PicoglRenderer implements IRenderer {
       });
       this.shadowMask = { key, texture };
     }
-    if (!this.maskDraw || !this.shadowMask) return;
-    // Тень проявляется только после того, как плита собралась: во время
-    // волны появления она висела бы под ещё не достроенным полем.
-    const fade = this.createMask
-      ? 0
-      : Math.min(1, (performance.now() - this.shadowVisibleAt) / SHADOW_FADE_MS);
-    if (fade <= 0) return;
+    if (!this.maskDraw || !this.shadowMask || !this.app) return;
+    const animating = this.createMask !== null;
+    this.updateShadowProgress(state, animating);
+    if (!this.shadowProgress) return;
     // Крошечный сдвиг в экранный низ: тень чуть плотнее у ближней кромки.
     const { yaw } = this.camera.getAngles();
     const dx = -Math.sin(yaw) * GROUND_SHADOW_REACH;
@@ -1789,13 +1787,21 @@ export class PicoglRenderer implements IRenderer {
     const dv = 1 / cellsZ;
     this.applyViewProj(this.maskDraw)
       .texture('uMask', this.shadowMask.texture)
+      .texture('uProgress', this.shadowProgress.texture)
       .uniform('uColor', this.palette.shadow)
-      .uniform('uAlpha', GROUND_SHADOW_ALPHA * fade);
+      .uniform('uAlpha', GROUND_SHADOW_ALPHA)
+      .uniform('uCells', [cellsX, cellsZ])
+      .uniform('uMargin', SHADOW_MARGIN_CELLS)
+      .uniform('uProgressOn', animating ? 1 : 0);
 
     // Тень рисуется клеточными квадами, а не одним на всё поле: проекция
     // с варпом нелинейна по экрану, и большой квад искажался бы целиком —
     // тень уезжала бы от плит на несколько клеток. Клетки делят одну
     // текстуру без нахлёста, поэтому швов между ними нет.
+    //
+    // Каждая клетка тени проявляется вместе со своей плитой (по её волне
+    // появления), поэтому уровень собирается уже с тенью, а не получает её
+    // после.
     for (let y = -SHADOW_MARGIN_CELLS; y < state.height + SHADOW_MARGIN_CELLS; y++) {
       for (let x = -SHADOW_MARGIN_CELLS; x < state.width + SHADOW_MARGIN_CELLS; x++) {
         // Рисуем только клетки, где маска вообще есть: вокруг плит и их краёв.
@@ -1816,6 +1822,54 @@ export class PicoglRenderer implements IRenderer {
           .draw();
       }
     }
+  }
+
+  /**
+   * Текстура готовности клеток: тень каждой клетки проявляется вместе с её
+   * плитой. Линейная фильтрация сглаживает переход через стыки, поэтому волна
+   * идёт без ступенек. Пересобирается только пока идёт сборка уровня.
+   */
+  private updateShadowProgress(state: RenderState, animating: boolean): void {
+    const app = this.app;
+    if (!app) return;
+    const key = gridKeyOf(state);
+    if (!this.shadowProgress || this.shadowProgress.key !== key) {
+      this.shadowProgress?.texture.delete();
+      const data = new Uint8Array(state.width * state.height * 4);
+      data.fill(255);
+      this.shadowProgress = {
+        key,
+        data,
+        ready: true,
+        texture: app.createTexture2D(data, state.width, state.height, {
+          minFilter: PicoGL.LINEAR,
+          magFilter: PicoGL.LINEAR,
+          wrapS: PicoGL.CLAMP_TO_EDGE,
+          wrapT: PicoGL.CLAMP_TO_EDGE,
+        }),
+      };
+    }
+    if (!animating) {
+      // После сборки тень везде полная — текстуру больше не трогаем.
+      if (this.shadowProgress.ready) return;
+      this.shadowProgress.data.fill(255);
+      this.shadowProgress.texture.data(this.shadowProgress.data);
+      this.shadowProgress.ready = true;
+      return;
+    }
+    this.shadowProgress.ready = false;
+    const data = this.shadowProgress.data;
+    for (let y = 0; y < state.height; y++) {
+      for (let x = 0; x < state.width; x++) {
+        const value = Math.round(easeOutCubic(this.cellProgress(x, y)) * 255);
+        const i = (y * state.width + x) * 4;
+        data[i] = value;
+        data[i + 1] = value;
+        data[i + 2] = value;
+        data[i + 3] = 255;
+      }
+    }
+    this.shadowProgress.texture.data(data);
   }
 
   /** Есть ли плита рядом с клеткой: дальше размытие тени не достаёт. */

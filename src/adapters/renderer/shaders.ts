@@ -120,12 +120,26 @@ precision highp float;
 uniform sampler2D uMask;
 uniform vec3 uColor;
 uniform float uAlpha;
+/**
+ * Готовность клеток поля (по текселю на клетку, линейная фильтрация): тень
+ * проявляется вместе с плитами, а не целиком. Между клетками значения
+ * интерполируются, поэтому волна идёт мягко, без ступенек на стыках.
+ */
+uniform sampler2D uProgress;
+/** Сколько клеток маски по осям (с полями) и сколько клеток занимают поля. */
+uniform vec2 uCells;
+uniform float uMargin;
+uniform float uProgressOn;
 in vec2 vUv;
 out vec4 fragColor;
 void main() {
   // Маска — белый силуэт по чёрному, размытый до плотности тени.
   float density = texture(uMask, vUv).r;
-  fragColor = vec4(uColor, density * uAlpha);
+  // UV маски → координаты клетки поля: центр клетки попадает в центр текселя.
+  vec2 cell = vUv * uCells - uMargin;
+  vec2 level = max(uCells - 2.0 * uMargin, vec2(1.0));
+  float progress = mix(1.0, texture(uProgress, cell / level).r, uProgressOn);
+  fragColor = vec4(uColor, density * uAlpha * progress);
 }
 `;
 
