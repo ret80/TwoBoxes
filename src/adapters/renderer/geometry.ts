@@ -37,10 +37,41 @@ function buildCubeVertices(): Float32Array {
   return new Float32Array(out);
 }
 
+/**
+ * Доля соседних граней в нормали угла. 0 — жёсткая грань (как раньше), 1 —
+ * полностью сглаженный «шарик». Небольшое значение даёт микрофаску: у рёбер
+ * нормаль чуть поворачивается к соседу, и свет мягко подсвечивает кромку
+ * вместо резкого перепада между гранями.
+ */
+const BEVEL_BLEND = 0.3;
+
+/**
+ * Нормали скруглённого куба. Каждая вершина — угол куба, поэтому к нормали
+ * грани подмешиваются нормали двух соседних граней, сходящихся в этом угле.
+ * Геометрия остаётся кубом (силуэт ровный), меняется только освещение — это и
+ * есть «микрофаска» без дополнительных полигонов.
+ */
 function buildCubeNormals(): Float32Array {
   const out: number[] = [];
   for (const face of CUBE_FACES) {
-    for (let i = 0; i < face.idx.length; i++) out.push(...face.normal);
+    for (const index of face.idx) {
+      const corner = CUBE_CORNERS[index];
+      const normal = [face.normal[0], face.normal[1], face.normal[2]];
+      for (const other of CUBE_FACES) {
+        if (other.normal === face.normal) continue;
+        // Грань проходит через угол, если его проекция на её нормаль — 0.5.
+        const dot =
+          corner[0] * other.normal[0] +
+          corner[1] * other.normal[1] +
+          corner[2] * other.normal[2];
+        if (dot < 0.49) continue;
+        normal[0] += other.normal[0] * BEVEL_BLEND;
+        normal[1] += other.normal[1] * BEVEL_BLEND;
+        normal[2] += other.normal[2] * BEVEL_BLEND;
+      }
+      const length = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+      out.push(normal[0] / length, normal[1] / length, normal[2] / length);
+    }
   }
   return new Float32Array(out);
 }
@@ -105,6 +136,20 @@ export const QUAD_UVS: Float32Array = new Float32Array([
   0, 0,
   1, 1,
   1, 0,
+]);
+
+/**
+ * UV для квада в плоскости XZ: локальный X — это U, локальный Z — V. По ним
+ * растягивается размытый силуэт платформы (маска тени).
+ */
+export const QUAD_XZ_UVS: Float32Array = new Float32Array([
+  0, 0,
+  1, 0,
+  1, 1,
+
+  0, 0,
+  1, 1,
+  0, 1,
 ]);
 
 /**

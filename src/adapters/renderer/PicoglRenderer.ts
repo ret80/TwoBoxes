@@ -1,4 +1,4 @@
-import { App, DrawCall, Program, VertexArray, VertexBuffer, PicoGL } from 'picogl';
+import { App, DrawCall, Program, Texture, VertexArray, VertexBuffer, PicoGL } from 'picogl';
 import { mat4 } from 'gl-matrix';
 import { ColorType } from '../../core/types/color';
 import {
@@ -30,6 +30,7 @@ import {
   QUAD_UVS,
   QUAD_XY_NORMALS,
   QUAD_XY_VERTICES,
+  QUAD_XZ_UVS,
   QUAD_XZ_VERTICES,
 } from './geometry';
 import {
@@ -38,6 +39,10 @@ import {
   GLOW_VERTEX_SHADER,
   LINE_FRAGMENT_SHADER,
   LINE_VERTEX_SHADER,
+  MASK_FRAGMENT_SHADER,
+  MASK_VERTEX_SHADER,
+  SHADOW_FRAGMENT_SHADER,
+  SHADOW_VERTEX_SHADER,
   VERTEX_SHADER,
 } from './shaders';
 import { Camera } from './camera';
@@ -53,8 +58,8 @@ import {
 /**
  * Цвета сцены — та же палитра атласа, что и в CSS: тёплый крем, бирюзовые
  * плиты, коралловый и золотой кубики. Цвета заданы «базовыми»: шейдер умножает
- * их на 0.78 + 0.30·diff, поэтому верхние грани выходят светлее, боковые —
- * темнее (мягкий свет как в оригинале).
+ * их на 0.70 + 0.34·diff (половинный ламберт), поэтому верхние грани выходят
+ * светлее, боковые — темнее, но без жёсткого контраста.
  *
  * Тёмная палитра собрана по мотивам светлой: поверхности тёмные и тёплые (не
  * чёрные), плиты светлее фона, акценты чуть светлее и мягче — так они читаются
@@ -83,6 +88,8 @@ interface ScenePalette {
   onewayMark: number[];
   arrowOne: number[];
   arrowTwo: number[];
+  /** Тень под платформой и кубиками: тёмный тон плиты, не чёрный. */
+  shadow: number[];
   ink: number[];
 }
 
@@ -111,6 +118,9 @@ const PALETTE_LIGHT: ScenePalette = {
   // Стрелки-подсказки на полу: чуть светлее кубиков, чтобы читались на плитах.
   arrowOne: [0.93, 0.44, 0.26],
   arrowTwo: [0.93, 0.71, 0.24],
+  // Тень тёплая и зеленоватая, как плита: на кремовом фоне серое пятно
+  // выглядело бы грязным.
+  shadow: [0.21, 0.29, 0.27],
   // Кофейный цвет текста и иконок интерфейса (--color-coffee).
   ink: [0.29, 0.208, 0.153],
 };
@@ -138,6 +148,7 @@ const PALETTE_DARK: ScenePalette = {
   onewayMark: [0.95, 0.97, 0.9],
   arrowOne: [1.0, 0.55, 0.34],
   arrowTwo: [1.0, 0.79, 0.32],
+  shadow: [0.0, 0.0, 0.0], // на тёмном фоне тень — просто затемнение
   ink: [0.92, 0.88, 0.83], // компас: кремовые оси и буквы
 };
 
@@ -199,6 +210,32 @@ const BOX_Y = PLATFORM_TOP + 0.5;
 const BOX_FLOOR = BOX_Y - 0.5;
 
 /**
+ * Тень под платформой. Фон вокруг платформы — «земля»; плита приподнята на
+ * PLATFORM_TOP, поэтому её размытый силуэт лежит ниже и чуть смещён — поле
+ * читается как парящая плита, а не как наклейка на фоне. В «дырках» поля та
+ * же тень работает как мягкое внутреннее затемнение у основания стенок.
+ */
+const GROUND_SHADOW_Y = 0.004;
+const GROUND_SHADOW_ALPHA = 0.45;
+/**
+ * Смещение тени в экранный низ: в мировых осях это −x и +z (по половине от
+ * каждой), поэтому на экране тень уходит ровно вниз. Так плита «парит»: тень
+ * выходит из-под её нижней кромки сплошной мягкой полосой.
+ */
+const GROUND_SHADOW_DX = -0.4;
+const GROUND_SHADOW_DZ = 0.4;
+/** Маска тени: пиксели на клетку, поле вокруг и радиус размытия в пикселях. */
+const SHADOW_PX_PER_CELL = 8;
+const SHADOW_MARGIN_CELLS = 3;
+const SHADOW_BLUR_PX = 2.5;
+/** Контактная тень кубика лежит на плите, чуть выше вставок механик. */
+const CONTACT_SHADOW_Y = PLATFORM_TOP + 0.05;
+const CONTACT_SHADOW_SOFT = 0.05;
+const CONTACT_SHADOW_ALPHA = 0.38;
+/** Сетка — тонкий светлый шов, а не белая линия. */
+const GRID_ALPHA = 0.4;
+
+/**
  * Плиты есть там, где может оказаться кубик: EMPTY, целевые клетки и сами
  * кубики (их клетки в карте уровня помечены BOX/BOX_TWO). WALL — обрыв.
  */
@@ -206,6 +243,52 @@ const isWalkableCell = (cell: CellType): boolean =>
   cell === CellType.EMPTY || isEndCell(cell) || isBoxCell(cell) || isMechanicCell(cell);
 
 const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
+
+/** Подпись карты: по ней пересобираются сетка и маска тени при смене уровня. */
+function gridKeyOf(state: RenderState): string {
+  return `${state.width}x${state.height}:${state.grid.join('')}`;
+}
+
+/**
+ * Маска тени платформы: белый силуэт проходимых клеток по чёрному фону,
+ * размытый canvas-фильтром. По краям — поля на `SHADOW_MARGIN_CELLS`, чтобы
+ * размытие не срезалось границей текстуры. `null` — canvas недоступен.
+ */
+function buildShadowMask(
+  width: number,
+  height: number,
+  walkable: (x: number, y: number) => boolean,
+): HTMLCanvasElement | null {
+  const px = SHADOW_PX_PER_CELL;
+  const margin = SHADOW_MARGIN_CELLS * px;
+  const w = width * px + margin * 2;
+  const h = height * px + margin * 2;
+  const mask = document.createElement('canvas');
+  mask.width = w;
+  mask.height = h;
+  const ctx = mask.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fff';
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (walkable(x, y)) ctx.fillRect(margin + x * px, margin + y * px, px, px);
+    }
+  }
+  const blurred = document.createElement('canvas');
+  blurred.width = w;
+  blurred.height = h;
+  const blur = blurred.getContext('2d');
+  if (!blur) return mask;
+  blur.fillStyle = '#000';
+  blur.fillRect(0, 0, w, h);
+  // Фильтр размывает силуэт целиком, а не каждую клетку отдельно — поэтому
+  // края соседних клеток сливаются в одну мягкую тень (см. MASK-шейдер).
+  blur.filter = `blur(${SHADOW_BLUR_PX}px)`;
+  blur.drawImage(mask, 0, 0);
+  return blurred;
+}
 
 /** Позиция кубика для анимации: координаты уровня (центр клетки) + мировая высота. */
 interface RenderBoxPos {
@@ -264,7 +347,8 @@ interface PendingPortalHop {
 /**
  * Рендер-адаптер на picogl (WebGL2). Реализация IRenderer.
  * Стиль оригинала: изометрическая ортокамера, простые примитивы, flat-цвета
- * с мягким направленным светом (верхние грани светлее боковых).
+ * с мягким направленным светом (верхние грани светлее боковых), пастельная
+ * палитра, контактные тени под кубиками и тень под парящей плитой.
  */
 export class PicoglRenderer implements IRenderer {
   private app: App | null = null;
@@ -277,17 +361,25 @@ export class PicoglRenderer implements IRenderer {
   private program: Program | null = null;
   private lineProgram: Program | null = null;
   private glowProgram: Program | null = null;
+  private shadowProgram: Program | null = null;
+  private maskProgram: Program | null = null;
   private cubeVao: VertexArray | null = null;
   private quadVao: VertexArray | null = null;
   private quadXYVao: VertexArray | null = null;
   private glowVao: VertexArray | null = null;
+  private shadowVao: VertexArray | null = null;
+  private maskVao: VertexArray | null = null;
   private gridVao: VertexArray | null = null;
 
   private cubeDraw: DrawCall | null = null;
   private quadDraw: DrawCall | null = null;
   private quadXYDraw: DrawCall | null = null;
   private glowDraw: DrawCall | null = null;
+  private shadowDraw: DrawCall | null = null;
+  private maskDraw: DrawCall | null = null;
   private gridDraw: DrawCall | null = null;
+  /** Размытая маска платформы для тени: пересобирается при смене уровня. */
+  private shadowMask: { key: string; texture: Texture } | null = null;
 
   private camera = new Camera();
   private tweens = new TweenManager();
@@ -333,6 +425,8 @@ export class PicoglRenderer implements IRenderer {
   private boxPos: RenderBoxPos[] = [];
   private gridBuf: VertexBuffer | null = null;
   private gridWave = Number.NaN;
+  /** Карта, для которой построена сетка: тот же wave у другой карты — не повод не перестроить. */
+  private gridKey = '';
 
   // CSS-размер окна (канвас рендерится в device-пикселях)
   private viewportW = 1;
@@ -415,10 +509,12 @@ export class PicoglRenderer implements IRenderer {
     this.gridVao = null;
     this.gridDraw = null;
     this.gridWave = Number.NaN;
+    this.gridKey = '';
     // Canvas без альфа-канала: полупрозрачные пиксели (ореолы, стрелки) не
     // смешиваются с фоном страницы. Иначе premultiplied-композитинг браузера
     // подмешивал кремовый фон поверх и свечение выгорало в белое.
-    this.app = PicoGL.createApp(canvas, { alpha: false, antialias: true })
+    // stencil нужен тени под платформой: она обрезается по силуэту плит.
+    this.app = PicoGL.createApp(canvas, { alpha: false, antialias: true, stencil: true })
       .enable(PicoGL.DEPTH_TEST)
       // Отсечение задних граней: без него совпадающие грани соседних клеток
       // (пол/стена, стена/стена) дают z-fighting с мерцающими швами.
@@ -430,6 +526,8 @@ export class PicoglRenderer implements IRenderer {
     this.program = this.app.createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
     this.lineProgram = this.app.createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER);
     this.glowProgram = this.app.createProgram(GLOW_VERTEX_SHADER, GLOW_FRAGMENT_SHADER);
+    this.shadowProgram = this.app.createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
+    this.maskProgram = this.app.createProgram(MASK_VERTEX_SHADER, MASK_FRAGMENT_SHADER);
 
     const cubePositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_VERTICES);
     const cubeNormals = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_NORMALS);
@@ -465,6 +563,26 @@ export class PicoglRenderer implements IRenderer {
       .vertexAttributeBuffer(0, glowPositions)
       .vertexAttributeBuffer(2, glowUvs);
     this.glowDraw = this.app.createDrawCall(this.glowProgram, this.glowVao);
+
+    // Мягкая тень: тот же квад в XZ, но без нормалей — шейдер считает
+    // расстояние до скруглённого прямоугольника в его локальных координатах.
+    const shadowPositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XZ_VERTICES);
+    this.shadowVao = this.app
+      .createVertexArray()
+      .vertexAttributeBuffer(0, shadowPositions);
+    this.shadowDraw = this.app.createDrawCall(this.shadowProgram, this.shadowVao);
+
+    // Тень платформы: тот же квад в XZ, но с UV — по нему растягивается
+    // размытая маска силуэта.
+    const maskPositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XZ_VERTICES);
+    const maskUvs = this.app.createVertexBuffer(PicoGL.FLOAT, 2, QUAD_XZ_UVS);
+    this.maskVao = this.app
+      .createVertexArray()
+      .vertexAttributeBuffer(0, maskPositions)
+      .vertexAttributeBuffer(2, maskUvs);
+    this.maskDraw = this.app.createDrawCall(this.maskProgram, this.maskVao);
+    // После потери контекста текстура невалидна — соберём маску заново.
+    this.shadowMask = null;
   }
 
   resize(width: number, height: number): void {
@@ -572,6 +690,7 @@ export class PicoglRenderer implements IRenderer {
   private rebuildGrid(state: RenderState, wave: number): void {
     if (!this.app || !this.lineProgram) return;
     this.gridWave = wave;
+    this.gridKey = gridKeyOf(state);
     // Сетка только по клеткам поля: после окончания create маска снята и
     // без проверки UNKNOWN линии рисовались по всему прямоугольнику уровня,
     // выходя тонкими штрихами за пределы платформы.
@@ -1090,6 +1209,9 @@ export class PicoglRenderer implements IRenderer {
     const state = this.state;
     if (!app || this.contextLost || !state || !this.cubeDraw || !this.quadDraw) return;
 
+    // Маска трафарета могла остаться нулевой с прошлого кадра — тогда clear()
+    // не очистит трафарет, и в нём останутся единицы от прошлого ракурса.
+    app.gl.stencilMask(0xff);
     app.clear();
     // Обычные грани рисуются непрозрачно; режим смешивания включается только
     // на время прохода ореола-подсветки (см. ниже).
@@ -1141,6 +1263,15 @@ export class PicoglRenderer implements IRenderer {
         .uniform('uGlow', 0);
       this.quadDraw!.draw();
     };
+
+    // Трафарет: всё, что рисуется как платформа (плиты и вставки), помечается
+    // единицей. Тень на земле потом рисуется только снаружи этой маски — без
+    // неё она просвечивала тёмными полосами в швах между плитками.
+    const gl = app.gl;
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0xff);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
 
     // Стены и пол инвертированы: проходимые клетки — приподнятые плиты, по которым
     // катаются кубики (WALL больше не рисуется — на его месте обрыв и фон сцены).
@@ -1251,17 +1382,52 @@ export class PicoglRenderer implements IRenderer {
       }
     }
 
+    // Тень под платформой — размытый силуэт плит, сдвинутый на экранный низ и
+    // обрезанный трафаретом по их видимой части. Наружу выходит только мягкая
+    // полоса из-под нижней кромки, да тень у стенок в «дырках» поля.
+    gl.stencilMask(0x00);
+    gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
+    this.beginSoftPass();
+    this.drawGroundShadow(state);
+    this.endSoftPass();
+    gl.disable(gl.STENCIL_TEST);
+
+    // Контактная тень кубиков: лежит на плите и повторяет пятно кубика, поэтому
+    // он стоит на поле, а не парит. Чем выше кубик (появление, телепорт), тем
+    // слабее тень — как у настоящего предмета над столом.
+    this.beginSoftPass();
+    for (const b of this.boxPos) {
+      const bx = Math.round(b.x - 0.5);
+      const bz = Math.round(b.z - 0.5);
+      const progress = this.cellProgress(bx, bz);
+      if (progress <= 0) continue;
+      const grow = animating ? 0.05 + 0.95 * easeOutCubic(progress) : 1;
+      const lift = Math.max(0, b.y - BOX_Y);
+      const fade = Math.max(0, 1 - lift / 1.1);
+      if (fade <= 0) continue;
+      const half = 0.45 * grow * (1 + lift * 0.25);
+      this.drawShadow(
+        b.x - state.width / 2,
+        CONTACT_SHADOW_Y,
+        b.z - state.height / 2,
+        half,
+        half,
+        CONTACT_SHADOW_SOFT * (1 + lift * 0.6),
+        CONTACT_SHADOW_ALPHA * fade * (animating ? grow : 1),
+      );
+    }
+    this.endSoftPass();
+
     // Линии сетки: перестраивать только при изменении волны
     const wave = this.gridRevealWave();
-    if (wave !== this.gridWave) {
+    if (wave !== this.gridWave || gridKeyOf(state) !== this.gridKey) {
       this.rebuildGrid(state, wave);
     }
     if (this.gridDraw) {
       mat4.identity(model);
-      this.applyViewProj(this.gridDraw.uniform('uModel', model)).uniform(
-        'uColor',
-        this.palette.grid,
-      );
+      this.applyViewProj(this.gridDraw.uniform('uModel', model))
+        .uniform('uColor', this.palette.grid)
+        .uniform('uAlpha', GRID_ALPHA);
       this.gridDraw.draw();
     }
 
@@ -1458,6 +1624,94 @@ export class PicoglRenderer implements IRenderer {
       .uniform('uColor', color)
       .uniform('uAlpha', alpha)
       .uniform('uGlow', 0)
+      .draw();
+  }
+
+  /** Прозрачный проход: обычное альфа-смешивание без записи глубины. */
+  private beginSoftPass(): void {
+    const app = this.app;
+    if (!app) return;
+    const gl = app.gl;
+    app.enable(PicoGL.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE);
+    gl.depthMask(false);
+  }
+
+  private endSoftPass(): void {
+    if (!this.app) return;
+    this.app.gl.depthMask(true);
+    this.app.disable(PicoGL.BLEND);
+  }
+
+  /**
+   * Тень платформы одним квадом: размытая маска силуэта растягивается на
+   * габариты поля с полями и сдвигается на экранный низ. Маска собирается
+   * заново только при смене карты.
+   */
+  private drawGroundShadow(state: RenderState): void {
+    const key = gridKeyOf(state);
+    if (!this.shadowMask || this.shadowMask.key !== key) {
+      if (!this.app || !this.maskDraw) return;
+      this.shadowMask?.texture.delete();
+      this.shadowMask = null;
+      const canvas = buildShadowMask(state.width, state.height, (x, y) =>
+        isWalkableCell(state.grid[y * state.width + x] as CellType),
+      );
+      if (!canvas) return;
+      const texture = this.app.createTexture2D(canvas as unknown as HTMLImageElement, {
+        minFilter: PicoGL.LINEAR,
+        magFilter: PicoGL.LINEAR,
+        wrapS: PicoGL.CLAMP_TO_EDGE,
+        wrapT: PicoGL.CLAMP_TO_EDGE,
+      });
+      this.shadowMask = { key, texture };
+    }
+    if (!this.maskDraw || !this.shadowMask) return;
+    const sizeX = state.width + SHADOW_MARGIN_CELLS * 2;
+    const sizeZ = state.height + SHADOW_MARGIN_CELLS * 2;
+    mat4.fromTranslation(this.decalModel, [
+      GROUND_SHADOW_DX,
+      GROUND_SHADOW_Y,
+      GROUND_SHADOW_DZ,
+    ]);
+    mat4.scale(this.decalModel, this.decalModel, [sizeX, 1, sizeZ]);
+    // Пока идёт волна появления, тень проявляется вместе с платформой.
+    const fade = this.createMask ? Math.min(1, this.createElapsed / CREATE_GROW_MS) : 1;
+    this.applyViewProj(this.maskDraw.uniform('uModel', this.decalModel))
+      .texture('uMask', this.shadowMask.texture)
+      .uniform('uColor', this.palette.shadow)
+      .uniform('uAlpha', GROUND_SHADOW_ALPHA * fade)
+      .draw();
+  }
+
+  /**
+   * Мягкая тень на полу: скруглённый прямоугольник `halfX × halfZ` (мировые
+   * единицы) с гауссовым краем `soft`. Квад заметно больше ядра, чтобы хвост
+   * успел погаснуть до его границы и не было видно прямоугольника.
+   */
+  private drawShadow(
+    x: number,
+    y: number,
+    z: number,
+    halfX: number,
+    halfZ: number,
+    soft: number,
+    alpha: number,
+  ): void {
+    if (!this.shadowDraw) return;
+    const quadHalf = Math.max(halfX, halfZ) + soft * 2.4;
+    const size = quadHalf * 2;
+    // Локальные координаты квада — от -0.5 до 0.5, поэтому мировые размеры
+    // делятся ещё на два: иначе ядро тени выходило вдвое больше заданного.
+    const toLocal = 1 / (2 * quadHalf);
+    mat4.fromTranslation(this.decalModel, [x, y, z]);
+    mat4.scale(this.decalModel, this.decalModel, [size, 1, size]);
+    this.applyViewProj(this.shadowDraw.uniform('uModel', this.decalModel))
+      .uniform('uColor', this.palette.shadow)
+      .uniform('uAlpha', alpha)
+      .uniform('uHalf', [halfX * toLocal, halfZ * toLocal])
+      .uniform('uRound', Math.min(halfX, halfZ) * 0.12 * toLocal)
+      .uniform('uSoft', soft * toLocal)
       .draw();
   }
 

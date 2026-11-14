@@ -42,6 +42,11 @@ void main() {
  * Куб/квад: однотонный материал (аналог mat_*.tres) + мягкий направленный свет.
  * `uAlpha` нужен для полупрозрачных декалей, `uGlow` — для свечения кубика,
  * стоящего на своей площадке.
+ *
+ * Свет — половинный ламберт: тень на боковых гранях не проваливается в
+ * контраст, пастельная палитра остаётся пастельной. Нормали у куба скруглены
+ * на рёбрах (см. geometry.ts), поэтому грани переходят друг в друга мягкой
+ * подсветкой, как на микрофаске.
  */
 export const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -53,13 +58,99 @@ out vec4 fragColor;
 const vec3 LIGHT_DIR = vec3(0.4467, 0.8437, 0.2978); // normalize(0.45, 0.85, 0.3)
 void main() {
   vec3 n = normalize(vNormal);
-  float diff = max(dot(n, LIGHT_DIR), 0.0);
-  vec3 lit = uColor * (0.78 + 0.30 * diff);
+  // Половинный ламберт: 0.5 + 0.5·cos — боковые грани светлее, чем при
+  // обычном max(dot, 0), и куб читается объёмно, не проваливаясь в тень.
+  float diff = 0.5 + 0.5 * dot(n, LIGHT_DIR);
+  vec3 lit = uColor * (0.70 + 0.34 * diff);
   // Кубик на своей площадке чуть «напитан» светом: силуэт светится в основном
   // ореолом (он повторяет проекцию кубика), а грани — только легче обычного,
   // иначе у плоского куба ореол разбивался бы на отдельные светлые грани.
   lit *= 1.0 + 0.08 * uGlow;
   fragColor = vec4(min(lit, vec3(1.0)), uAlpha);
+}
+`;
+
+/**
+ * Контактная тень кубика.
+ *
+ * Рисуется плоским квадом в плоскости XZ, внутри которого шейдер считает
+ * расстояние до скруглённого прямоугольника (SDF). Ядро тени ровное, край
+ * тает по гауссу — без «пятна» с заметной границей и без размытия текстурой.
+ * Полуразмер ядра, скругление и мягкость приходят в локальных единицах квада.
+ */
+export const SHADOW_VERTEX_SHADER = `#version 300 es
+layout(location = 0) in vec3 aPosition;
+uniform mat4 uModel;
+uniform mat4 uViewProj;
+uniform float uWarp;
+out vec2 vLocal;
+${PROJECT}
+void main() {
+  vLocal = aPosition.xz;
+  gl_Position = projectVertex(uViewProj * uModel * vec4(aPosition, 1.0));
+}
+`;
+
+/**
+ * Тень платформы: один квад с размытой маской силуэта плит.
+ *
+ * Поштучные квады клеток не сливаются в одну тень: каждая клетка даёт свой
+ * скруглённый край, и на месте общей тени получается гребёнка. Поэтому силуэт
+ * плит рисуется в маленький canvas, размывается там же гауссом и уходит в
+ * текстуру — квад тени повторяет форму поля целиком, включая дырки.
+ */
+export const MASK_VERTEX_SHADER = `#version 300 es
+layout(location = 0) in vec3 aPosition;
+layout(location = 2) in vec2 aUv;
+uniform mat4 uModel;
+uniform mat4 uViewProj;
+uniform float uWarp;
+out vec2 vUv;
+${PROJECT}
+void main() {
+  vUv = aUv;
+  gl_Position = projectVertex(uViewProj * uModel * vec4(aPosition, 1.0));
+}
+`;
+
+export const MASK_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+uniform sampler2D uMask;
+uniform vec3 uColor;
+uniform float uAlpha;
+in vec2 vUv;
+out vec4 fragColor;
+void main() {
+  // Маска — белый силуэт по чёрному, размытый до плотности тени.
+  float density = texture(uMask, vUv).r;
+  fragColor = vec4(uColor, density * uAlpha);
+}
+`;
+
+export const SHADOW_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+uniform vec3 uColor;
+uniform float uAlpha;
+/** Полуразмеры ядра по осям квада: квадрат у контактной тени, полоска у стенки. */
+uniform vec2 uHalf;
+uniform float uRound;
+uniform float uSoft;
+in vec2 vLocal;
+out vec4 fragColor;
+
+/** SDF прямоугольника со скруглёнными углами: < 0 внутри, > 0 снаружи. */
+float roundedBox(vec2 p, vec2 halfSize, float round) {
+  vec2 q = abs(p) - halfSize + round;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - round;
+}
+
+void main() {
+  float d = max(roundedBox(vLocal, uHalf, uRound), 0.0);
+  float a = uAlpha * exp(-(d * d) / max(uSoft * uSoft, 1e-6));
+  // Квад должен быть больше самой тени: гасим хвост до его края, иначе
+  // видна прямая граница квада (тот же приём, что у ореола).
+  a *= 1.0 - smoothstep(0.40, 0.49, max(abs(vLocal.x), abs(vLocal.y)));
+  fragColor = vec4(uColor, a);
 }
 `;
 
@@ -153,8 +244,9 @@ void main() {
 export const LINE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 uniform vec3 uColor;
+uniform float uAlpha;
 out vec4 fragColor;
 void main() {
-  fragColor = vec4(uColor, 1.0);
+  fragColor = vec4(uColor, uAlpha);
 }
 `;
