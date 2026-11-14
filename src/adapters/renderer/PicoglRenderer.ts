@@ -444,8 +444,8 @@ export class PicoglRenderer implements IRenderer {
   private moveSpeed = 1;
   /** Палитра сцены выбранной темы (см. PALETTE_LIGHT / PALETTE_DARK). */
   private palette: ScenePalette = PALETTE_LIGHT;
-  /** Вид подсказки: стрелки на полу или проволочный кубик. */
-  private hintStyle: HintStyle = 'arrows';
+  /** Вид подсказки: стрелки на полу или проволочный кубик (по умолчанию кубик). */
+  private hintStyle: HintStyle = 'cube';
 
   // Матрицы-скретч: декали (стрелки, буквы) собираются из них каждый кадр.
   private viewProj: mat4 = mat4.create();

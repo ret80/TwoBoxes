@@ -2,7 +2,8 @@
  * Конфигурация (аналог `script/global/config.gd`).
  * Переменные: `sfxVolume`, `musicVolume` (по умолчанию 0.5/0.3), `demoMode`,
  * скорость анимации `moveSpeed`, режим компаса `compass`, вид подсказки
- * `hintStyle`, тема `theme` (по умолчанию светлая, есть режим «как в системе»),
+ * `hintStyle` (по умолчанию кубик), тема `theme` (по умолчанию светлая, есть
+ * режим «как в системе»),
  * а также отладочные `showFps` и `projection`.
  * Событие `change` — подписка адаптеров (например, WebAudio на изменение громкости).
  */
@@ -49,7 +50,9 @@ export class Config {
     projection: 'iso',
     moveSpeed: 'smooth',
     compass: 'auto',
-    hintStyle: 'arrows',
+    // По умолчанию подсказка — проволочный кубик: он показывает, куда встанет
+    // кубик, а не только направление движения.
+    hintStyle: 'cube',
     theme: 'light',
   };
 
