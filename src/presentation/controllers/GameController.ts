@@ -11,6 +11,7 @@ import type { Statistics } from '../../core/services/statistics';
 import { InputAction } from '../../ports/IInput';
 import { createLevelFromData } from '../../core/rules/create';
 import { generateTestLevel, type TestLevelOptions } from '../../core/generation/level-generator';
+import { findShortestSolution } from '../../core/generation/solver';
 import { formatLevelSeed, levelSeed } from '../../core/generation/level-seed';
 import { findHint, planSlides, type HintSlide } from '../../core/rules/hint';
 import { starsForResult, type GameResult } from '../../core/types/game-result';
@@ -25,6 +26,15 @@ const FALLBACK_DEMO_LEVELS: readonly { episodeId: number; levelId: number }[] = 
   { episodeId: 0, levelId: 0 },
   { episodeId: 0, levelId: 1 },
 ];
+
+/**
+ * Длина кратчайшего решения уровня. `0` — решатель не смог обойти граф
+ * (уровень нерешаем или больше предохранителя): тогда минимум в диалоге
+ * победы не показывается, а звёзды не считаются по ходам.
+ */
+function shortestMoves(level: Level): number {
+  return findShortestSolution(level)?.length ?? 0;
+}
 
 /**
  * Контроллер игры (план 11.5): связывает игровой FSM, рендер, ввод,
@@ -439,9 +449,11 @@ export class GameController {
         this.save();
       }
       // Минимальное число ходов уровня — база для звёзд в диалоге победы;
-      // подсказки входят в оценку отдельным штрафом.
+      // подсказки входят в оценку отдельным штрафом. У тестового уровня нет
+      // эпизода в менеджере, поэтому минимум считает тот же решатель: раньше
+      // здесь стояло число ходов игрока, и «минимум» совпадал с прохождением.
       const minMoves = this.testMode
-        ? Math.max(1, ctx.moves)
+        ? shortestMoves(ctx.level)
         : this.episodes.minMoves(ctx.level.episodeId, ctx.level.levelId);
       const hints = this.statistics.getHints();
       this.showCompleted?.(

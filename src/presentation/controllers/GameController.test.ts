@@ -10,6 +10,7 @@ import { GameController } from './GameController';
 import { generateTestLevel } from '../../core/generation/level-generator';
 import { formatLevelSeed } from '../../core/generation/level-seed';
 import { createLevelFromData } from '../../core/rules/create';
+import { DIRS } from '../../core/types/position';
 
 /** Рендер-заглушка: анимации завершаются синхронно. */
 class FakeRenderer implements IRenderer {
@@ -181,6 +182,23 @@ describe('GameController: завершение уровня', () => {
     expect(nextSeed).toBe((recipe.seed + 1) >>> 0);
     expect(seed.textContent).toBe(formatLevelSeed(nextSeed!));
   }, 20_000);
+
+  it('минимум ходов тестового уровня считает решатель, а не ходы игрока', () => {
+    const { game, actor, showCompleted } = setup(false);
+    // Минимум — один ход вправо. Ход влево тоже возможен и стоит лишнего хода,
+    // но минимумом уровня он не становится.
+    game.startTestLevel(
+      createLevelFromData(0, 0, ['######', '#.R.r#', '#.Y.y#', '######']),
+      'TEST',
+      { mechanics: [], difficulty: 50, seed: 1 },
+    );
+    game.handleDirection(DIRS.left);
+    expect(actor.getSnapshot().context.moves).toBe(1);
+    playUntil(game, () => (actor.getSnapshot().value as string) === 'completed');
+    const result = showCompleted.mock.calls[0][0];
+    expect(result.moves).toBe(2);
+    expect(result.minMoves).toBe(1);
+  });
 
   it('победа тестового уровня помечена как тестовая', () => {
     const { game, actor, showCompleted } = setup(false);
