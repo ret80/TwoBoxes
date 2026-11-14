@@ -2104,6 +2104,12 @@ export class PicoglRenderer implements IRenderer {
       const total = PicoglRenderer.pathDistance(item.path);
       if (total <= 0) continue;
       const color = item.color === ColorType.ONE ? this.palette.arrowOne : this.palette.arrowTwo;
+      // Голова доезжает до самой клетки упора — там, куда встанет кубик.
+      const at = PicoglRenderer.samplePath(item.path, total * slide);
+      // Клетка, на которой голова стоит сейчас: под кубиком стрелку не рисуем,
+      // иначе след просвечивает сквозь проволочный контур.
+      const headX = Math.round(at.x);
+      const headZ = Math.round(at.z);
       // След маршрута: стрелка на каждой клетке пути, блёклая, чтобы не
       // перебивать голову подсказки.
       for (let i = 1; i < item.path.length; i++) {
@@ -2111,6 +2117,7 @@ export class PicoglRenderer implements IRenderer {
           PicoglRenderer.outgoing(item.path, i) ?? PicoglRenderer.incoming(item.path, i);
         if (!heading) continue;
         const pos = item.path[i].pos;
+        if (this.hintStyle === 'cube' && pos.x === headX && pos.y === headZ) continue;
         this.drawChevrons(
           pos.x + offsetX,
           pos.y + offsetZ,
@@ -2119,8 +2126,6 @@ export class PicoglRenderer implements IRenderer {
           fade * HINT_TRAIL_ALPHA,
         );
       }
-      // Голова доезжает до самой клетки упора — там, куда встанет кубик.
-      const at = PicoglRenderer.samplePath(item.path, total * slide);
       if (this.hintStyle === 'cube') {
         this.drawHintCube(at.x + offsetX, at.z + offsetZ, color, fade);
       } else {
