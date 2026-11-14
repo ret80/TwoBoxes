@@ -43,7 +43,7 @@ function createReverb(ctx: AudioContext, seconds = 3.6): ConvolverNode {
  * AudioContext создаётся по user gesture. Если wav-ассеты недоступны —
  * fallback: синтез коротких звуков через OscillatorNode (см. правки плана, п.12).
  * Звуки: 'swipe' — движение кубиков, 'place' — кубик встал на свою площадку,
- * 'portal' — телепорт, 'message-appear' — диалог завершения.
+ * 'portal' — телепорт, 'hint' — подсказка, 'message-appear' — диалог завершения.
  * Музыка — генеративный эмбиент: аккорды, бас и редкая мелодия планируются
  * заранее по времени AudioContext, поэтому нет щелчков и дрейфа ритма.
  */
@@ -91,6 +91,12 @@ export class WebAudioPlayer implements IAudio {
       // Кубик на месте: короткий высокий «динь» с мягким обертоном.
       this.tone(ctx, 880, 1180, 0.1, vol, 'triangle');
       this.tone(ctx, 1320, 1320, 0.16, vol * 0.35, 'sine', 0.05);
+    } else if (name === 'hint') {
+      // Подсказка: мягкий восходящий «дзынь» по пентатонике сета — вопрос, а не
+      // ошибка и не награда, поэтому тихо и без удара.
+      this.tone(ctx, 659.25, 659.25, 0.16, vol * 0.55, 'sine');
+      this.tone(ctx, 987.77, 987.77, 0.22, vol * 0.4, 'sine', 0.075);
+      this.tone(ctx, 1318.51, 1318.51, 0.3, vol * 0.12, 'sine', 0.075);
     } else if (name === 'message-appear') {
       // Сообщение: двухтоновый сигнал
       this.tone(ctx, 523, 523, 0.09, vol, 'sine');

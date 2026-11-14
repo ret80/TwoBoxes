@@ -212,6 +212,9 @@ gameScreen.hint.addEventListener('click', () => {
       ? i18n.t('HINT_WAIT')
       : `${i18n.t('HINT')}: ${ARROWS[`${plan.dir.x},${plan.dir.y}`] ?? ''}`;
   gameScreen.hintToast.hidden = false;
+  // Звук на каждый показ подсказки: нажатие должно отзываться, даже если хода
+  // нет и маршрут не рисуется.
+  audio.playSfx('hint', 0.7);
   // Подсказка едет по фактическим путям кубиков: повороты и порталы учтены.
   if (plan && !wait) renderer.showHint(plan.slides);
   else renderer.hideHint();
