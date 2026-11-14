@@ -102,7 +102,7 @@ modality.subscribe((m) => {
 const FAST_MOVE_SPEED = 1.8;
 
 /** Фон страницы для мобильной панели браузера — тот же, что у сцены. */
-const THEME_COLORS: Record<Theme, string> = { light: '#eee7d7', dark: '#1a1715' };
+const THEME_COLORS: Record<Theme, string> = { light: '#eee7d7', dark: '#161d1d' };
 
 /** Системная настройка «тёмное оформление»: за ней следует режим «как в системе». */
 const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
