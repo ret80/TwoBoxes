@@ -745,14 +745,26 @@ export function buildSelectorScreen(
         card.setAttribute('aria-label', `${i18n.t('TITLE_SELECT_LVL')} ${label}`);
       } else {
         card.appendChild(el('span', 'lvl-card__num', label));
-        // Звёзды за лучшее прохождение (та же оценка, что в диалоге победы):
-        // только контуры, по одной на полученную звезду.
-        const stars = episodes.levelStars(episode.episodeId, lvl);
-        if (stars > 0) {
+        // Лучшее прохождение уровня (из сейва): звёзды контурами — по одной на
+        // полученную, под ними — ходы и время того же захода.
+        const best = episodes.levelResult(episode.episodeId, lvl);
+        const stars = best?.stars ?? 0;
+        if (best && stars > 0) {
           const row = el('span', 'lvl-card__stars');
           row.setAttribute('aria-hidden', 'true');
           for (let i = 0; i < stars; i++) row.appendChild(starOutlineIcon());
           card.appendChild(row);
+        }
+        if (best) {
+          const minutes = Math.floor(best.time / 60);
+          const seconds = Math.floor(best.time % 60);
+          card.appendChild(
+            el(
+              'span',
+              'lvl-card__best',
+              `${best.moves} · ${minutes}:${String(seconds).padStart(2, '0')}`,
+            ),
+          );
         }
         card.setAttribute(
           'aria-label',
