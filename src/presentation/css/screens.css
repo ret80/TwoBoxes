@@ -367,6 +367,11 @@
   cursor: pointer;
 }
 
+/* Чекбокс обучения в настройках: строка целиком кликабельна, как в отладке. */
+.screen--settings .settings-row--check {
+  cursor: pointer;
+}
+
 /* Строка с выпадающим списком: подпись слева, компактный select справа */
 .settings-row--select .settings-row__select {
   width: auto;

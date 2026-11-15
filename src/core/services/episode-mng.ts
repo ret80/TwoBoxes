@@ -210,6 +210,20 @@ export class EpisodeManager {
     }
   }
 
+  /**
+   * Сброс прогресса до состояния новой игры (отладочное меню): открыт первый
+   * уровень каждого эпизода, «Продолжить» недоступна. Сами карты не трогаем —
+   * сгенерированные эпизоды не нужно считать заново.
+   */
+  resetProgress(): void {
+    for (const ep of this.episodes) {
+      ep.lastUnlockedLevel = 0;
+      ep.unlockedAll = false;
+    }
+    this.setCurLevel(0, 0);
+    this.saved = false;
+  }
+
   /** Все уровни открыты — для состояния отладочного переключателя. */
   isAllUnlocked(): boolean {
     return this.episodes.every((ep) => ep.unlockedAll);

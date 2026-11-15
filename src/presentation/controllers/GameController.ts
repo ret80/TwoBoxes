@@ -82,6 +82,9 @@ export class GameController {
   private rafId = 0;
   private lastTime = 0;
 
+  /** Старт обычного уровня: по нему включается обучение новой механике. */
+  private onLevelStart: ((level: Level) => void) | null = null;
+
   // Диалоги (подключаются позже)
   private showPause: (() => void) | null = null;
   private showCompleted: ((result: GameResult, testMode: boolean) => void) | null = null;
@@ -125,6 +128,11 @@ export class GameController {
     // Подписка не вызывает колбэк для текущего состояния: без этого поле
     // появлялось сразу, без волновой анимации (create → input).
     this.onTransition(this.gameActor.getSnapshot());
+  }
+
+  /** Подписка на старт уровня (демо и тестовые карты не считаются). */
+  setLevelStartListener(listener: ((level: Level) => void) | null): void {
+    this.onLevelStart = listener;
   }
 
   attachDialogs(ui: {
@@ -248,7 +256,10 @@ export class GameController {
     this.lastState = '';
     this.gameActor.send({ type: 'START', level });
     // Игрок начал игру — теперь «Продолжить» есть что продолжать
-    if (!this.isDemo && !this.testMode) this.save();
+    if (!this.isDemo && !this.testMode) {
+      this.save();
+      this.onLevelStart?.(level);
+    }
   }
 
   /**

@@ -29,6 +29,8 @@ import { MenuController, type MenuDirection } from '@presentation/controllers/Me
 import { GameController } from '@presentation/controllers/GameController';
 import { PauseDialogController } from '@presentation/controllers/PauseDialogController';
 import { CompletedDialogController } from '@presentation/controllers/CompletedDialogController';
+import { TutorialDialogController } from '@presentation/controllers/TutorialDialogController';
+import { tutorialForLevel } from '@presentation/tutorials';
 import { buildGameScreen, setButtonIcon } from '@presentation/html/screens';
 import type {
   EpisodeWorkerRequest,
@@ -75,6 +77,34 @@ const savedTheme = storage.load(THEME_KEY);
 if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') {
   config.set('theme', savedTheme);
 }
+
+// Обучение и уже показанные темы — тоже пользовательские настройки: выключив
+// обучение один раз, игрок не должен снова натыкаться на диалоги.
+const TUTORIAL_KEY = 'tutorial';
+const savedTutorial = storage.load(TUTORIAL_KEY);
+if (typeof savedTutorial === 'boolean') config.set('tutorial', savedTutorial);
+
+const TUTORIAL_SEEN_KEY = 'tutorial-seen';
+const savedTutorialSeen = storage.load(TUTORIAL_SEEN_KEY);
+const seenTutorials = new Set<string>(
+  Array.isArray(savedTutorialSeen)
+    ? savedTutorialSeen.filter((topic): topic is string => typeof topic === 'string')
+    : [],
+);
+
+/**
+ * Сброс к состоянию первого запуска (отладочная кнопка): настройки — к
+ * значениям по умолчанию, прогресс — с нуля, обучение — как будто не видели ни
+ * одной темы. Сохранение и список увиденных тем стираются из хранилища, иначе
+ * после перезагрузки вернулось бы старое состояние.
+ */
+const resetAllSettings = (): void => {
+  config.reset();
+  episodes.resetProgress();
+  seenTutorials.clear();
+  storage.remove(TUTORIAL_SEEN_KEY);
+  storage.remove('save'); // тот же ключ, куда пишет GameController.saveProgress
+};
 
 // 4–7. Адаптеры
 const renderer = new PicoglRenderer();
@@ -147,6 +177,7 @@ config.subscribe((key, value) => {
     applyTheme(value as ThemeMode);
     storage.save(THEME_KEY, value);
   }
+  if (key === 'tutorial') storage.save(TUTORIAL_KEY, value);
 });
 applyTheme(config.get('theme') as ThemeMode);
 
@@ -278,6 +309,8 @@ const menuCtrl = new MenuController(
     menuActor.send({ type: 'TEST_LEVEL' });
     return usedSeed;
   },
+  // Отладка: сброс настроек и прогресса.
+  () => resetAllSettings(),
 );
 
 /*
@@ -378,9 +411,15 @@ const pauseDialog = new PauseDialogController(dialogRoot, i18n, audio, input, {
   onVisibility: setDialogVisible,
 });
 const revealHud = (): void => {
+  // Уровень начал собираться уже под открытым диалогом (обучение): HUD в этот
+  // момент не выезжает, иначе заголовок диалога ложится поверх плашки уровня.
+  if (dialogVisible) return;
   hudRoot.classList.add('hud--hidden');
   requestAnimationFrame(() =>
-    requestAnimationFrame(() => hudRoot.classList.remove('hud--hidden')),
+    requestAnimationFrame(() => {
+      // Диалог мог открыться за эти два кадра — тогда панели остаются убраны.
+      if (!dialogVisible) hudRoot.classList.remove('hud--hidden');
+    }),
   );
 };
 
@@ -419,6 +458,30 @@ const completedDialog = new CompletedDialogController(dialogRoot, i18n, audio, {
   },
   onReset: () => game.reset(),
   onVisibility: setDialogVisible,
+});
+
+/*
+ * Обучение: диалог о механике при первом её появлении. Тему выбирает уровень
+ * (`tutorialForLevel`), показ — флаг `tutorial`; увиденные темы помним в
+ * localStorage, поэтому диалог не возвращается на каждом заходе в уровень.
+ * Пока диалог открыт, поле заморожено: ввод выключен, HUD убран.
+ */
+const tutorialDialog = new TutorialDialogController(dialogRoot, i18n, audio, {
+  isEnabled: () => config.get('tutorial') === true,
+  setEnabled: (enabled) => config.set('tutorial', enabled),
+  onVisibility: (visible) => {
+    setDialogVisible(visible);
+    input.setEnabled(!visible);
+  },
+});
+
+game.setLevelStartListener((level) => {
+  if (config.get('tutorial') !== true) return;
+  const topic = tutorialForLevel(level);
+  if (!topic || seenTutorials.has(topic)) return;
+  seenTutorials.add(topic);
+  storage.save(TUTORIAL_SEEN_KEY, [...seenTutorials]);
+  tutorialDialog.show(topic);
 });
 
 game.attachDialogs({

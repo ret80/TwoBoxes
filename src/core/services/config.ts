@@ -3,7 +3,7 @@
  * Переменные: `sfxVolume`, `musicVolume` (по умолчанию 0.5/0.3), `demoMode`,
  * скорость анимации `moveSpeed`, режим компаса `compass`, вид подсказки
  * `hintStyle` (по умолчанию кубик), тема `theme` (по умолчанию светлая, есть
- * режим «как в системе»),
+ * режим «как в системе»), обучение `tutorial` (по умолчанию включено),
  * а также отладочные `showFps` и `projection`.
  * Событие `change` — подписка адаптеров (например, WebAudio на изменение громкости).
  */
@@ -34,27 +34,34 @@ export type ConfigKey =
   | 'moveSpeed'
   | 'compass'
   | 'hintStyle'
-  | 'theme';
+  | 'theme'
+  | 'tutorial';
 
 type ConfigValue = number | boolean | string;
 type ChangeListener = (key: ConfigKey, value: ConfigValue) => void;
 
+/** Исходные значения — к ним возвращает «сброс всех настроек». */
+const DEFAULT_VARS: Record<ConfigKey, ConfigValue> = {
+  sfxVolume: 0.5,
+  musicVolume: 0.3,
+  demoMode: true,
+  showFps: false,
+  // По умолчанию — изометрия с лёгкой прямой перспективой: чистая
+  // аксонометрия читается как обратная перспектива (дальнее кажется крупнее).
+  projection: 'iso',
+  moveSpeed: 'smooth',
+  compass: 'auto',
+  // По умолчанию подсказка — проволочный кубик: он показывает, куда встанет
+  // кубик, а не только направление движения.
+  hintStyle: 'cube',
+  theme: 'light',
+  // Обучение: диалоги о новой механике при первом её появлении. Игрок может
+  // выключить их в опциях или чекбоксом «не показывать» в самом диалоге.
+  tutorial: true,
+};
+
 export class Config {
-  private vars: Record<ConfigKey, ConfigValue> = {
-    sfxVolume: 0.5,
-    musicVolume: 0.3,
-    demoMode: true,
-    showFps: false,
-    // По умолчанию — изометрия с лёгкой прямой перспективой: чистая
-    // аксонометрия читается как обратная перспектива (дальнее кажется крупнее).
-    projection: 'iso',
-    moveSpeed: 'smooth',
-    compass: 'auto',
-    // По умолчанию подсказка — проволочный кубик: он показывает, куда встанет
-    // кубик, а не только направление движения.
-    hintStyle: 'cube',
-    theme: 'light',
-  };
+  private vars: Record<ConfigKey, ConfigValue> = { ...DEFAULT_VARS };
 
   private listeners = new Set<ChangeListener>();
 
@@ -66,6 +73,17 @@ export class Config {
     if (this.vars[key] === value) return;
     this.vars[key] = value;
     for (const l of this.listeners) l(key, value);
+  }
+
+  /**
+   * Вернуть все настройки к исходным (отладочный сброс). Каждое изменённое
+   * значение проходит через `set`, поэтому адаптеры и экраны обновляются так
+   * же, как при ручной правке в опциях.
+   */
+  reset(): void {
+    for (const key of Object.keys(DEFAULT_VARS) as ConfigKey[]) {
+      this.set(key, DEFAULT_VARS[key]);
+    }
   }
 
   isDemoMode(): boolean {

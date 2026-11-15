@@ -70,6 +70,61 @@
   align-items: center;
 }
 
+/*
+ * Обучение: панель занимает экран целиком по высоте, но прокручивается только
+ * текст. Заголовок, чекбокс и «Понятно» стоят на месте — иначе длинная статья
+ * уводила кнопку и чекбокс за нижний край экрана.
+ */
+.dialog[data-dialog='tutorial'] {
+  align-items: center;
+}
+
+.dialog[data-dialog='tutorial'] .dialog__box {
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.dialog[data-dialog='tutorial'] .dialog__box > .btn {
+  flex: none;
+}
+
+/* Заголовок обучения мельче экранных: он живёт в узкой панели и переносится. */
+.dialog__title--tutorial {
+  margin-bottom: 0;
+  font-size: clamp(1.55rem, 6.4vw, 2rem);
+  line-height: 1.2;
+}
+
+.dialog__tutorialText {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--color-coffee);
+  font-size: clamp(1rem, 4.2vw, 1.12rem);
+  font-weight: 500;
+  line-height: 1.5;
+  opacity: 0.92;
+}
+
+.dialog__tutorialText p {
+  margin: 0;
+}
+
+/* Чекбокс «Не показывать обучение» — тише основного текста: действие не главное. */
+.dialog__check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  color: var(--color-text-dim);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
 /* Низкие экраны: компактная панель, чтобы заголовок и кнопки не пересекались. */
 @media (max-height: 560px) {
   .dialog__title--fixed {

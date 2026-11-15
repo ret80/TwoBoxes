@@ -108,12 +108,16 @@ export class MenuController {
   private debugSeed: number | null = null;
   /** Поле сида в отладочном экране: обновляется после «дальше» на победе. */
   private debugSeedInput: HTMLInputElement | null = null;
+  /** Чекбокс обучения в настройках: общий флаг с диалогом обучения. */
+  private tutorialCheck: HTMLInputElement | null = null;
   /** Генерация тестового уровня из отладочного меню. */
   private onTestLevel?: (
     mechanics: MechanicId[],
     difficulty: number,
     seed: number | null,
   ) => Promise<number | null>;
+  /** Отладочный сброс: настройки, прогресс и обучение — как при первом запуске. */
+  private onResetAll?: () => void;
 
   constructor(
     container: HTMLElement,
@@ -128,6 +132,7 @@ export class MenuController {
       difficulty: number,
       seed: number | null,
     ) => Promise<number | null>,
+    onResetAll?: () => void,
   ) {
     this.container = container;
     this.i18n = i18n;
@@ -137,8 +142,16 @@ export class MenuController {
     this.onGameSelected = onGameSelected;
     this.onUnlockAll = onUnlockAll;
     this.onTestLevel = onTestLevel;
+    this.onResetAll = onResetAll;
     this.buildScreens();
     this.attachSwipe();
+    // Обучение выключают и в опциях, и чекбоксом в самом диалоге: чекбокс
+    // настроек следует за флагом, каким бы путём его ни поменяли.
+    this.config.subscribe((key, value) => {
+      if (key === 'tutorial' && this.tutorialCheck) {
+        this.tutorialCheck.checked = value === true;
+      }
+    });
     this.menuActor.subscribe((s) => this.show(s.value as string));
     // Смена языка перестраивает все экраны с новыми подписями.
     this.i18n.subscribe(() => this.rebuildScreens());
@@ -163,6 +176,7 @@ export class MenuController {
         speed: this.config.get('moveSpeed') as MoveSpeed,
         hintStyle: this.config.get('hintStyle') as HintStyle,
         theme: this.config.get('theme') as ThemeMode,
+        tutorial: this.config.get('tutorial') === true,
       },
       {
         onBack: () => this.backFromScreen(),
@@ -172,9 +186,11 @@ export class MenuController {
         onSpeedChange: (value: MoveSpeed) => this.config.set('moveSpeed', value),
         onHintStyleChange: (value: HintStyle) => this.config.set('hintStyle', value),
         onThemeChange: (value: ThemeMode) => this.config.set('theme', value),
+        onTutorialChange: (value) => this.config.set('tutorial', value),
       },
     );
-    this.screens.set('settings', settings);
+    this.screens.set('settings', settings.root);
+    this.tutorialCheck = settings.tutorialCheck;
 
     const help = buildHelpScreen(i18n, {
       onBack: () => this.backFromScreen(),
@@ -203,6 +219,7 @@ export class MenuController {
         onProjectionChange: (mode) => this.config.set('projection', mode),
         onCompassChange: (mode) => this.config.set('compass', mode),
         onUnlockAll: () => this.unlockAllLevels(),
+        onReset: () => this.resetAllSettings(),
         onMechanicsChange: (mechanics) => {
           this.debugMechanics = mechanics;
         },
@@ -707,6 +724,17 @@ export class MenuController {
       btn.style.setProperty('--dy', String(dy));
     }
     menu.caption.textContent = this.i18n.t(MENU_LABEL[this.activeItem]);
+  }
+
+  /**
+   * Отладочный сброс: настройки, прогресс и обучение возвращаются к первому
+   * запуску. Экраны перестраиваются заново — иначе поля опций и отладки
+   * показывали бы значения, которых уже нет, а карточки уровней оставались бы
+   * открытыми.
+   */
+  private resetAllSettings(): void {
+    this.onResetAll?.();
+    this.rebuildScreens();
   }
 
   /** Отладочный чит: открыть все уровни и сразу обновить список уровней. */

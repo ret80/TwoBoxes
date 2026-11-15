@@ -345,7 +345,7 @@ function addSelectRow<T extends string>(
   panel.appendChild(row);
 }
 
-/** Настройки: громкость, язык, скорость анимации, вид подсказки и тема. */
+/** Настройки: громкость, язык, скорость анимации, подсказка, тема и обучение. */
 export function buildSettingsScreen(
   i18n: LocaleManager,
   values: {
@@ -354,6 +354,7 @@ export function buildSettingsScreen(
     speed: MoveSpeed;
     hintStyle: HintStyle;
     theme: ThemeMode;
+    tutorial: boolean;
   },
   cb: {
     onBack: () => void;
@@ -363,8 +364,9 @@ export function buildSettingsScreen(
     onSpeedChange: (value: MoveSpeed) => void;
     onHintStyleChange: (value: HintStyle) => void;
     onThemeChange: (value: ThemeMode) => void;
+    onTutorialChange: (value: boolean) => void;
   },
-): HTMLElement {
+): { root: HTMLElement; tutorialCheck: HTMLInputElement } {
   const root = el('div', 'screen screen--info screen--settings');
   root.dataset.screen = 'settings';
   root.append(hideLayer('title'));
@@ -435,6 +437,17 @@ export function buildSettingsScreen(
     cb.onThemeChange,
   );
 
+  // Обучение: тот же флаг, что и чекбокс «Не показывать» в диалоге обучения —
+  // включив его здесь, игрок снова начнёт видеть ещё не показанные механики.
+  const tutorialRow = el('label', 'settings-row settings-row--check');
+  tutorialRow.appendChild(el('span', 'settings-row__label', i18n.t('TUTORIAL')));
+  const tutorialCheck = el<HTMLInputElement>('input', 'settings-row__check');
+  tutorialCheck.type = 'checkbox';
+  tutorialCheck.checked = values.tutorial;
+  tutorialCheck.addEventListener('change', () => cb.onTutorialChange(tutorialCheck.checked));
+  tutorialRow.appendChild(tutorialCheck);
+  panel.appendChild(tutorialRow);
+
   // Язык интерфейса: подписи всегда на своём языке, чтобы было понятно без перевода.
   const langRow = el('div', 'settings-row');
   langRow.appendChild(el('span', 'settings-row__label', i18n.t('LANGUAGE')));
@@ -455,7 +468,7 @@ export function buildSettingsScreen(
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
   root.append(panel, back, hideLayer('bottom'));
-  return root;
+  return { root, tutorialCheck };
 }
 
 /**
@@ -498,6 +511,8 @@ export function buildDebugScreen(
     onProjectionChange: (mode: ProjectionMode) => void;
     onCompassChange: (mode: CompassMode) => void;
     onUnlockAll: () => void;
+    /** Сброс всех настроек и прогресса — состояние новой игры. */
+    onReset: () => void;
     onMechanicsChange: (mechanics: MechanicId[]) => void;
     onDifficultyChange: (difficulty: number) => void;
     /** `null` вместо сида — уровень по случайному сиду. Возвращает использованный сид. */
@@ -644,6 +659,11 @@ export function buildDebugScreen(
   const unlock = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_UNLOCK_ALL'));
   unlock.addEventListener('click', cb.onUnlockAll);
   panel.appendChild(unlock);
+
+  // Сброс: настройки, прогресс и обучение возвращаются к первому запуску.
+  const reset = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_RESET'));
+  reset.addEventListener('click', cb.onReset);
+  panel.appendChild(reset);
 
   const back = el('button', 'btn btn--back', i18n.t('BACK'));
   back.addEventListener('click', cb.onBack);
@@ -1060,6 +1080,39 @@ export function buildPauseDialog(
   box.append(resume, select, settings, mmenu);
   root.append(title, box);
   return { root };
+}
+
+/**
+ * Диалог обучения: заголовок новой механики, её объяснение и два действия —
+ * чекбокс «Не показывать обучение» (общий с опциями) и «Понятно».
+ */
+export function buildTutorialDialog(
+  i18n: LocaleManager,
+  values: { dontShow: boolean },
+  cb: { onDontShowChange: (value: boolean) => void; onClose: () => void },
+): {
+  root: HTMLElement;
+  title: HTMLElement;
+  text: HTMLElement;
+  check: HTMLInputElement;
+} {
+  const root = el('div', 'dialog dialog--hidden');
+  root.dataset.dialog = 'tutorial';
+  const box = el('div', 'dialog__box panel');
+  // Заголовок внутри панели: он стоит на месте, а прокручивается только текст.
+  const title = el('div', 'dialog__title dialog__title--tutorial', '');
+  const text = el('div', 'dialog__tutorialText');
+  const checkRow = el('label', 'dialog__check');
+  const check = el<HTMLInputElement>('input', 'settings-row__check');
+  check.type = 'checkbox';
+  check.checked = values.dontShow;
+  check.addEventListener('change', () => cb.onDontShowChange(check.checked));
+  checkRow.append(check, el('span', undefined, i18n.t('TUTORIAL_DONT_SHOW')));
+  const ok = el('button', 'btn', i18n.t('TUTORIAL_OK'));
+  ok.addEventListener('click', cb.onClose);
+  box.append(title, text, checkRow, ok);
+  root.append(box);
+  return { root, title, text, check };
 }
 
 /** Диалог завершения: звёзды, статистика + Reset / Home / Next. */
