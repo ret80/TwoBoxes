@@ -14,6 +14,12 @@ export const DEFAULT_PITCH = Math.PI / 5;
 export const ISO_PITCH = Math.atan(1 / Math.SQRT2);
 
 /**
+ * Скорость плавного подъезда динамической камеры (1/с): доля оставшегося пути
+ * до целевого масштаба за секунду. Около 10 — подъезд занимает треть секунды.
+ */
+const ZOOM_EASING = 10;
+
+/**
  * Ортографическая изометрическая камера (док. раздел 12.4).
  * Оригинал: ортокамера size = 25.0, фиксированный ракурс через cam_point.
  * Теперь ракурс управляемый: рыскание вокруг Y уровня и наклон вокруг X.
@@ -44,6 +50,11 @@ export class Camera {
    * повёрнутый уровень остаётся максимально крупным, но целиком в экране.
    */
   private dynamic = false;
+  /** Текущий сглаженный масштаб динамической камеры и время прошлого кадра. */
+  private smoothScale: number | null = null;
+  private smoothAt = 0;
+  /** Ключ кадра: при смене уровня/вьюпорта масштаб считается заново и сразу. */
+  private fitKey = '';
 
   constructor() {
     this.updateView();
@@ -73,6 +84,9 @@ export class Camera {
   setDynamic(dynamic: boolean): void {
     if (this.dynamic === dynamic) return;
     this.dynamic = dynamic;
+    // Переключение режима не должно допроходить сглаживание от старого кадра.
+    this.smoothScale = null;
+    this.smoothAt = 0;
     // Следующий кадр пересчитает кадр: в статике вернётся опорный масштаб.
     this.rebuildViewProj();
   }
@@ -203,17 +217,47 @@ export class Camera {
       usableH / Math.max(0.001, fieldH + air * 2),
     );
     // Пикселей на единицу мира: одинаковая по обеим осям.
-    const halfW = width / (2 * scale);
-    const halfH = height / (2 * scale);
+    const shown = this.easedScale(scale, bounds, width, height, safeTop, safeBottom);
+    const halfW = width / (2 * shown);
+    const halfH = height / (2 * shown);
 
     const cx = (minX + maxX) / 2;
     // Сдвиг центра: положительный safeTop опускает картинку под верхнюю панель.
     const shiftPx = (safeTop - safeBottom) / 2;
-    const cy = (minY + maxY) / 2 - shiftPx / scale;
+    const cy = (minY + maxY) / 2 - shiftPx / shown;
 
     mat4.ortho(this.proj, cx - halfW, cx + halfW, cy - halfH, cy + halfH, near, far);
     this.updateView();
     this.rebuildViewProj();
+  }
+
+  /**
+   * Масштаб кадра с плавным подъездом. Отъезд (нужно уменьшить масштаб)
+   * выполняется сразу — иначе в момент поворота плиты успели бы вылезти за
+   * край; подъезд — плавно, чтобы камера не рывком прыгала к новому кадру.
+   * В статическом режиме и при смене карты/вьюпорта масштаб берётся как есть.
+   */
+  private easedScale(
+    target: number,
+    bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
+    width: number,
+    height: number,
+    safeTop: number,
+    safeBottom: number,
+  ): number {
+    const key = `${bounds.minX},${bounds.maxX},${bounds.minZ},${bounds.maxZ},${width},${height},${safeTop},${safeBottom}`;
+    const changed = key !== this.fitKey;
+    this.fitKey = key;
+    const now = performance.now();
+    const prev = this.smoothScale;
+    let shown = target;
+    if (this.dynamic && !changed && prev !== null) {
+      const dt = Math.min(0.05, Math.max(0, (now - this.smoothAt) / 1000));
+      shown = target <= prev ? target : prev + (target - prev) * (1 - Math.exp(-ZOOM_EASING * dt));
+    }
+    this.smoothAt = now;
+    this.smoothScale = shown;
+    return shown;
   }
 
   private rebuildViewProj(): void {
