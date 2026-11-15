@@ -380,7 +380,7 @@ export function buildSettingsScreen(
     value: number,
     onChange: (value: number) => void,
   ): void => {
-    const row = el('label', 'settings-row');
+    const row = el('label', 'settings-row settings-row--volume');
     row.appendChild(el('span', 'settings-row__label', i18n.t(labelKey)));
     const input = el<HTMLInputElement>('input', 'settings-row__range');
     input.type = 'range';

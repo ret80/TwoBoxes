@@ -342,6 +342,15 @@
   text-align: right;
 }
 
+/*
+ * Громкость: процент стоит в строке с надписью справа, а шкала занимает
+ * отдельную строку под ними.
+ */
+.settings-row--volume .settings-row__value {
+  grid-column: 2;
+  grid-row: 1;
+}
+
 .settings-row__range {
   grid-column: 1 / -1;
   width: 100%;
