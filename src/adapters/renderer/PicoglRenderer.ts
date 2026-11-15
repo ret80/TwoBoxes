@@ -245,6 +245,16 @@ const GROUND_SHADOW_ALPHA = 0.45;
  * отрывается от неё.
  */
 const GROUND_SHADOW_REACH = 0.5;
+/**
+ * Тень внутри пустот поля — узкая полоса вдоль стенок, к середине пустоты она
+ * сходит на нет. Залитая целиком тень читалась грязным серым пятном, а так
+ * пустота выглядит углублением с освещённым дном.
+ */
+const HOLE_SHADOW_ALPHA = 0.28;
+/** Полуразмер ядра полосы у стенки, мягкость её края и длина вдоль стенки. */
+const HOLE_SHADOW_CORE = 0.05;
+const HOLE_SHADOW_SOFT = 0.09;
+const HOLE_SHADOW_SPAN = 0.52;
 /** Маска тени: пиксели на клетку, поле вокруг и радиус размытия в пикселях. */
 const SHADOW_PX_PER_CELL = 8;
 const SHADOW_MARGIN_CELLS = 3;
@@ -1441,9 +1451,12 @@ export class PicoglRenderer implements IRenderer {
     }
 
     // Дырки внутри поля тоже закрываем в трафарете: иначе тень просвечивала
-    // сквозь них грязными пятнами посреди самого уровня.
+    // сквозь них грязными пятнами посреди самого уровня. Им же достаётся
+    // старший бит — по нему ниже рисуется только их собственная тень.
     const holes = this.innerHoles(state);
     if (holes.length > 0) {
+      gl.stencilFunc(gl.ALWAYS, 3, 0xff);
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
       gl.colorMask(false, false, false, false);
       gl.depthMask(false);
       for (const i of holes) {
@@ -1459,10 +1472,20 @@ export class PicoglRenderer implements IRenderer {
     // обрезанный трафаретом по их видимой части. Наружу выходит только мягкая
     // полоса из-под нижней кромки.
     gl.stencilMask(0x00);
-    gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
+    // Сравнение по младшему биту: плиты и пустоты (1 и 3) внешнюю тень обходят,
+    // как и раньше, а старший бит пустот ей не мешает.
+    gl.stencilFunc(gl.NOTEQUAL, 1, 0x01);
     this.beginSoftPass();
     this.drawGroundShadow(state);
     this.endSoftPass();
+
+    // Тень внутри пустот: только у стенок, середина остаётся светлой.
+    if (holes.length > 0) {
+      gl.stencilFunc(gl.EQUAL, 2, 0x02);
+      this.beginSoftPass();
+      this.drawHoleShadows(state, holes);
+      this.endSoftPass();
+    }
     gl.disable(gl.STENCIL_TEST);
 
     // Контактная тень кубиков: лежит на плите и повторяет пятно кубика, поэтому
@@ -1763,6 +1786,62 @@ export class PicoglRenderer implements IRenderer {
     this.holeKey = key;
     this.holes = holes;
     return holes;
+  }
+
+  /**
+   * Тень внутри пустот поля — узкая полоса вдоль стенки, к середине пустоты она
+   * сходит на нет. Полоса рисуется только у тех сторон, за которыми есть плита:
+   * между клетками одной пустоты стенки нет, и тень там не нужна. Трафарет
+   * пустот обрезает полосы по их клеткам, поэтому на плиты они не выходят.
+   */
+  private drawHoleShadows(state: RenderState, holes: number[]): void {
+    if (!this.shadowDraw) return;
+    const holeSet = new Set(holes);
+    const isHole = (x: number, y: number): boolean =>
+      x >= 0 &&
+      y >= 0 &&
+      x < state.width &&
+      y < state.height &&
+      holeSet.has(y * state.width + x);
+    /**
+     * Своей волны появления у пустот нет: полоса проявляется вместе с соседними
+     * плитами, иначе на старте уровня тень щёлкала посреди ещё не собранного поля.
+     */
+    const fade = (x: number, y: number): number => {
+      let near = 0;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const nx = x + ox;
+          const ny = y + oy;
+          if ((ox === 0 && oy === 0) || nx < 0 || ny < 0) continue;
+          if (nx >= state.width || ny >= state.height) continue;
+          near = Math.max(near, easeOutCubic(this.cellProgress(nx, ny)));
+        }
+      }
+      return near;
+    };
+    // Центр полосы прижат к самой стенке: ядро начинается от её основания.
+    const core = HOLE_SHADOW_CORE;
+    for (const i of holes) {
+      const x = i % state.width;
+      const y = (i - x) / state.width;
+      const alpha = HOLE_SHADOW_ALPHA * fade(x, y);
+      if (alpha <= 0) continue;
+      const wx = x - state.width / 2 + 0.5;
+      const wz = y - state.height / 2 + 0.5;
+      if (!isHole(x - 1, y)) {
+        this.drawShadow(wx - 0.5 + core, GROUND_SHADOW_Y, wz, core, HOLE_SHADOW_SPAN, HOLE_SHADOW_SOFT, alpha);
+      }
+      if (!isHole(x + 1, y)) {
+        this.drawShadow(wx + 0.5 - core, GROUND_SHADOW_Y, wz, core, HOLE_SHADOW_SPAN, HOLE_SHADOW_SOFT, alpha);
+      }
+      if (!isHole(x, y - 1)) {
+        this.drawShadow(wx, GROUND_SHADOW_Y, wz - 0.5 + core, HOLE_SHADOW_SPAN, core, HOLE_SHADOW_SOFT, alpha);
+      }
+      if (!isHole(x, y + 1)) {
+        this.drawShadow(wx, GROUND_SHADOW_Y, wz + 0.5 - core, HOLE_SHADOW_SPAN, core, HOLE_SHADOW_SOFT, alpha);
+      }
+    }
   }
 
   /**
