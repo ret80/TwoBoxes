@@ -37,8 +37,6 @@ import {
   FRAGMENT_SHADER,
   GLOW_FRAGMENT_SHADER,
   GLOW_VERTEX_SHADER,
-  HOLE_SHADOW_FRAGMENT_SHADER,
-  HOLE_SHADOW_VERTEX_SHADER,
   LINE_FRAGMENT_SHADER,
   LINE_VERTEX_SHADER,
   MASK_FRAGMENT_SHADER,
@@ -247,15 +245,7 @@ const GROUND_SHADOW_ALPHA = 0.45;
  * отрывается от неё.
  */
 const GROUND_SHADOW_REACH = 0.5;
-/**
- * Тень внутри пустот поля: у стенки она плотная, к середине пустоты сходит на
- * нет. Залитая целиком тень читалась грязным пятном, а так пустота выглядит
- * углублением с освещённым дном. Мягкость шире клетки-стенки: у самого края
- * тень не обрывается, а тает к центру.
- */
-const HOLE_SHADOW_ALPHA = 0.36;
-/** Скорость затухания тени от стенки к центру, в долях клетки. */
-const HOLE_SHADOW_SOFT = 0.15;
+
 /** Маска тени: пиксели на клетку, поле вокруг и радиус размытия в пикселях. */
 const SHADOW_PX_PER_CELL = 8;
 const SHADOW_MARGIN_CELLS = 3;
@@ -290,6 +280,8 @@ function buildShadowMask(
   width: number,
   height: number,
   walkable: (x: number, y: number) => boolean,
+  /** Заливать пустоты поля как плиту: для контура да, для тени внутри — нет. */
+  fillHoles = true,
 ): HTMLCanvasElement | null {
   const px = SHADOW_PX_PER_CELL;
   const margin = SHADOW_MARGIN_CELLS * px;
@@ -333,7 +325,7 @@ function buildShadowMask(
   ctx.fillStyle = '#fff';
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const solid = walkable(x, y) || !outside[y * width + x];
+      const solid = fillHoles ? walkable(x, y) || !outside[y * width + x] : walkable(x, y);
       if (solid) ctx.fillRect(margin + x * px, margin + y * px, px, px);
     }
   }
@@ -423,14 +415,12 @@ export class PicoglRenderer implements IRenderer {
   private lineProgram: Program | null = null;
   private glowProgram: Program | null = null;
   private shadowProgram: Program | null = null;
-  private holeShadowProgram: Program | null = null;
   private maskProgram: Program | null = null;
   private cubeVao: VertexArray | null = null;
   private quadVao: VertexArray | null = null;
   private quadXYVao: VertexArray | null = null;
   private glowVao: VertexArray | null = null;
   private shadowVao: VertexArray | null = null;
-  private holeShadowVao: VertexArray | null = null;
   private maskVao: VertexArray | null = null;
   private gridVao: VertexArray | null = null;
 
@@ -439,11 +429,12 @@ export class PicoglRenderer implements IRenderer {
   private quadXYDraw: DrawCall | null = null;
   private glowDraw: DrawCall | null = null;
   private shadowDraw: DrawCall | null = null;
-  private holeShadowDraw: DrawCall | null = null;
   private maskDraw: DrawCall | null = null;
   private gridDraw: DrawCall | null = null;
   /** Размытая маска платформы для тени: пересобирается при смене уровня. */
   private shadowMask: { key: string; texture: Texture } | null = null;
+  /** Та же маска, но без заливки пустот: по ней считается тень внутри дыр. */
+  private holeShadowMask: { key: string; texture: Texture } | null = null;
   /** Готовность клеток поля для тени: по текселю на клетку, обновляется в сборке. */
   private shadowProgress: {
     key: string;
@@ -598,10 +589,6 @@ export class PicoglRenderer implements IRenderer {
     this.lineProgram = this.app.createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER);
     this.glowProgram = this.app.createProgram(GLOW_VERTEX_SHADER, GLOW_FRAGMENT_SHADER);
     this.shadowProgram = this.app.createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
-    this.holeShadowProgram = this.app.createProgram(
-      HOLE_SHADOW_VERTEX_SHADER,
-      HOLE_SHADOW_FRAGMENT_SHADER,
-    );
     this.maskProgram = this.app.createProgram(MASK_VERTEX_SHADER, MASK_FRAGMENT_SHADER);
 
     const cubePositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_VERTICES);
@@ -646,13 +633,6 @@ export class PicoglRenderer implements IRenderer {
       .createVertexArray()
       .vertexAttributeBuffer(0, shadowPositions);
     this.shadowDraw = this.app.createDrawCall(this.shadowProgram, this.shadowVao);
-    // Тень пустоты: тот же квад в XZ, но шейдер сам считает расстояние до
-    // стенок клетки, поэтому на углах тень не складывается вдвое.
-    const holePositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XZ_VERTICES);
-    this.holeShadowVao = this.app
-      .createVertexArray()
-      .vertexAttributeBuffer(0, holePositions);
-    this.holeShadowDraw = this.app.createDrawCall(this.holeShadowProgram, this.holeShadowVao);
 
     // Тень платформы: тот же квад в XZ, но с UV — по нему растягивается
     // размытая маска силуэта.
@@ -665,6 +645,7 @@ export class PicoglRenderer implements IRenderer {
     this.maskDraw = this.app.createDrawCall(this.maskProgram, this.maskVao);
     // После потери контекста текстуры невалидны — соберём их заново.
     this.shadowMask = null;
+    this.holeShadowMask = null;
     this.shadowProgress = null;
   }
 
@@ -1804,61 +1785,68 @@ export class PicoglRenderer implements IRenderer {
   }
 
   /**
-   * Тень внутри пустот поля: у стенки плотная, к центру клетки тает. Рисуется
-   * одним квадом на клетку пустоты, поэтому на углах тень не складывается
-   * вдвое и не даёт тёмных пятен. Стенками считаются только стороны, за
-   * которыми стоит плита: между клетками одной пустоты тени нет.
+   * Тень внутри пустот — тем же материалом, что и тень по контуру платформы:
+   * одна и та же размытая маска и та же плотность (`GROUND_SHADOW_ALPHA`), но
+   * в маске только плиты, без заливки пустот. Поэтому край тени у стенки вдвое
+   * светлее силуэта и тает с той же мягкостью, что и внешняя тень, а в середине
+   * пустоты остаётся светлое дно. Клетки делят одну текстуру, поэтому на углах
+   * тень не складывается и пятен не даёт.
    */
   private drawHoleShadows(state: RenderState, holes: number[]): void {
-    const draw = this.holeShadowDraw;
-    if (!draw) return;
-    const holeSet = new Set(holes);
-    const isHole = (x: number, y: number): boolean =>
-      x >= 0 &&
-      y >= 0 &&
-      x < state.width &&
-      y < state.height &&
-      holeSet.has(y * state.width + x);
-    /**
-     * Своей волны появления у пустот нет: тень проявляется вместе с соседними
-     * плитами, иначе на старте уровня она щёлкала посреди ещё не собранного поля.
-     */
-    const fade = (x: number, y: number): number => {
-      let near = 0;
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          const nx = x + ox;
-          const ny = y + oy;
-          if ((ox === 0 && oy === 0) || nx < 0 || ny < 0) continue;
-          if (nx >= state.width || ny >= state.height) continue;
-          near = Math.max(near, easeOutCubic(this.cellProgress(nx, ny)));
-        }
-      }
-      return near;
-    };
+    const app = this.app;
+    if (!app || !this.maskDraw) return;
+    const key = gridKeyOf(state);
+    if (!this.holeShadowMask || this.holeShadowMask.key !== key) {
+      this.holeShadowMask?.texture.delete();
+      this.holeShadowMask = null;
+      const canvas = buildShadowMask(
+        state.width,
+        state.height,
+        (x, y) => isWalkableCell(state.grid[y * state.width + x] as CellType),
+        false,
+      );
+      if (!canvas) return;
+      const texture = app.createTexture2D(canvas as unknown as HTMLImageElement, {
+        minFilter: PicoGL.LINEAR,
+        magFilter: PicoGL.LINEAR,
+        wrapS: PicoGL.CLAMP_TO_EDGE,
+        wrapT: PicoGL.CLAMP_TO_EDGE,
+      });
+      this.holeShadowMask = { key, texture };
+    }
+    const progress = this.shadowProgress;
+    if (!progress) return;
+    const cellsX = state.width + SHADOW_MARGIN_CELLS * 2;
+    const cellsZ = state.height + SHADOW_MARGIN_CELLS * 2;
+    const du = 1 / cellsX;
+    const dv = 1 / cellsZ;
+    this.applyViewProj(this.maskDraw)
+      .texture('uMask', this.holeShadowMask.texture)
+      .texture('uProgress', progress.texture)
+      .uniform('uColor', this.palette.shadow)
+      // У самой стенки размытая маска даёт половину плотности силуэта (0.5),
+      // поэтому плотность удвоена: у края пустоты тень такая же, как под
+      // плитой, и так же плавно уходит в никуда.
+      .uniform('uAlpha', GROUND_SHADOW_ALPHA * 2)
+      .uniform('uCells', [cellsX, cellsZ])
+      .uniform('uMargin', SHADOW_MARGIN_CELLS)
+      .uniform('uProgressOn', 1);
     for (const i of holes) {
       const x = i % state.width;
       const y = (i - x) / state.width;
-      const alpha = HOLE_SHADOW_ALPHA * fade(x, y);
-      if (alpha <= 0) continue;
-      // Стороны со стенкой: левая, правая, дальняя (−z) и ближняя (+z).
-      const sides = [
-        isHole(x - 1, y) ? 0 : 1,
-        isHole(x + 1, y) ? 0 : 1,
-        isHole(x, y - 1) ? 0 : 1,
-        isHole(x, y + 1) ? 0 : 1,
-      ];
       mat4.fromTranslation(this.decalModel, [
         x - state.width / 2 + 0.5,
         GROUND_SHADOW_Y,
         y - state.height / 2 + 0.5,
       ]);
-      this.applyViewProj(draw)
+      this.maskDraw
         .uniform('uModel', this.decalModel)
-        .uniform('uColor', this.palette.shadow)
-        .uniform('uAlpha', alpha)
-        .uniform('uSides', sides)
-        .uniform('uSoft', HOLE_SHADOW_SOFT)
+        .uniform('uUvRect', [
+          (SHADOW_MARGIN_CELLS + x) * du,
+          (SHADOW_MARGIN_CELLS + y) * dv,
+          du,
+          dv,
+        ])
         .draw();
     }
   }
@@ -1975,7 +1963,21 @@ export class PicoglRenderer implements IRenderer {
     const data = this.shadowProgress.data;
     for (let y = 0; y < state.height; y++) {
       for (let x = 0; x < state.width; x++) {
-        const value = Math.round(easeOutCubic(this.cellProgress(x, y)) * 255);
+        // У пустот своей волны нет: тень внутри них проявляется вместе с
+        // плитами вокруг, иначе на старте она щёлкала посреди поля.
+        let t = this.cellProgress(x, y);
+        if (t <= 0) {
+          for (let oy = -1; oy <= 1 && t <= 0; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+              const nx = x + ox;
+              const ny = y + oy;
+              if ((ox === 0 && oy === 0) || nx < 0 || ny < 0) continue;
+              if (nx >= state.width || ny >= state.height) continue;
+              t = Math.max(t, this.cellProgress(nx, ny));
+            }
+          }
+        }
+        const value = Math.round(easeOutCubic(t) * 255);
         const i = (y * state.width + x) * 4;
         data[i] = value;
         data[i + 1] = value;

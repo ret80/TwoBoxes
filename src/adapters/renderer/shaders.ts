@@ -171,50 +171,6 @@ void main() {
 `;
 
 /**
- * Тень внутри пустоты поля.
- *
- * Квад лежит ровно на клетке пустоты, поэтому на плиты тень попасть не может.
- * Шейдер считает расстояние до ближайшей стенки (стороны, за которыми стоит
- * плита; их включает `uSides`) и гасит тень гауссом — у стенки она самая
- * плотная, к середине пустоты сходит на нет. Все стенки считаются сразу, а не
- * отдельными полосами: у углов полосы складывались вдвое и давали тёмные пятна.
- */
-export const HOLE_SHADOW_VERTEX_SHADER = `#version 300 es
-layout(location = 0) in vec3 aPosition;
-uniform mat4 uModel;
-uniform mat4 uViewProj;
-uniform float uWarp;
-out vec2 vLocal;
-${PROJECT}
-void main() {
-  vLocal = aPosition.xz;
-  gl_Position = projectVertex(uViewProj * uModel * vec4(aPosition, 1.0));
-}
-`;
-
-export const HOLE_SHADOW_FRAGMENT_SHADER = `#version 300 es
-precision highp float;
-uniform vec3 uColor;
-uniform float uAlpha;
-/** Стенки по сторонам клетки: левая (−x), правая (+x), дальняя (−z), ближняя (+z). */
-uniform vec4 uSides;
-/** Насколько быстро тень гаснет от стенки к центру, в клетках. */
-uniform float uSoft;
-in vec2 vLocal;
-out vec4 fragColor;
-void main() {
-  // Расстояние до ближайшей стенки: 0 у стенки, 0.5 в центре клетки.
-  float d = 1.0;
-  if (uSides.x > 0.5) d = min(d, vLocal.x + 0.5);
-  if (uSides.y > 0.5) d = min(d, 0.5 - vLocal.x);
-  if (uSides.z > 0.5) d = min(d, vLocal.y + 0.5);
-  if (uSides.w > 0.5) d = min(d, 0.5 - vLocal.y);
-  float a = uAlpha * exp(-(d * d) / max(uSoft * uSoft, 1e-6));
-  fragColor = vec4(uColor, a);
-}
-`;
-
-/**
  * Ореол-свечение кубика на своей площадке.
  *
  * Свечение считается по расстоянию до силуэта (SDF), как в шейдерных
