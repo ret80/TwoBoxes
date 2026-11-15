@@ -57,7 +57,7 @@
   "DEBUG": "Debug",
   "DEBUG_FPS": "FPS counter",
   "DEBUG_PROJECTION": "Projection",
-  "DEBUG_COMPASS": "Compass",
+  "COMPASS": "Compass",
   "COMPASS_AUTO": "Auto",
   "COMPASS_ON": "Always on",
   "DEBUG_UNLOCK_ALL": "Unlock all levels",

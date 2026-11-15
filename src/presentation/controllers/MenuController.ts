@@ -175,6 +175,7 @@ export class MenuController {
         music: Number(this.config.get('musicVolume')),
         speed: this.config.get('moveSpeed') as MoveSpeed,
         hintStyle: this.config.get('hintStyle') as HintStyle,
+        compass: this.config.get('compass') as CompassMode,
         theme: this.config.get('theme') as ThemeMode,
         tutorial: this.config.get('tutorial') === true,
       },
@@ -185,6 +186,7 @@ export class MenuController {
         onLocaleChange: (locale: Locale) => this.i18n.setLocale(locale),
         onSpeedChange: (value: MoveSpeed) => this.config.set('moveSpeed', value),
         onHintStyleChange: (value: HintStyle) => this.config.set('hintStyle', value),
+        onCompassChange: (value: CompassMode) => this.config.set('compass', value),
         onThemeChange: (value: ThemeMode) => this.config.set('theme', value),
         onTutorialChange: (value) => this.config.set('tutorial', value),
       },
@@ -208,7 +210,6 @@ export class MenuController {
       {
         showFps: this.config.get('showFps') === true,
         projection: this.config.get('projection') as ProjectionMode,
-        compass: this.config.get('compass') as CompassMode,
         mechanics: this.debugMechanics,
         difficulty: this.debugDifficulty,
         seed: this.debugSeed,
@@ -217,7 +218,6 @@ export class MenuController {
         onBack: () => this.backFromScreen(),
         onFpsChange: (value) => this.config.set('showFps', value),
         onProjectionChange: (mode) => this.config.set('projection', mode),
-        onCompassChange: (mode) => this.config.set('compass', mode),
         onUnlockAll: () => this.unlockAllLevels(),
         onReset: () => this.resetAllSettings(),
         onMechanicsChange: (mechanics) => {

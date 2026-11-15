@@ -353,6 +353,7 @@ export function buildSettingsScreen(
     music: number;
     speed: MoveSpeed;
     hintStyle: HintStyle;
+    compass: CompassMode;
     theme: ThemeMode;
     tutorial: boolean;
   },
@@ -363,6 +364,7 @@ export function buildSettingsScreen(
     onLocaleChange: (locale: Locale) => void;
     onSpeedChange: (value: MoveSpeed) => void;
     onHintStyleChange: (value: HintStyle) => void;
+    onCompassChange: (value: CompassMode) => void;
     onThemeChange: (value: ThemeMode) => void;
     onTutorialChange: (value: boolean) => void;
   },
@@ -422,6 +424,19 @@ export function buildSettingsScreen(
       ['cube', i18n.t('HINT_STYLE_CUBE')],
     ],
     cb.onHintStyleChange,
+  );
+
+  // Компас осей L/D под полем: «авто» — по последнему способу ввода,
+  // «включён» — показывать всегда.
+  addSelectRow<CompassMode>(
+    panel,
+    i18n.t('COMPASS'),
+    values.compass,
+    [
+      ['auto', i18n.t('COMPASS_AUTO')],
+      ['on', i18n.t('COMPASS_ON')],
+    ],
+    cb.onCompassChange,
   );
 
   // Тема оформления: светлая, тёмная или как в системе (по умолчанию светлая).
@@ -492,14 +507,13 @@ function parseSeed(raw: string): number | null | undefined {
 
 /**
  * Отладочное меню (открывается иконкой-жуком слева от настроек при `?debug`):
- * счётчик FPS, проекция уровня, режим компаса и разблокировка всех уровней.
+ * счётчик FPS, проекция уровня и разблокировка всех уровней.
  */
 export function buildDebugScreen(
   i18n: LocaleManager,
   values: {
     showFps: boolean;
     projection: ProjectionMode;
-    compass: CompassMode;
     mechanics: MechanicId[];
     difficulty: number;
     /** Последний использованный сид тестового уровня (для поля ввода). */
@@ -509,7 +523,6 @@ export function buildDebugScreen(
     onBack: () => void;
     onFpsChange: (value: boolean) => void;
     onProjectionChange: (mode: ProjectionMode) => void;
-    onCompassChange: (mode: CompassMode) => void;
     onUnlockAll: () => void;
     /** Сброс всех настроек и прогресса — состояние новой игры. */
     onReset: () => void;
@@ -555,19 +568,6 @@ export function buildDebugScreen(
   select.addEventListener('change', () => cb.onProjectionChange(select.value as ProjectionMode));
   projRow.appendChild(select);
   panel.appendChild(projRow);
-
-  // Компас L/D: «авто» — по последнему способу ввода, «включён» — всегда.
-  addSelectRow<CompassMode>(
-    panel,
-    i18n.t('DEBUG_COMPASS'),
-    values.compass,
-    [
-      ['auto', i18n.t('COMPASS_AUTO')],
-      ['on', i18n.t('COMPASS_ON')],
-    ],
-    cb.onCompassChange,
-    'settings-row',
-  );
 
   // ── Тестовые уровни с механиками ────────────────────────────────────
   panel.appendChild(el('h3', 'help__title', i18n.t('DEBUG_MECHANICS')));

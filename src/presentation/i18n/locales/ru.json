@@ -57,7 +57,7 @@
   "DEBUG": "Отладка",
   "DEBUG_FPS": "Счётчик FPS",
   "DEBUG_PROJECTION": "Проекция",
-  "DEBUG_COMPASS": "Компас",
+  "COMPASS": "Компас",
   "COMPASS_AUTO": "Авто",
   "COMPASS_ON": "Включён",
   "DEBUG_UNLOCK_ALL": "Открыть все уровни",
