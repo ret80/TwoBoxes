@@ -62,7 +62,11 @@ describe('episode 1 data', () => {
       expect(metrics, `1-${index + 1} must be measurable`).not.toBeNull();
       return metrics?.score ?? Number.NaN;
     });
-    for (let i = 1; i < scores.length; i++) {
+    // Пара 1-1/1-2 — исключение (см. комментарий в `episode-1.ts`): эпизод
+    // открывает компактная комната 7×9, потому что на ней правило «кубики ходят
+    // парой» видно с первого взгляда, хотя метрика оценила её чуть выше
+    // «лестницы». Поэтому порядок проверяем начиная с 1-2.
+    for (let i = 2; i < scores.length; i++) {
       expect(
         scores[i],
         `1-${i + 1} (${scores[i]}) must not be easier than 1-${i} (${scores[i - 1]})`,
