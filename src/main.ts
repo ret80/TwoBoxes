@@ -311,6 +311,19 @@ const menuCtrl = new MenuController(
   },
   // Отладка: сброс настроек и прогресса.
   () => resetAllSettings(),
+  // Отладка: выгрузить сейв файлом — для разбора багов и пересылки прогресса.
+  () => {
+    const data = storage.load('save');
+    const blob = new Blob([JSON.stringify(data ?? null, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '2boxpuzzle-save.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  },
 );
 
 /*

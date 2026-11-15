@@ -60,6 +60,7 @@
   "COMPASS": "Compass",
   "COMPASS_AUTO": "Auto",
   "COMPASS_ON": "Always on",
+  "DEBUG_EXPORT_SAVE": "Export save",
   "DEBUG_UNLOCK_ALL": "Unlock all levels",
   "DEBUG_RESET": "Reset settings and progress",
   "DEBUG_MECHANICS": "Mechanics",

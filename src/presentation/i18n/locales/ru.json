@@ -60,6 +60,7 @@
   "COMPASS": "Компас",
   "COMPASS_AUTO": "Авто",
   "COMPASS_ON": "Включён",
+  "DEBUG_EXPORT_SAVE": "Выгрузить сейв",
   "DEBUG_UNLOCK_ALL": "Открыть все уровни",
   "DEBUG_RESET": "Сбросить настройки и прогресс",
   "DEBUG_MECHANICS": "Механики",

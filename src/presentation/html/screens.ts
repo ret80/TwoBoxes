@@ -545,6 +545,8 @@ export function buildDebugScreen(
     onFpsChange: (value: boolean) => void;
     onProjectionChange: (mode: ProjectionMode) => void;
     onUnlockAll: () => void;
+    /** Выгрузить сохранение файлом. */
+    onExportSave: () => void;
     /** Сброс всех настроек и прогресса — состояние новой игры. */
     onReset: () => void;
     onMechanicsChange: (mechanics: MechanicId[]) => void;
@@ -680,6 +682,15 @@ export function buildDebugScreen(
   const unlock = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_UNLOCK_ALL'));
   unlock.addEventListener('click', cb.onUnlockAll);
   panel.appendChild(unlock);
+
+  // Выгрузка: сохранение скачивается файлом — пригодится для разбора багов.
+  const exportSave = el<HTMLButtonElement>(
+    'button',
+    'btn btn--wide',
+    i18n.t('DEBUG_EXPORT_SAVE'),
+  );
+  exportSave.addEventListener('click', cb.onExportSave);
+  panel.appendChild(exportSave);
 
   // Сброс: настройки, прогресс и обучение возвращаются к первому запуску.
   const reset = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_RESET'));

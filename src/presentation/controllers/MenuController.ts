@@ -118,6 +118,8 @@ export class MenuController {
   ) => Promise<number | null>;
   /** Отладочный сброс: настройки, прогресс и обучение — как при первом запуске. */
   private onResetAll?: () => void;
+  /** Отладка: выгрузить сейв файлом. */
+  private onExportSave?: () => void;
 
   constructor(
     container: HTMLElement,
@@ -133,6 +135,7 @@ export class MenuController {
       seed: number | null,
     ) => Promise<number | null>,
     onResetAll?: () => void,
+    onExportSave?: () => void,
   ) {
     this.container = container;
     this.i18n = i18n;
@@ -143,6 +146,7 @@ export class MenuController {
     this.onUnlockAll = onUnlockAll;
     this.onTestLevel = onTestLevel;
     this.onResetAll = onResetAll;
+    this.onExportSave = onExportSave;
     this.buildScreens();
     this.attachSwipe();
     // Обучение выключают и в опциях, и чекбоксом в самом диалоге: чекбокс
@@ -219,6 +223,7 @@ export class MenuController {
         onFpsChange: (value) => this.config.set('showFps', value),
         onProjectionChange: (mode) => this.config.set('projection', mode),
         onUnlockAll: () => this.unlockAllLevels(),
+        onExportSave: () => this.onExportSave?.(),
         onReset: () => this.resetAllSettings(),
         onMechanicsChange: (mechanics) => {
           this.debugMechanics = mechanics;
