@@ -257,6 +257,15 @@ gameScreen.hint.addEventListener('click', () => {
 });
 
 renderer.init(gameScreen.canvas);
+// Отладка (?debug): тень-маска уровня плоской картинкой поверх сцены.
+const debugMode =
+  new URLSearchParams(window.location.search).has('debug') || window.location.hash.includes('debug');
+if (debugMode) {
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.className = 'debug-shadow-mask';
+  gameScreen.canvasWrap.appendChild(maskCanvas);
+  renderer.setShadowMaskOverlay(maskCanvas);
+}
 renderer.setProjection(config.get('projection') as ProjectionMode);
 renderer.setFpsVisible(config.get('showFps') === true);
 renderer.setMoveSpeed(config.get('moveSpeed') === 'fast' ? FAST_MOVE_SPEED : 1);

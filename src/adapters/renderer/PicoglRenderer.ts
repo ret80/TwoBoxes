@@ -280,8 +280,6 @@ function buildShadowMask(
   width: number,
   height: number,
   walkable: (x: number, y: number) => boolean,
-  /** Заливать пустоты поля как плиту: для контура да, для тени внутри — нет. */
-  fillHoles = true,
 ): HTMLCanvasElement | null {
   const px = SHADOW_PX_PER_CELL;
   const margin = SHADOW_MARGIN_CELLS * px;
@@ -294,39 +292,13 @@ function buildShadowMask(
   if (!ctx) return null;
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, w, h);
-  // Внутренние пустоты поля тоже заливаем: сквозь дырку в плите свет не
-  // проходит, и светлые пятна внутри силуэта тени читались как артефакт.
-  const outside = new Uint8Array(width * height);
-  const queue: number[] = [];
-  const push = (x: number, y: number) => {
-    if (x < 0 || y < 0 || x >= width || y >= height) return;
-    const i = y * width + x;
-    if (outside[i] || walkable(x, y)) return;
-    outside[i] = 1;
-    queue.push(i);
-  };
-  for (let x = 0; x < width; x++) {
-    push(x, 0);
-    push(x, height - 1);
-  }
-  for (let y = 0; y < height; y++) {
-    push(0, y);
-    push(width - 1, y);
-  }
-  for (let q = 0; q < queue.length; q++) {
-    const i = queue[q];
-    const x = i % width;
-    const y = (i - x) / width;
-    push(x - 1, y);
-    push(x + 1, y);
-    push(x, y - 1);
-    push(x, y + 1);
-  }
+  // Белый только там, где есть плита. Пустоты внутри поля и обрыв снаружи
+  // остаются чёрными: под ними нет плиты, а значит и тени от неё нет —
+  // у стенок пустот тень считается отдельно по этой же маске.
   ctx.fillStyle = '#fff';
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const solid = fillHoles ? walkable(x, y) || !outside[y * width + x] : walkable(x, y);
-      if (solid) ctx.fillRect(margin + x * px, margin + y * px, px, px);
+      if (walkable(x, y)) ctx.fillRect(margin + x * px, margin + y * px, px, px);
     }
   }
   const blurred = document.createElement('canvas');
@@ -432,9 +404,10 @@ export class PicoglRenderer implements IRenderer {
   private maskDraw: DrawCall | null = null;
   private gridDraw: DrawCall | null = null;
   /** Размытая маска платформы для тени: пересобирается при смене уровня. */
-  private shadowMask: { key: string; texture: Texture } | null = null;
-  /** Та же маска, но без заливки пустот: по ней считается тень внутри дыр. */
-  private holeShadowMask: { key: string; texture: Texture } | null = null;
+  private shadowMask: { key: string; texture: Texture; canvas: HTMLCanvasElement } | null = null;
+  /** Отладочный слой: та же маска плоской картинкой поверх уровня. */
+  private shadowMaskOverlay: HTMLCanvasElement | null = null;
+  private overlayDrawnKey: string | null = null;
   /** Готовность клеток поля для тени: по текселю на клетку, обновляется в сборке. */
   private shadowProgress: {
     key: string;
@@ -645,7 +618,6 @@ export class PicoglRenderer implements IRenderer {
     this.maskDraw = this.app.createDrawCall(this.maskProgram, this.maskVao);
     // После потери контекста текстуры невалидны — соберём их заново.
     this.shadowMask = null;
-    this.holeShadowMask = null;
     this.shadowProgress = null;
   }
 
@@ -1175,6 +1147,15 @@ export class PicoglRenderer implements IRenderer {
     this.updateCamera();
   }
 
+  /**
+   * Отладка (?debug): та же тень-маска плоскостью поверх уровня. Канвас
+   * заполняется при первой отрисовке уровня / при смене карты.
+   */
+  setShadowMaskOverlay(canvas: HTMLCanvasElement | null): void {
+    this.shadowMaskOverlay = canvas;
+    this.overlayDrawnKey = null;
+  }
+
   /** Счётчик кадров: маленькая плашка в левом нижнем углу. */
   setFpsVisible(visible: boolean): void {
     this.fpsVisible = visible;
@@ -1446,42 +1427,15 @@ export class PicoglRenderer implements IRenderer {
       }
     }
 
-    // Дырки внутри поля тоже закрываем в трафарете: иначе тень просвечивала
-    // сквозь них грязными пятнами посреди самого уровня. Им же достаётся
-    // старший бит — по нему ниже рисуется только их собственная тень.
-    const holes = this.innerHoles(state);
-    if (holes.length > 0) {
-      gl.stencilFunc(gl.ALWAYS, 3, 0xff);
-      gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
-      gl.colorMask(false, false, false, false);
-      gl.depthMask(false);
-      for (const i of holes) {
-        const hx = i % state.width;
-        const hy = (i - hx) / state.width;
-        drawQuad(worldX(hx), PLATFORM_TOP, worldZ(hy), 1, [0, 0, 0]);
-      }
-      gl.colorMask(true, true, true, true);
-      gl.depthMask(true);
-    }
-
     // Тень под платформой — размытый силуэт плит, сдвинутый на экранный низ и
     // обрезанный трафаретом по их видимой части. Наружу выходит только мягкая
-    // полоса из-под нижней кромки.
+    // полоса из-под нижней кромки, а в пустотах поля — размытый край у стенок:
+    // в маске сами пустоты чёрные, поэтому их дно остаётся светлым.
     gl.stencilMask(0x00);
-    // Сравнение по младшему биту: плиты и пустоты (1 и 3) внешнюю тень обходят,
-    // как и раньше, а старший бит пустот ей не мешает.
-    gl.stencilFunc(gl.NOTEQUAL, 1, 0x01);
+    gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
     this.beginSoftPass();
     this.drawGroundShadow(state);
     this.endSoftPass();
-
-    // Тень внутри пустот: только у стенок, середина остаётся светлой.
-    if (holes.length > 0) {
-      gl.stencilFunc(gl.EQUAL, 2, 0x02);
-      this.beginSoftPass();
-      this.drawHoleShadows(state, holes);
-      this.endSoftPass();
-    }
     gl.disable(gl.STENCIL_TEST);
 
     // Контактная тень кубиков: лежит на плите и повторяет пятно кубика, поэтому
@@ -1736,122 +1690,6 @@ export class PicoglRenderer implements IRenderer {
   }
 
   /**
-   * Пустые клетки, полностью окружённые плитами: свет через них не проходит,
-   * поэтому их тоже надо закрыть в трафарете тени. Считается раз на карту.
-   */
-  private holeKey = '';
-  private holes: number[] = [];
-  private innerHoles(state: RenderState): number[] {
-    const key = gridKeyOf(state);
-    if (key === this.holeKey) return this.holes;
-    const { width, height } = state;
-    const walkable = (x: number, y: number) =>
-      isWalkableCell(state.grid[y * width + x] as CellType);
-    const outside = new Uint8Array(width * height);
-    const queue: number[] = [];
-    const push = (x: number, y: number) => {
-      if (x < 0 || y < 0 || x >= width || y >= height) return;
-      const i = y * width + x;
-      if (outside[i] || walkable(x, y)) return;
-      outside[i] = 1;
-      queue.push(i);
-    };
-    for (let x = 0; x < width; x++) {
-      push(x, 0);
-      push(x, height - 1);
-    }
-    for (let y = 0; y < height; y++) {
-      push(0, y);
-      push(width - 1, y);
-    }
-    for (let q = 0; q < queue.length; q++) {
-      const i = queue[q];
-      const x = i % width;
-      const y = (i - x) / width;
-      push(x - 1, y);
-      push(x + 1, y);
-      push(x, y - 1);
-      push(x, y + 1);
-    }
-    const holes: number[] = [];
-    for (let i = 0; i < width * height; i++) {
-      const x = i % width;
-      const y = (i - x) / width;
-      if (!walkable(x, y) && !outside[i]) holes.push(i);
-    }
-    this.holeKey = key;
-    this.holes = holes;
-    return holes;
-  }
-
-  /**
-   * Тень внутри пустот — тем же материалом, что и тень по контуру платформы:
-   * одна и та же размытая маска и та же плотность (`GROUND_SHADOW_ALPHA`), но
-   * в маске только плиты, без заливки пустот. Поэтому край тени у стенки вдвое
-   * светлее силуэта и тает с той же мягкостью, что и внешняя тень, а в середине
-   * пустоты остаётся светлое дно. Клетки делят одну текстуру, поэтому на углах
-   * тень не складывается и пятен не даёт.
-   */
-  private drawHoleShadows(state: RenderState, holes: number[]): void {
-    const app = this.app;
-    if (!app || !this.maskDraw) return;
-    const key = gridKeyOf(state);
-    if (!this.holeShadowMask || this.holeShadowMask.key !== key) {
-      this.holeShadowMask?.texture.delete();
-      this.holeShadowMask = null;
-      const canvas = buildShadowMask(
-        state.width,
-        state.height,
-        (x, y) => isWalkableCell(state.grid[y * state.width + x] as CellType),
-        false,
-      );
-      if (!canvas) return;
-      const texture = app.createTexture2D(canvas as unknown as HTMLImageElement, {
-        minFilter: PicoGL.LINEAR,
-        magFilter: PicoGL.LINEAR,
-        wrapS: PicoGL.CLAMP_TO_EDGE,
-        wrapT: PicoGL.CLAMP_TO_EDGE,
-      });
-      this.holeShadowMask = { key, texture };
-    }
-    const progress = this.shadowProgress;
-    if (!progress) return;
-    const cellsX = state.width + SHADOW_MARGIN_CELLS * 2;
-    const cellsZ = state.height + SHADOW_MARGIN_CELLS * 2;
-    const du = 1 / cellsX;
-    const dv = 1 / cellsZ;
-    this.applyViewProj(this.maskDraw)
-      .texture('uMask', this.holeShadowMask.texture)
-      .texture('uProgress', progress.texture)
-      .uniform('uColor', this.palette.shadow)
-      // У самой стенки размытая маска даёт половину плотности силуэта (0.5),
-      // поэтому плотность удвоена: у края пустоты тень такая же, как под
-      // плитой, и так же плавно уходит в никуда.
-      .uniform('uAlpha', GROUND_SHADOW_ALPHA * 2)
-      .uniform('uCells', [cellsX, cellsZ])
-      .uniform('uMargin', SHADOW_MARGIN_CELLS)
-      .uniform('uProgressOn', 1);
-    for (const i of holes) {
-      const x = i % state.width;
-      const y = (i - x) / state.width;
-      mat4.fromTranslation(this.decalModel, [
-        x - state.width / 2 + 0.5,
-        GROUND_SHADOW_Y,
-        y - state.height / 2 + 0.5,
-      ]);
-      this.maskDraw
-        .uniform('uModel', this.decalModel)
-        .uniform('uUvRect', [
-          (SHADOW_MARGIN_CELLS + x) * du,
-          (SHADOW_MARGIN_CELLS + y) * dv,
-          du,
-          dv,
-        ])
-        .draw();
-    }
-  }
-
-  /**
    * Тень платформы одним квадом: размытая маска силуэта растягивается на
    * габариты поля с полями и сдвигается на экранный низ. Маска собирается
    * заново только при смене карты.
@@ -1872,9 +1710,10 @@ export class PicoglRenderer implements IRenderer {
         wrapS: PicoGL.CLAMP_TO_EDGE,
         wrapT: PicoGL.CLAMP_TO_EDGE,
       });
-      this.shadowMask = { key, texture };
+      this.shadowMask = { key, texture, canvas };
     }
     if (!this.maskDraw || !this.shadowMask || !this.app) return;
+    this.paintShadowMaskOverlay(state, this.shadowMask.canvas);
     const animating = this.createMask !== null;
     this.updateShadowProgress(state, animating);
     if (!this.shadowProgress) return;
@@ -1924,6 +1763,70 @@ export class PicoglRenderer implements IRenderer {
           .draw();
       }
     }
+  }
+
+  /**
+   * Отладочная плоская картинка тени-маски: сама маска как есть плюс сетка
+   * клеток уровня (с полями маски вокруг). Перерисовывается только при смене
+   * карты — маска меняется вместе с ней.
+   */
+  private paintShadowMaskOverlay(state: RenderState, mask: HTMLCanvasElement): void {
+    const canvas = this.shadowMaskOverlay;
+    if (!canvas) return;
+    const key = gridKeyOf(state);
+    if (this.overlayDrawnKey === key) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    this.overlayDrawnKey = key;
+
+    const margin = SHADOW_MARGIN_CELLS;
+    const cols = state.width + margin * 2;
+    const rows = state.height + margin * 2;
+    // Размер плашки ограничен, чтобы она не закрывала половину уровня.
+    const cell = Math.max(8, Math.min(26, Math.floor(300 / Math.max(cols, rows))));
+    const w = cols * cell;
+    const h = rows * cell;
+    canvas.width = w;
+    canvas.height = h;
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, h);
+    // Маска уже размыта внутри себя — растягиваем её сглаженно, без пикселей.
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(mask, 0, 0, w, h);
+
+    // Поля маски за пределами поля гасим: сетка показывает только реальные
+    // клетки уровня, всему остальному оставляем лишь тень.
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.fillRect(0, 0, w, margin * cell);
+    ctx.fillRect(0, (margin + state.height) * cell, w, margin * cell);
+    ctx.fillRect(0, 0, margin * cell, h);
+    ctx.fillRect((margin + state.width) * cell, 0, margin * cell, h);
+
+    // Серый виден и на чёрной маске, и на белом силуэте — так клетки читаются
+    // по всей картинке, а не только на светлой части.
+    ctx.strokeStyle = 'rgba(120, 130, 140, 0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let c = 0; c <= cols; c++) {
+      const x = Math.round(c * cell) + 0.5;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+    }
+    for (let r = 0; r <= rows; r++) {
+      const y = Math.round(r * cell) + 0.5;
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+    }
+    ctx.stroke();
+
+    // Граница поля: где кончаются настоящие клетки уровня.
+    ctx.strokeStyle = 'rgba(214, 69, 43, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(margin * cell, margin * cell, state.width * cell, state.height * cell);
   }
 
   /**
