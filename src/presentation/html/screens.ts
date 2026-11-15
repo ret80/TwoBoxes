@@ -29,6 +29,27 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const LOCK_PATH =
   'M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm0 2a3 3 0 0 1 3 3v3H9V7a3 3 0 0 1 3-3Z';
 
+/** Пятиконечная звезда в viewBox 24×24 — контур для карточек уровней. */
+const STAR_PATH =
+  'M12 3.2l2.62 5.5 6.02.82-4.4 4.2 1.08 5.98L12 16.9l-5.32 2.8 1.08-5.98-4.4-4.2 6.02-.82z';
+
+/** Звезда в карточке уровня: только контур, без заливки. */
+function starOutlineIcon(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.classList.add('lvl-card__star');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', STAR_PATH);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(path);
+  return svg;
+}
+
 /** Иконка закрытого уровня: один цвет (наследует color), без объёма и тени. */
 function lockIcon(): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -701,7 +722,7 @@ export function buildSelectorScreen(
     const grid = el('div', 'selector-grid');
     for (let lvl = 0; lvl < episode.levelCount; lvl++) {
       const label = `${episode.episodeId + 1}-${lvl + 1}`;
-      const card = el<HTMLButtonElement>('button', 'lvl-card', label);
+      const card = el<HTMLButtonElement>('button', 'lvl-card');
       // Идентификаторы нужны контроллеру, чтобы пометить карточку, пока её
       // уровень догенерируется в воркере.
       card.dataset.episode = String(episode.episodeId);
@@ -709,11 +730,23 @@ export function buildSelectorScreen(
       if (episodes.isLocked(episode.episodeId, lvl)) {
         card.classList.add('lvl-card--locked');
         card.disabled = true;
-        card.textContent = '';
         card.appendChild(lockIcon());
         card.setAttribute('aria-label', `${i18n.t('TITLE_SELECT_LVL')} ${label}`);
       } else {
-        card.setAttribute('aria-label', `Level ${label}`);
+        card.appendChild(el('span', 'lvl-card__num', label));
+        // Звёзды за лучшее прохождение (та же оценка, что в диалоге победы):
+        // только контуры, по одной на полученную звезду.
+        const stars = episodes.levelStars(episode.episodeId, lvl);
+        if (stars > 0) {
+          const row = el('span', 'lvl-card__stars');
+          row.setAttribute('aria-hidden', 'true');
+          for (let i = 0; i < stars; i++) row.appendChild(starOutlineIcon());
+          card.appendChild(row);
+        }
+        card.setAttribute(
+          'aria-label',
+          stars > 0 ? `Level ${label}, ${stars} ★` : `Level ${label}`,
+        );
         card.addEventListener('click', () => cb.onSelect(episode.episodeId, lvl));
       }
       grid.appendChild(card);

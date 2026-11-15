@@ -4,6 +4,7 @@ import { rebuildEpisodeLevel } from '../generation/level-generator';
 import { findShortestSolution } from '../generation/solver';
 import { createLevelFromData } from '../rules/create';
 import { Episode } from '../types/episode';
+import type { LevelRecord } from '../types/game-result';
 import { Level } from '../types/level';
 
 /**
@@ -24,7 +25,12 @@ export interface SaveData {
   version: number;
   curEpisodeId: number;
   curLevelId: number;
-  episodes: { lastUnlockedLevel: number; unlockedAll: boolean }[];
+  episodes: {
+    lastUnlockedLevel: number;
+    unlockedAll: boolean;
+    /** Лучшие прохождения уровней; у старых сейвов поля нет. */
+    results?: (LevelRecord | null)[];
+  }[];
 }
 
 const SAVE_VERSION = 1; // как в оригинале (script/global/save.gd)
@@ -246,6 +252,24 @@ export class EpisodeManager {
   /** Разблокировка следующего уровня после победы на текущем. */
   unlockCurrent(): void {
     this.getEpisode(this.curEpisodeId).unlock(this.curLevelId);
+  }
+
+  /** Лучший результат уровня (`null` — ещё не пройден). */
+  levelResult(episodeId: number, levelId: number): LevelRecord | null {
+    return this.episodes[episodeId]?.result(levelId) ?? null;
+  }
+
+  /** Звёзды за уровень: 0 — ещё не пройден. */
+  levelStars(episodeId: number, levelId: number): number {
+    return this.episodes[episodeId]?.stars(levelId) ?? 0;
+  }
+
+  /**
+   * Запомнить прохождение уровня: ходы, подсказки, время и звёзды попадают в
+   * сохранение вместе с прогрессом эпизода.
+   */
+  recordResult(episodeId: number, levelId: number, record: LevelRecord): void {
+    this.episodes[episodeId]?.recordResult(levelId, record);
   }
 
   serialize(): SaveData {

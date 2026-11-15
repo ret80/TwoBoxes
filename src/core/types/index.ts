@@ -6,5 +6,5 @@ export type { Box, End } from './entity';
 export { boxAt, boxPositionEquals } from './entity';
 export { Level } from './level';
 export { Episode } from './episode';
-export type { GameResult } from './game-result';
+export type { GameResult, LevelRecord } from './game-result';
 export type { GameState } from './game-state';

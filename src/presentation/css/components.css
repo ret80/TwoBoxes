@@ -98,6 +98,8 @@
 /* Карточка уровня (селектор) */
 .lvl-card {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
   align-items: center;
   justify-content: center;
   width: 100%;
@@ -144,6 +146,23 @@
   display: block;
   width: 40%;
   height: 40%;
+}
+
+/* Номер уровня и звёзды под ним: контуры, по одной на полученную звезду. */
+.lvl-card__num {
+  line-height: 1.1;
+}
+
+.lvl-card__stars {
+  display: flex;
+  gap: 1px;
+  color: var(--color-coffee);
+  opacity: 0.7;
+}
+
+.lvl-card__star {
+  width: 13px;
+  height: 13px;
 }
 
 /* Панели меню и диалогов: без подложки — фон размывается целиком оверлеем */

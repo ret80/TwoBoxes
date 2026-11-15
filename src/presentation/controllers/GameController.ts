@@ -455,10 +455,6 @@ export class GameController {
         return;
       }
       this.statistics.stop();
-      if (!this.testMode) {
-        this.episodes.unlockCurrent();
-        this.save();
-      }
       // Минимальное число ходов уровня — база для звёзд в диалоге победы;
       // подсказки входят в оценку отдельным штрафом. У тестового уровня нет
       // эпизода в менеджере, поэтому минимум считает тот же решатель: раньше
@@ -467,17 +463,27 @@ export class GameController {
         ? shortestMoves(ctx.level)
         : this.episodes.minMoves(ctx.level.episodeId, ctx.level.levelId);
       const hints = this.statistics.getHints();
-      this.showCompleted?.(
-        {
-          moves: ctx.moves,
-          time: ctx.time,
-          completed: true,
-          hints,
-          minMoves,
-          stars: starsForResult(ctx.moves, minMoves, hints),
-        },
-        this.testMode,
-      );
+      const result: GameResult = {
+        moves: ctx.moves,
+        time: ctx.time,
+        completed: true,
+        hints,
+        minMoves,
+        stars: starsForResult(ctx.moves, minMoves, hints),
+      };
+      if (!this.testMode) {
+        // Результат идёт в сейв до сохранения: из него меню выбора берёт звёзды
+        // на карточке уровня.
+        this.episodes.recordResult(ctx.level.episodeId, ctx.level.levelId, {
+          moves: result.moves,
+          hints: result.hints,
+          time: result.time,
+          stars: result.stars,
+        });
+        this.episodes.unlockCurrent();
+        this.save();
+      }
+      this.showCompleted?.(result, this.testMode);
     }
   }
 
