@@ -404,10 +404,7 @@ export class PicoglRenderer implements IRenderer {
   private maskDraw: DrawCall | null = null;
   private gridDraw: DrawCall | null = null;
   /** Размытая маска платформы для тени: пересобирается при смене уровня. */
-  private shadowMask: { key: string; texture: Texture; canvas: HTMLCanvasElement } | null = null;
-  /** Отладочный слой: та же маска плоской картинкой поверх уровня. */
-  private shadowMaskOverlay: HTMLCanvasElement | null = null;
-  private overlayDrawnKey: string | null = null;
+  private shadowMask: { key: string; texture: Texture } | null = null;
   /** Готовность клеток поля для тени: по текселю на клетку, обновляется в сборке. */
   private shadowProgress: {
     key: string;
@@ -1147,15 +1144,6 @@ export class PicoglRenderer implements IRenderer {
     this.updateCamera();
   }
 
-  /**
-   * Отладка (?debug): та же тень-маска плоскостью поверх уровня. Канвас
-   * заполняется при первой отрисовке уровня / при смене карты.
-   */
-  setShadowMaskOverlay(canvas: HTMLCanvasElement | null): void {
-    this.shadowMaskOverlay = canvas;
-    this.overlayDrawnKey = null;
-  }
-
   /** Счётчик кадров: маленькая плашка в левом нижнем углу. */
   setFpsVisible(visible: boolean): void {
     this.fpsVisible = visible;
@@ -1710,10 +1698,9 @@ export class PicoglRenderer implements IRenderer {
         wrapS: PicoGL.CLAMP_TO_EDGE,
         wrapT: PicoGL.CLAMP_TO_EDGE,
       });
-      this.shadowMask = { key, texture, canvas };
+      this.shadowMask = { key, texture };
     }
     if (!this.maskDraw || !this.shadowMask || !this.app) return;
-    this.paintShadowMaskOverlay(state, this.shadowMask.canvas);
     const animating = this.createMask !== null;
     this.updateShadowProgress(state, animating);
     if (!this.shadowProgress) return;
@@ -1763,70 +1750,6 @@ export class PicoglRenderer implements IRenderer {
           .draw();
       }
     }
-  }
-
-  /**
-   * Отладочная плоская картинка тени-маски: сама маска как есть плюс сетка
-   * клеток уровня (с полями маски вокруг). Перерисовывается только при смене
-   * карты — маска меняется вместе с ней.
-   */
-  private paintShadowMaskOverlay(state: RenderState, mask: HTMLCanvasElement): void {
-    const canvas = this.shadowMaskOverlay;
-    if (!canvas) return;
-    const key = gridKeyOf(state);
-    if (this.overlayDrawnKey === key) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    this.overlayDrawnKey = key;
-
-    const margin = SHADOW_MARGIN_CELLS;
-    const cols = state.width + margin * 2;
-    const rows = state.height + margin * 2;
-    // Размер плашки ограничен, чтобы она не закрывала половину уровня.
-    const cell = Math.max(8, Math.min(26, Math.floor(300 / Math.max(cols, rows))));
-    const w = cols * cell;
-    const h = rows * cell;
-    canvas.width = w;
-    canvas.height = h;
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, w, h);
-    // Маска уже размыта внутри себя — растягиваем её сглаженно, без пикселей.
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(mask, 0, 0, w, h);
-
-    // Поля маски за пределами поля гасим: сетка показывает только реальные
-    // клетки уровня, всему остальному оставляем лишь тень.
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.fillRect(0, 0, w, margin * cell);
-    ctx.fillRect(0, (margin + state.height) * cell, w, margin * cell);
-    ctx.fillRect(0, 0, margin * cell, h);
-    ctx.fillRect((margin + state.width) * cell, 0, margin * cell, h);
-
-    // Серый виден и на чёрной маске, и на белом силуэте — так клетки читаются
-    // по всей картинке, а не только на светлой части.
-    ctx.strokeStyle = 'rgba(120, 130, 140, 0.85)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let c = 0; c <= cols; c++) {
-      const x = Math.round(c * cell) + 0.5;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-    }
-    for (let r = 0; r <= rows; r++) {
-      const y = Math.round(r * cell) + 0.5;
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-    }
-    ctx.stroke();
-
-    // Граница поля: где кончаются настоящие клетки уровня.
-    ctx.strokeStyle = 'rgba(214, 69, 43, 0.9)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(margin * cell, margin * cell, state.width * cell, state.height * cell);
   }
 
   /**
