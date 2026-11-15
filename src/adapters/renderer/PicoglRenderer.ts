@@ -37,6 +37,8 @@ import {
   FRAGMENT_SHADER,
   GLOW_FRAGMENT_SHADER,
   GLOW_VERTEX_SHADER,
+  HOLE_SHADOW_FRAGMENT_SHADER,
+  HOLE_SHADOW_VERTEX_SHADER,
   LINE_FRAGMENT_SHADER,
   LINE_VERTEX_SHADER,
   MASK_FRAGMENT_SHADER,
@@ -246,15 +248,14 @@ const GROUND_SHADOW_ALPHA = 0.45;
  */
 const GROUND_SHADOW_REACH = 0.5;
 /**
- * Тень внутри пустот поля — узкая полоса вдоль стенок, к середине пустоты она
- * сходит на нет. Залитая целиком тень читалась грязным серым пятном, а так
- * пустота выглядит углублением с освещённым дном.
+ * Тень внутри пустот поля: у стенки она плотная, к середине пустоты сходит на
+ * нет. Залитая целиком тень читалась грязным пятном, а так пустота выглядит
+ * углублением с освещённым дном. Мягкость шире клетки-стенки: у самого края
+ * тень не обрывается, а тает к центру.
  */
-const HOLE_SHADOW_ALPHA = 0.28;
-/** Полуразмер ядра полосы у стенки, мягкость её края и длина вдоль стенки. */
-const HOLE_SHADOW_CORE = 0.05;
-const HOLE_SHADOW_SOFT = 0.09;
-const HOLE_SHADOW_SPAN = 0.52;
+const HOLE_SHADOW_ALPHA = 0.36;
+/** Скорость затухания тени от стенки к центру, в долях клетки. */
+const HOLE_SHADOW_SOFT = 0.15;
 /** Маска тени: пиксели на клетку, поле вокруг и радиус размытия в пикселях. */
 const SHADOW_PX_PER_CELL = 8;
 const SHADOW_MARGIN_CELLS = 3;
@@ -422,12 +423,14 @@ export class PicoglRenderer implements IRenderer {
   private lineProgram: Program | null = null;
   private glowProgram: Program | null = null;
   private shadowProgram: Program | null = null;
+  private holeShadowProgram: Program | null = null;
   private maskProgram: Program | null = null;
   private cubeVao: VertexArray | null = null;
   private quadVao: VertexArray | null = null;
   private quadXYVao: VertexArray | null = null;
   private glowVao: VertexArray | null = null;
   private shadowVao: VertexArray | null = null;
+  private holeShadowVao: VertexArray | null = null;
   private maskVao: VertexArray | null = null;
   private gridVao: VertexArray | null = null;
 
@@ -436,6 +439,7 @@ export class PicoglRenderer implements IRenderer {
   private quadXYDraw: DrawCall | null = null;
   private glowDraw: DrawCall | null = null;
   private shadowDraw: DrawCall | null = null;
+  private holeShadowDraw: DrawCall | null = null;
   private maskDraw: DrawCall | null = null;
   private gridDraw: DrawCall | null = null;
   /** Размытая маска платформы для тени: пересобирается при смене уровня. */
@@ -594,6 +598,10 @@ export class PicoglRenderer implements IRenderer {
     this.lineProgram = this.app.createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER);
     this.glowProgram = this.app.createProgram(GLOW_VERTEX_SHADER, GLOW_FRAGMENT_SHADER);
     this.shadowProgram = this.app.createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
+    this.holeShadowProgram = this.app.createProgram(
+      HOLE_SHADOW_VERTEX_SHADER,
+      HOLE_SHADOW_FRAGMENT_SHADER,
+    );
     this.maskProgram = this.app.createProgram(MASK_VERTEX_SHADER, MASK_FRAGMENT_SHADER);
 
     const cubePositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_VERTICES);
@@ -638,6 +646,13 @@ export class PicoglRenderer implements IRenderer {
       .createVertexArray()
       .vertexAttributeBuffer(0, shadowPositions);
     this.shadowDraw = this.app.createDrawCall(this.shadowProgram, this.shadowVao);
+    // Тень пустоты: тот же квад в XZ, но шейдер сам считает расстояние до
+    // стенок клетки, поэтому на углах тень не складывается вдвое.
+    const holePositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XZ_VERTICES);
+    this.holeShadowVao = this.app
+      .createVertexArray()
+      .vertexAttributeBuffer(0, holePositions);
+    this.holeShadowDraw = this.app.createDrawCall(this.holeShadowProgram, this.holeShadowVao);
 
     // Тень платформы: тот же квад в XZ, но с UV — по нему растягивается
     // размытая маска силуэта.
@@ -1789,13 +1804,14 @@ export class PicoglRenderer implements IRenderer {
   }
 
   /**
-   * Тень внутри пустот поля — узкая полоса вдоль стенки, к середине пустоты она
-   * сходит на нет. Полоса рисуется только у тех сторон, за которыми есть плита:
-   * между клетками одной пустоты стенки нет, и тень там не нужна. Трафарет
-   * пустот обрезает полосы по их клеткам, поэтому на плиты они не выходят.
+   * Тень внутри пустот поля: у стенки плотная, к центру клетки тает. Рисуется
+   * одним квадом на клетку пустоты, поэтому на углах тень не складывается
+   * вдвое и не даёт тёмных пятен. Стенками считаются только стороны, за
+   * которыми стоит плита: между клетками одной пустоты тени нет.
    */
   private drawHoleShadows(state: RenderState, holes: number[]): void {
-    if (!this.shadowDraw) return;
+    const draw = this.holeShadowDraw;
+    if (!draw) return;
     const holeSet = new Set(holes);
     const isHole = (x: number, y: number): boolean =>
       x >= 0 &&
@@ -1804,8 +1820,8 @@ export class PicoglRenderer implements IRenderer {
       y < state.height &&
       holeSet.has(y * state.width + x);
     /**
-     * Своей волны появления у пустот нет: полоса проявляется вместе с соседними
-     * плитами, иначе на старте уровня тень щёлкала посреди ещё не собранного поля.
+     * Своей волны появления у пустот нет: тень проявляется вместе с соседними
+     * плитами, иначе на старте уровня она щёлкала посреди ещё не собранного поля.
      */
     const fade = (x: number, y: number): number => {
       let near = 0;
@@ -1820,27 +1836,30 @@ export class PicoglRenderer implements IRenderer {
       }
       return near;
     };
-    // Центр полосы прижат к самой стенке: ядро начинается от её основания.
-    const core = HOLE_SHADOW_CORE;
     for (const i of holes) {
       const x = i % state.width;
       const y = (i - x) / state.width;
       const alpha = HOLE_SHADOW_ALPHA * fade(x, y);
       if (alpha <= 0) continue;
-      const wx = x - state.width / 2 + 0.5;
-      const wz = y - state.height / 2 + 0.5;
-      if (!isHole(x - 1, y)) {
-        this.drawShadow(wx - 0.5 + core, GROUND_SHADOW_Y, wz, core, HOLE_SHADOW_SPAN, HOLE_SHADOW_SOFT, alpha);
-      }
-      if (!isHole(x + 1, y)) {
-        this.drawShadow(wx + 0.5 - core, GROUND_SHADOW_Y, wz, core, HOLE_SHADOW_SPAN, HOLE_SHADOW_SOFT, alpha);
-      }
-      if (!isHole(x, y - 1)) {
-        this.drawShadow(wx, GROUND_SHADOW_Y, wz - 0.5 + core, HOLE_SHADOW_SPAN, core, HOLE_SHADOW_SOFT, alpha);
-      }
-      if (!isHole(x, y + 1)) {
-        this.drawShadow(wx, GROUND_SHADOW_Y, wz + 0.5 - core, HOLE_SHADOW_SPAN, core, HOLE_SHADOW_SOFT, alpha);
-      }
+      // Стороны со стенкой: левая, правая, дальняя (−z) и ближняя (+z).
+      const sides = [
+        isHole(x - 1, y) ? 0 : 1,
+        isHole(x + 1, y) ? 0 : 1,
+        isHole(x, y - 1) ? 0 : 1,
+        isHole(x, y + 1) ? 0 : 1,
+      ];
+      mat4.fromTranslation(this.decalModel, [
+        x - state.width / 2 + 0.5,
+        GROUND_SHADOW_Y,
+        y - state.height / 2 + 0.5,
+      ]);
+      this.applyViewProj(draw)
+        .uniform('uModel', this.decalModel)
+        .uniform('uColor', this.palette.shadow)
+        .uniform('uAlpha', alpha)
+        .uniform('uSides', sides)
+        .uniform('uSoft', HOLE_SHADOW_SOFT)
+        .draw();
     }
   }
 
