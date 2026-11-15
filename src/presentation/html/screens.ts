@@ -1,6 +1,7 @@
 import type { Locale, LocaleManager } from '../i18n/LocaleManager';
 import type { EpisodeManager } from '../../core/services/episode-mng';
 import type {
+  CameraMode,
   CompassMode,
   HintStyle,
   MoveSpeed,
@@ -375,6 +376,7 @@ export function buildSettingsScreen(
     speed: MoveSpeed;
     hintStyle: HintStyle;
     compass: CompassMode;
+    camera: CameraMode;
     theme: ThemeMode;
     tutorial: boolean;
   },
@@ -386,6 +388,7 @@ export function buildSettingsScreen(
     onSpeedChange: (value: MoveSpeed) => void;
     onHintStyleChange: (value: HintStyle) => void;
     onCompassChange: (value: CompassMode) => void;
+    onCameraChange: (value: CameraMode) => void;
     onThemeChange: (value: ThemeMode) => void;
     onTutorialChange: (value: boolean) => void;
   },
@@ -458,6 +461,19 @@ export function buildSettingsScreen(
       ['on', i18n.t('COMPASS_ON')],
     ],
     cb.onCompassChange,
+  );
+
+  // Камера: статическая держит кадр с опорного ракурса, динамическая
+  // подстраивает масштаб под поворот, чтобы уровень всегда был в экране.
+  addSelectRow<CameraMode>(
+    panel,
+    i18n.t('CAMERA'),
+    values.camera,
+    [
+      ['static', i18n.t('CAMERA_STATIC')],
+      ['dynamic', i18n.t('CAMERA_DYNAMIC')],
+    ],
+    cb.onCameraChange,
   );
 
   // Тема оформления: светлая, тёмная или как в системе (по умолчанию светлая).

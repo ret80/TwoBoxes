@@ -2,7 +2,13 @@ import './style.css';
 import { createActor } from 'xstate';
 import { createGameMachine } from '@core/state/game';
 import { menuMachine } from '@core/state/menu';
-import { Config, type HintStyle, type Theme, type ThemeMode } from '@core/services/config';
+import {
+  Config,
+  type CameraMode,
+  type HintStyle,
+  type Theme,
+  type ThemeMode,
+} from '@core/services/config';
 import { EpisodeManager, type SaveData } from '@core/services/episode-mng';
 import {
   DEMO_LEVEL_COUNT,
@@ -169,6 +175,7 @@ config.subscribe((key, value) => {
   if (key === 'showFps') renderer.setFpsVisible(value === true);
   if (key === 'moveSpeed') renderer.setMoveSpeed(value === 'fast' ? FAST_MOVE_SPEED : 1);
   if (key === 'hintStyle') renderer.setHintStyle(value as HintStyle);
+  if (key === 'camera') renderer.setCameraMode(value as CameraMode);
   if (key === 'compass') {
     compassAlways = value === 'on';
     applyKeyGuide();
@@ -261,6 +268,7 @@ renderer.setProjection(config.get('projection') as ProjectionMode);
 renderer.setFpsVisible(config.get('showFps') === true);
 renderer.setMoveSpeed(config.get('moveSpeed') === 'fast' ? FAST_MOVE_SPEED : 1);
 renderer.setHintStyle(config.get('hintStyle') as HintStyle);
+renderer.setCameraMode(config.get('camera') as CameraMode);
 const onResize = () => renderer.resize(window.innerWidth, window.innerHeight);
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);

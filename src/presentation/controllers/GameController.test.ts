@@ -44,6 +44,7 @@ class FakeRenderer implements IRenderer {
   setTheme(): void {}
   setKeyGuideVisible(): void {}
   setProjection(): void {}
+  setCameraMode(): void {}
   setMoveSpeed(): void {}
   setFpsVisible(): void {}
 

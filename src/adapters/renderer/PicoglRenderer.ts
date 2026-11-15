@@ -21,7 +21,7 @@ import type {
   ProjectionMode,
   RenderState,
 } from '../../ports/IRenderer';
-import type { HintStyle, Theme } from '../../core/services/config';
+import type { CameraMode, HintStyle, Theme } from '../../core/services/config';
 import {
   buildGridLines,
   CUBE_NORMALS,
@@ -1135,6 +1135,15 @@ export class PicoglRenderer implements IRenderer {
       const [r, g, b] = this.palette.background;
       this.app.clearColor(r, g, b, 1);
     }
+  }
+
+  /**
+   * Камера: статическая держит кадр уровня с опорного ракурса, динамическая
+   * пересчитывает масштаб на каждом кадре — уровень остаётся крупным и в экране.
+   */
+  setCameraMode(mode: CameraMode): void {
+    this.camera.setDynamic(mode === 'dynamic');
+    this.updateCamera();
   }
 
   /** Проекция сцены: ортогональная, изометрическая или обратная изометрическая. */

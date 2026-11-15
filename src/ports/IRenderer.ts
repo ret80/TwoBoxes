@@ -2,7 +2,7 @@ import { ColorType } from '../core/types/color';
 import type { PathPoint } from '../core/types/game-state';
 import type { MechanicState } from '../core/types/mechanic-state';
 import { Position } from '../core/types/position';
-import type { HintStyle, Theme } from '../core/services/config';
+import type { CameraMode, HintStyle, Theme } from '../core/services/config';
 
 /**
  * Порт рендера. Реализация — picogl-адаптер (Фаза 7).
@@ -54,6 +54,12 @@ export interface IRenderer {
 
   /** Проекция сцены (отладочное меню). */
   setProjection(mode: ProjectionMode): void;
+
+  /**
+   * Камера: статическая (кадр фиксируется на старте уровня) или динамическая
+   * (масштаб подстраивается под текущий поворот уровня).
+   */
+  setCameraMode(mode: CameraMode): void;
 
   /**
    * Скорость анимации хода: 1 — плавно (по умолчанию), >1 — быстрее

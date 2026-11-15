@@ -14,6 +14,7 @@ import {
   type MenuItemId,
 } from '../html/screens';
 import type {
+  CameraMode,
   CompassMode,
   HintStyle,
   MoveSpeed,
@@ -180,6 +181,7 @@ export class MenuController {
         speed: this.config.get('moveSpeed') as MoveSpeed,
         hintStyle: this.config.get('hintStyle') as HintStyle,
         compass: this.config.get('compass') as CompassMode,
+        camera: this.config.get('camera') as CameraMode,
         theme: this.config.get('theme') as ThemeMode,
         tutorial: this.config.get('tutorial') === true,
       },
@@ -191,6 +193,7 @@ export class MenuController {
         onSpeedChange: (value: MoveSpeed) => this.config.set('moveSpeed', value),
         onHintStyleChange: (value: HintStyle) => this.config.set('hintStyle', value),
         onCompassChange: (value: CompassMode) => this.config.set('compass', value),
+        onCameraChange: (value: CameraMode) => this.config.set('camera', value),
         onThemeChange: (value: ThemeMode) => this.config.set('theme', value),
         onTutorialChange: (value) => this.config.set('tutorial', value),
       },

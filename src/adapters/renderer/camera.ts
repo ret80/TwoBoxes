@@ -39,6 +39,11 @@ export class Camera {
    */
   private pivotX = 0;
   private pivotZ = 0;
+  /**
+   * Динамический кадр: масштаб пересчитывается под текущий ракурс, поэтому
+   * повёрнутый уровень остаётся максимально крупным, но целиком в экране.
+   */
+  private dynamic = false;
 
   constructor() {
     this.updateView();
@@ -62,6 +67,18 @@ export class Camera {
     this.pitch = Math.min(MAX_PITCH, Math.max(MIN_PITCH, pitch));
     this.updateView();
     this.rebuildViewProj();
+  }
+
+  /** Статическая или динамическая камера (настройка «Камера»). */
+  setDynamic(dynamic: boolean): void {
+    if (this.dynamic === dynamic) return;
+    this.dynamic = dynamic;
+    // Следующий кадр пересчитает кадр: в статике вернётся опорный масштаб.
+    this.rebuildViewProj();
+  }
+
+  isDynamic(): boolean {
+    return this.dynamic;
   }
 
   /**
@@ -113,11 +130,11 @@ export class Camera {
   }
 
   /**
-   * Разовая настройка кадра на старте уровня (Фаза 12).
-   *
-   * Дальность камеры фиксируется по **опорному** ракурсу, а не по текущему:
-   * иначе при вращении уровня проекция пересчитывалась бы и сцена то
-   * приближалась, то отдалялась. Теперь орбита только меняет ориентацию.
+   * Кадр уровня. В статическом режиме дальность считается по **опорному**
+   * ракурсу и при вращении не меняется — орбита только поворачивает сцену.
+   * В динамическом кадр каждый раз считается по текущим углам: камера сама
+   * подъезжает и отъезжает, чтобы повёрнутый уровень целиком помещался в
+   * свободную полосу между панелями и не выходил за края экрана.
    */
   frame(
     bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
@@ -126,8 +143,14 @@ export class Camera {
     safeTop = 0,
     safeBottom = 0,
   ): void {
-    const rx = mat4.fromXRotation(mat4.create(), this.mode === 'ortho' ? DEFAULT_PITCH : ISO_PITCH);
-    const ry = mat4.fromYRotation(mat4.create(), DEFAULT_YAW);
+    const pitch = this.dynamic
+      ? this.pitch
+      : this.mode === 'ortho'
+        ? DEFAULT_PITCH
+        : ISO_PITCH;
+    const yaw = this.dynamic ? this.yaw : DEFAULT_YAW;
+    const rx = mat4.fromXRotation(mat4.create(), pitch);
+    const ry = mat4.fromYRotation(mat4.create(), yaw);
     mat4.multiply(this.refView, rx, ry);
 
     // Вращаем и кадрируем вокруг центра именно видимых плит.
