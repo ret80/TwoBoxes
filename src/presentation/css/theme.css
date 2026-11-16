@@ -54,14 +54,6 @@
     0 14px 30px rgba(74, 53, 39, 0.2), 0 0 0 2px rgba(74, 53, 39, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.85);
   --shadow-logo: drop-shadow(0 6px 12px rgba(74, 53, 39, 0.1));
-  --shadow-star: 0 2px 8px rgba(232, 192, 94, 0.45);
-
-  /* Звёзды победы: золото на кремовом само по себе почти не видно, поэтому
-     у закрашенной звезды тёмная обводка, а пустая рисуется контуром. */
-  --color-star: #e0a63c;
-  --color-star-edge: rgba(74, 53, 39, 0.6);
-  --color-star-off: rgba(74, 53, 39, 0.16);
-  --color-star-off-edge: rgba(74, 53, 39, 0.34);
 }
 
 :root[data-theme='dark'] {
@@ -109,11 +101,4 @@
     0 14px 30px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(236, 228, 217, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.07);
   --shadow-logo: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
-  --shadow-star: 0 2px 8px rgba(232, 192, 94, 0.35);
-
-  /* На тёмном золото читается само: обводка только для объёма. */
-  --color-star: #eecb72;
-  --color-star-edge: rgba(6, 12, 12, 0.4);
-  --color-star-off: rgba(232, 238, 236, 0.12);
-  --color-star-off-edge: rgba(232, 238, 236, 0.28);
 }

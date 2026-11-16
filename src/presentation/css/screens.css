@@ -207,6 +207,19 @@
 }
 
 /* Подпись под каруселью: название активной иконки — только текст, без плашки */
+/* Версия сборки — самой нижней строкой меню, тише подписи под логотипом. */
+.menu-version {
+  position: fixed;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  color: var(--color-text-muted);
+  font-size: clamp(0.62rem, 2.8vw, 0.78rem);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .xmb__caption {
   position: fixed;
   left: 50%;

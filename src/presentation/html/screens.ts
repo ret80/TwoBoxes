@@ -11,6 +11,7 @@ import type { ProjectionMode } from '../../ports/IRenderer';
 import { ALL_MECHANICS, type MechanicId } from '../../core/generation/mechanics';
 import { episodeTheme } from '../../core/data/generated-episodes';
 import { formatLevelSeed } from '../../core/generation/level-seed';
+import { APP_VERSION } from '../../version';
 import { testLevelProgress } from '../../core/generation/debug-levels';
 
 /** DOM-генераторы экранов (план 11.1 — TS-модули вместо .html, SPA/Vite). */
@@ -35,13 +36,13 @@ const LOCK_PATH =
 const STAR_PATH =
   'M12 3.2l2.62 5.5 6.02.82-4.4 4.2 1.08 5.98L12 16.9l-5.32 2.8 1.08-5.98-4.4-4.2 6.02-.82z';
 
-/** Звезда в карточке уровня: только контур, без заливки. */
-function starOutlineIcon(): SVGSVGElement {
+/** Звезда-контур (карточки уровней и экран победы): без заливки, цвет — currentColor. */
+export function starOutlineIcon(className = 'lvl-card__star'): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
-  svg.classList.add('lvl-card__star');
+  svg.classList.add(className);
   const path = document.createElementNS(SVG_NS, 'path');
   path.setAttribute('d', STAR_PATH);
   path.setAttribute('fill', 'none');
@@ -341,7 +342,9 @@ export function buildMenuScreen(
   dbg.hidden = !debug;
   dbg.disabled = !debug;
 
-  root.append(title, stage, caption, hideLayer('bottom'));
+  // Версия сборки — самой нижней строкой, тише подписи под логотипом.
+  const version = el('div', 'menu-version', i18n.t('VERSION', APP_VERSION));
+  root.append(title, stage, caption, version, hideLayer('bottom'));
   return { root, items, caption };
 }
 
