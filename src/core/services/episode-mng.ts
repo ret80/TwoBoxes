@@ -281,14 +281,19 @@ export class EpisodeManager {
     };
   }
 
-  deserialize(data: SaveData): void {
-    if (data.version !== SAVE_VERSION) return;
+  /**
+   * Применить сохранение. Возвращает `false`, если формат не наш: тогда
+   * прогресс не трогаем, а вызывающий решает, что делать со старыми данными.
+   */
+  deserialize(data: SaveData): boolean {
+    if (!data || data.version !== SAVE_VERSION || !Array.isArray(data.episodes)) return false;
     this.episodes.forEach((ep, i) => {
       const saved = data.episodes[i];
       if (saved) ep.deserialize(saved);
     });
     this.setCurLevel(data.curEpisodeId, data.curLevelId);
     this.saved = true;
+    return true;
   }
 
   /** Отметить, что прогресс уже есть: игра начата, Resume доступна. */

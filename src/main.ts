@@ -31,8 +31,12 @@ import { WebAudioPlayer } from '@adapters/audio/WebAudioPlayer';
 import { InputAggregator } from '@adapters/input/InputAggregator';
 import { OrbitInput } from '@adapters/input/OrbitInput';
 import { ModalityTracker } from '@adapters/input/ModalityTracker';
-import { LocalStorageSave } from '@adapters/storage/LocalStorageSave';
-import { initYandexPlatform, setYandexGameplay } from '@adapters/platform/yandex';
+import { YandexCloudSave } from '@adapters/storage/YandexCloudSave';
+import {
+  initYandexPlatform,
+  markYandexReady,
+  setYandexGameplay,
+} from '@adapters/platform/yandex';
 import { InputAction } from '@ports/IInput';
 import type { ProjectionMode } from '@ports/IRenderer';
 import { LocaleManager } from '@presentation/i18n/LocaleManager';
@@ -76,11 +80,35 @@ const applySceneBlur = (): void => {
 const config = new Config();
 const episodes = new EpisodeManager();
 const statistics = new Statistics();
-const storage = new LocalStorageSave();
+// Прогресс едет в облако Яндекс Игр, если площадка доступна: localStorage
+// остаётся кэшем и запасным вариантом вне билда для издателя.
+const SAVE_KEY = 'save';
+const storage = new YandexCloudSave({
+  cloudKeys: [SAVE_KEY],
+  // Облачный прогресс пришёл позже старта — заменить загруженный локальный.
+  onRestore: (_key, value) => applySave(value),
+});
+
+/**
+ * Применить сохранение. Чужой формат (старая или будущая версия) не выбрасываем:
+ * откладываем копию в `save-backup` и начинаем с чистого прогресса, иначе первая
+ * же запись затрёт чужой сейв без надежды на восстановление.
+ */
+function applySave(data: unknown): boolean {
+  if (!data) return false;
+  const save = data as SaveData;
+  if (episodes.deserialize(save)) return true;
+  storage.backup(SAVE_KEY, save);
+  console.warn(
+    `Сохранение несовместимо с этой версией игры (версия ${save.version}); ` +
+      `копия в "${SAVE_KEY}-backup".`,
+  );
+  return false;
+}
 
 // Загрузка сохранения (активирует Resume)
-const saved = storage.load('save');
-if (saved) episodes.deserialize(saved as SaveData);
+const saved = storage.load(SAVE_KEY);
+if (saved) applySave(saved);
 
 // Тема — пользовательская настройка, как язык: выбор переживает перезагрузку.
 const THEME_KEY = 'theme';
@@ -114,7 +142,7 @@ const resetAllSettings = (): void => {
   episodes.resetProgress();
   seenTutorials.clear();
   storage.remove(TUTORIAL_SEEN_KEY);
-  storage.remove('save'); // тот же ключ, куда пишет GameController.saveProgress
+  storage.remove(SAVE_KEY); // тот же ключ, куда пишет GameController.saveProgress
 };
 
 // 4–7. Адаптеры
@@ -573,8 +601,16 @@ input.setEnabled(true);
 
 modality.attach();
 applyKeyGuide();
-// Яндекс Игры: вне билда для издателя SDK нет и вызов ничего не делает.
-void initYandexPlatform();
+// Яндекс Игры: облачный прогресс забираем до отметки о готовности, тогда
+// стартовый экран сразу видит сохранённую игру. Вне билда для издателя SDK
+// нет, и всё это ничего не делает.
+void (async () => {
+  const sdk = await initYandexPlatform();
+  await storage.init(sdk);
+  markYandexReady();
+  // Локальный прогресс был прочитан до ответа площадки — обновить меню.
+  menuCtrl.refreshResume();
+})();
 
 // Демо-режим: активен во всех состояниях menuFSM, кроме `game` (фон меню)
 let prevMenuState = menuActor.getSnapshot().value as string;

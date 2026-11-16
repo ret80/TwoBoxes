@@ -172,6 +172,29 @@ describe('EpisodeManager', () => {
     expect(mng.getEpisode(1).levelCount).toBe(8);
   });
 
+  it('сохранение другой версии не применяется и не портит прогресс', () => {
+    const mng = new EpisodeManager();
+    mng.unlockCurrent();
+    mng.setCurLevel(0, 2);
+
+    // Старая и будущая версии формата — обе отвергаются, прогресс остаётся свой.
+    for (const version of [0, 2]) {
+      expect(
+        mng.deserialize({
+          version,
+          curEpisodeId: 0,
+          curLevelId: 0,
+          episodes: [{ lastUnlockedLevel: 0, unlockedAll: false }],
+        } as unknown as Parameters<typeof mng.deserialize>[0]),
+      ).toBe(false);
+      expect(mng.curLevelId).toBe(2);
+      expect(mng.isLocked(0, 1)).toBe(false);
+    }
+
+    // Свой формат по-прежнему принимается.
+    expect(mng.deserialize(mng.serialize())).toBe(true);
+  });
+
   it('не предлагает Resume на уровень, которого ещё нет', () => {
     const mng = new EpisodeManager();
     // Сохранение указывает на эпизод 2, который генерируется в фоне.

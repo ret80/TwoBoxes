@@ -11,18 +11,28 @@ import type { SDK } from 'ysdk';
 let sdk: SDK | null = null;
 
 /**
- * Инициализировать SDK и сказать платформе, что игра загрузилась. Без
- * `LoadingAPI.ready()` площадка считает игру всё ещё грузящейся.
+ * Инициализировать SDK. Возвращает его же, чтобы вызывающие успели забрать
+ * облачный прогресс до отметки о готовности игры.
  */
-export async function initYandexPlatform(): Promise<void> {
-  if (typeof YaGames === 'undefined') return;
+export async function initYandexPlatform(): Promise<SDK | null> {
+  if (typeof YaGames === 'undefined') return null;
   try {
     sdk = await YaGames.init();
-    sdk.features.LoadingAPI?.ready();
+    return sdk;
   } catch (error) {
     // Платформа недоступна (нет сети, отладка вне консоли) — играем молча.
     console.warn('Yandex Games SDK не инициализировался:', error);
+    return null;
   }
+}
+
+/**
+ * Сказать платформе, что игра загрузилась и готова: без `LoadingAPI.ready()`
+ * площадка считает игру всё ещё грузящейся. Вызывается после прогресса из
+ * облака — тогда стартовый экран сразу видит сохранённую игру.
+ */
+export function markYandexReady(): void {
+  sdk?.features.LoadingAPI?.ready();
 }
 
 /**
