@@ -29,8 +29,7 @@ const caption = (root: HTMLElement): string =>
 const item = (root: HTMLElement, id: string): HTMLElement =>
   root.querySelector(`.xmb__item[data-item="${id}"]`) as HTMLElement;
 
-const dy = (root: HTMLElement, id: string): string =>
-  item(root, id).style.getPropertyValue('--dy');
+const dy = (root: HTMLElement, id: string): string => item(root, id).style.getPropertyValue('--dy');
 
 describe('MenuController: карусель главного меню', () => {
   it('стартует с активной «Играть» и ведёт подпись под меню', () => {
@@ -58,15 +57,36 @@ describe('MenuController: карусель главного меню', () => {
     expect(caption(root)).toBe('Настройки');
 
     ctrl.navigate('right');
-    ctrl.navigate('up');
-    expect(caption(root)).toBe('Продолжить');
-    // Пара меняется местами, остальные иконки остаются в ряду.
-    expect(dy(root, 'play')).toBe('-1');
-    expect(dy(root, 'continue')).toBe('0');
+    // До выбора пара стоит по умолчанию: «Продолжить» над «Играть».
+    expect(dy(root, 'play')).toBe('0');
+    expect(dy(root, 'continue')).toBe('-1');
     expect(dy(root, 'settings')).toBe('0');
     expect(dy(root, 'help')).toBe('0');
 
-    ctrl.navigate('down');
+    ctrl.navigate('up');
+    expect(caption(root)).toBe('Продолжить');
+    // Выбранная иконка пары встаёт в центральную колонку, вторая — выше.
+    expect(dy(root, 'play')).toBe('-1');
+    expect(dy(root, 'continue')).toBe('0');
+
+    // Уход в сторону пару не переставляет: кнопки остаются на своих местах.
+    ctrl.navigate('left');
+    expect(caption(root)).toBe('Настройки');
+    expect(dy(root, 'play')).toBe('-1');
+    expect(dy(root, 'continue')).toBe('0');
+
+    // Возврат боковым шагом на «Играть» пару тоже не переставляет:
+    // кнопка лишь подсвечивается на своём месте.
+    ctrl.navigate('right');
+    expect(caption(root)).toBe('Играть');
+    expect(dy(root, 'play')).toBe('-1');
+    expect(dy(root, 'continue')).toBe('0');
+
+    // Осознанный выбор внутри пары — вот он переставляет кнопки.
+    ctrl.navigate('up');
+    expect(caption(root)).toBe('Продолжить');
+    expect(dy(root, 'play')).toBe('-1');
+    ctrl.navigate('up');
     expect(caption(root)).toBe('Играть');
     expect(dy(root, 'play')).toBe('0');
     expect(dy(root, 'continue')).toBe('-1');

@@ -89,6 +89,12 @@ export class MenuController {
   private current = '';
   private menu: MainMenuRefs | null = null;
   private activeItem: MenuItemId = 'play';
+  /**
+   * Какая из пары «Продолжить»/«Играть» стоит в центральной колонке ряда.
+   * Меняется только при выборе внутри пары: боковые свайпы не переставляют
+   * кнопки, и при возврате они остаются там же.
+   */
+  private pairAnchor: 'play' | 'continue' = 'play';
   /** Отладочное меню доступно только с параметром `?debug` в адресе. */
   private readonly debugEnabled =
     new URLSearchParams(window.location.search).has('debug') ||
@@ -320,7 +326,9 @@ export class MenuController {
     this.clearPendingMarks();
     const card = this.screens
       .get('selector')
-      ?.querySelector<HTMLElement>(`.lvl-card[data-episode="${episodeId}"][data-level="${levelId}"]`);
+      ?.querySelector<HTMLElement>(
+        `.lvl-card[data-episode="${episodeId}"][data-level="${levelId}"]`,
+      );
     card?.classList.add('lvl-card--pending');
     card?.setAttribute('aria-busy', 'true');
   }
@@ -336,26 +344,23 @@ export class MenuController {
 
   /**
    * Навигация по главному меню для геймпада, стрелок и курсора.
-   * Влево/вправо двигают карусель, вверх — на «Продолжить» (если доступно),
-   * вниз — обратно на «Играть».
+   * Влево/вправо двигают карусель, вверх и вниз переключают пару
+   * «Продолжить»/«Играть» (если продолжение доступно).
    */
   navigate(dir: MenuDirection): void {
     if (this.current !== 'mmenu') return;
-    if (dir === 'up') {
-      // Вверх на «Продолжить» — только с центральной иконки «Играть».
-      if (this.activeItem === 'play' && this.episodes.isResume()) this.selectItem('continue');
-      return;
-    }
-    if (dir === 'down') {
-      if (this.activeItem === 'continue') this.selectItem('play');
+    if (dir === 'up' || dir === 'down') {
+      // «Продолжить» и «Играть» — одна вертикальная пара: шаг в любую сторону
+      // переключает их так же, как свайп по любой из двух кнопок.
+      if (this.activeItem === 'play') this.selectPairItem('continue');
+      else if (this.activeItem === 'continue') this.selectPairItem('play');
       return;
     }
     const current = this.activeItem === 'continue' ? 'play' : this.activeItem;
     // Скрытые иконки (отладка без ?debug, «Продолжить») в ряд не входят.
     const order = MENU_ORDER.filter((id) => !this.menu?.items.get(id)?.hidden);
     const index = Math.max(0, order.indexOf(current));
-    const next =
-      dir === 'right' ? Math.min(index + 1, order.length - 1) : Math.max(index - 1, 0);
+    const next = dir === 'right' ? Math.min(index + 1, order.length - 1) : Math.max(index - 1, 0);
     this.selectItem(order[next] ?? 'play');
   }
 
@@ -371,17 +376,19 @@ export class MenuController {
    * за экран.
    *
    * Вертикальный свайп остаётся шагом: он переключает «Продолжить»/«Играть»
-   * в той же колонке. Работает он только если жест начался на одной из этих
-   * двух иконок — у остальных иконок вертикальной пары нет, и оттуда жест
-   * остаётся горизонтальным до конца касания.
+   * в той же колонке. Направление не важно — тащить можно любую из двух
+   * кнопок (вверх или вниз), поэтому игроку не нужно угадывать, какую именно
+   * тянуть. Работает он только если жест начался на одной из этих двух иконок
+   * — у остальных вертикальной пары нет, и оттуда жест остаётся горизонтальным
+   * до конца касания.
    */
   private attachSwipe(): void {
     let pointerId = -1;
     let startX = 0;
     let startY = 0;
     let axis: '' | 'x' | 'y' = '';
-    /** Касание началось на иконке с вертикальной парой («Играть»/«Продолжить»). */
-    let verticalAllowed = false;
+    /** Иконка пары «Играть»/«Продолжить», с которой началось касание. */
+    let pressedPair: 'play' | 'continue' | null = null;
     let dragging = false;
     /** Смещение карусели в пикселях: во время перетаскивания — за пальцем. */
     let dragX = 0;
@@ -536,9 +543,8 @@ export class MenuController {
       // Вертикальная пара есть только у «Играть»/«Продолжить»: с остальных
       // иконок жест не должен уводить карусель вверх-вниз.
       const pressed = (e.target as Element | null)?.closest?.('.xmb__item');
-      verticalAllowed =
-        pressed instanceof HTMLElement &&
-        (pressed.dataset.item === 'play' || pressed.dataset.item === 'continue');
+      const item = pressed instanceof HTMLElement ? pressed.dataset.item : undefined;
+      pressedPair = item === 'play' || item === 'continue' ? item : null;
       velocity = 0;
       lastSampleX = e.clientX;
       lastSampleAt = performance.now();
@@ -569,14 +575,22 @@ export class MenuController {
           // Вертикаль — только шагом и только когда палец ушёл вверх-вниз
           // заметно сильнее, чем вбок: иначе дрожание руки при листании
           // срабатывало как переключение «Продолжить».
-          verticalAllowed &&
+          pressedPair &&
           inIconZone(startY) &&
           ady >= SWIPE_STEP_Y &&
           ady > adx * SWIPE_LOCK_RATIO
         ) {
           axis = 'y';
           this.suppressClickUntil = performance.now() + 500;
-          this.selectItem(dy > 0 ? 'continue' : 'play');
+          // Свайп вверх или вниз по любой из двух кнопок — это обмен: важна
+          // только сама пара, а не то, какую кнопку тянут и куда.
+          this.selectPairItem(
+            this.activeItem === 'continue'
+              ? 'play'
+              : this.activeItem === 'play'
+                ? 'continue'
+                : pressedPair,
+          );
         }
         return;
       }
@@ -684,11 +698,23 @@ export class MenuController {
     this.updateMenu();
   }
 
+  /**
+   * Выбор внутри пары «Продолжить»/«Играть». Только он переставляет кнопки:
+   * пришедший в пару боковым движением пункт подсвечивается на своём месте.
+   */
+  private selectPairItem(item: 'play' | 'continue'): void {
+    this.selectItem(item);
+    this.pairAnchor = this.activeItem === 'continue' ? 'continue' : 'play';
+    this.updateMenu();
+  }
+
   private activateItem(item: MenuItemId): void {
     if (this.current !== 'mmenu') return;
     // Свайп закончился отпусканием пальца — клик после него игнорируем.
     if (performance.now() < this.suppressClickUntil) return;
-    this.selectItem(item);
+    // Клик по кнопке пары — осознанный выбор: пара переставляется.
+    if (item === 'play' || item === 'continue') this.selectPairItem(item);
+    else this.selectItem(item);
     switch (this.activeItem) {
       case 'continue':
         this.menuActor.send({ type: 'RESUME' });
@@ -721,14 +747,10 @@ export class MenuController {
       btn.classList.toggle('is-active', active);
       if (active) btn.setAttribute('aria-current', 'true');
       else btn.removeAttribute('aria-current');
-      // Вертикально меняются местами только «Продолжить» и «Играть»:
-      // горизонтальный ряд настроек/игр/помощи/«О игре» остаётся на месте.
-      let dy = 0;
-      if (this.activeItem === 'continue') {
-        if (id === 'play') dy = -1;
-      } else if (id === 'continue') {
-        dy = -1;
-      }
+      // Вторая иконка пары — в том же столбце на шаг выше. Якорь обновляется
+      // только при выборе внутри пары, поэтому боковые свайпы (настройки,
+      // помощь) не переставляют «Продолжить» и «Играть» туда-обратно.
+      const dy = id === 'continue' || id === 'play' ? (id === this.pairAnchor ? 0 : -1) : 0;
       btn.style.setProperty('--dy', String(dy));
     }
     menu.caption.textContent = this.i18n.t(MENU_LABEL[this.activeItem]);
