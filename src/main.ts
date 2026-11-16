@@ -32,6 +32,7 @@ import { InputAggregator } from '@adapters/input/InputAggregator';
 import { OrbitInput } from '@adapters/input/OrbitInput';
 import { ModalityTracker } from '@adapters/input/ModalityTracker';
 import { LocalStorageSave } from '@adapters/storage/LocalStorageSave';
+import { initYandexPlatform, setYandexGameplay } from '@adapters/platform/yandex';
 import { InputAction } from '@ports/IInput';
 import type { ProjectionMode } from '@ports/IRenderer';
 import { LocaleManager } from '@presentation/i18n/LocaleManager';
@@ -572,6 +573,8 @@ input.setEnabled(true);
 
 modality.attach();
 applyKeyGuide();
+// Яндекс Игры: вне билда для издателя SDK нет и вызов ничего не делает.
+void initYandexPlatform();
 
 // Демо-режим: активен во всех состояниях menuFSM, кроме `game` (фон меню)
 let prevMenuState = menuActor.getSnapshot().value as string;
@@ -589,6 +592,9 @@ const applyMenuState = (snapshot: ReturnType<typeof menuActor.getSnapshot>): voi
   game.setDemo(demo);
   menuCtrl.show(state);
   inGame = state === 'game';
+  // Платформа считает геймплей по этим отметкам (только в билде для издателя,
+  // вне него — пустышка).
+  setYandexGameplay(inGame);
   applyKeyGuide();
   gameScreen.root.classList.toggle('screen--game-idle', state !== 'game');
   if (state !== 'game') hudRoot.classList.add('hud--hidden');
