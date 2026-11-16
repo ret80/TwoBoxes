@@ -11,6 +11,7 @@ import type { ProjectionMode } from '../../ports/IRenderer';
 import { ALL_MECHANICS, type MechanicId } from '../../core/generation/mechanics';
 import { episodeTheme } from '../../core/data/generated-episodes';
 import { formatLevelSeed } from '../../core/generation/level-seed';
+import { testLevelProgress } from '../../core/generation/debug-levels';
 
 /** DOM-генераторы экранов (план 11.1 — TS-модули вместо .html, SPA/Vite). */
 
@@ -647,6 +648,7 @@ export function buildDebugScreen(
     if (lastUsedSeed !== null && seedInput.value.trim() === lastUsedSeed) {
       seedInput.value = '';
       lastUsedSeed = null;
+      showSeedDifficulty();
     }
   });
   difficultyRow.append(difficulty, difficultyOut);
@@ -670,13 +672,32 @@ export function buildDebugScreen(
   clearSeed.type = 'button';
   clearSeed.title = i18n.t('DEBUG_SEED_CLEAR');
   clearSeed.setAttribute('aria-label', i18n.t('DEBUG_SEED_CLEAR'));
+  // Сложность, зашитая в сид: ползунок только подбирает сид, поэтому какая
+  // получилась карта, видно по этой строке.
+  const seedDifficulty = el('span', 'settings-row__seedDifficulty');
+  seedDifficulty.hidden = true;
+  const showSeedDifficulty = (): void => {
+    const seed = parseSeed(seedInput.value);
+    if (typeof seed === 'number') {
+      seedDifficulty.textContent = i18n.t(
+        'DEBUG_SEED_DIFFICULTY',
+        Math.round(testLevelProgress(seed) * 100),
+      );
+      seedDifficulty.hidden = false;
+    } else {
+      seedDifficulty.hidden = true;
+    }
+  };
+  seedInput.addEventListener('input', showSeedDifficulty);
   clearSeed.addEventListener('click', () => {
     seedInput.value = '';
+    showSeedDifficulty();
     seedInput.focus();
   });
   seedField.append(seedInput, clearSeed);
-  seedRow.appendChild(seedField);
+  seedRow.append(seedField, seedDifficulty);
   panel.appendChild(seedRow);
+  showSeedDifficulty();
 
   const generate = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_GENERATE'));
   const status = el('p', 'help__text', '');
@@ -698,6 +719,7 @@ export function buildDebugScreen(
     // же самую карту.
     lastUsedSeed = formatLevelSeed(used);
     seedInput.value = lastUsedSeed;
+    showSeedDifficulty();
     status.textContent = i18n.t('DEBUG_SEED_USED', lastUsedSeed);
   });
   panel.append(generate, status);

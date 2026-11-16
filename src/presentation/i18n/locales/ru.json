@@ -78,6 +78,7 @@
   "DEBUG_SEED_PLACEHOLDER": "0x0de40 или 56964",
   "DEBUG_SEED_INVALID": "Сид должен быть числом — десятичным или 0x-hex.",
   "DEBUG_SEED_USED": "Уровень собран по сиду %s",
+  "DEBUG_SEED_DIFFICULTY": "Сложность в сиде: %s",
   "MECH_PORTAL": "Порталы",
   "MECH_PORTAL_DESC": "Вход переносит кубик на парный выход.",
   "MECH_TRAP": "Ловушки",

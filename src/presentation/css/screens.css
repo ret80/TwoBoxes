@@ -417,6 +417,15 @@
   min-width: 0;
 }
 
+/* Сложность, зашитая в сид: мелкая строка под полем, справа. */
+.settings-row__seedDifficulty {
+  grid-column: 1 / -1;
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .settings-row__clear {
   flex: 0 0 auto;
   width: 42px;

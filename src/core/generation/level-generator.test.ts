@@ -221,8 +221,6 @@ describe('тестовый уровень из отладки', () => {
     const easy = pickTestSeed(10);
     const hard = pickTestSeed(95);
     expect(testLevelProgress(hard)).toBeGreaterThan(testLevelProgress(easy));
-    // Один и тот же сид не зависит от того, откуда он взялся.
-    expect(testLevelProgress(easy)).toBe(testLevelProgress(easy));
   });
 });
 

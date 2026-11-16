@@ -78,6 +78,7 @@
   "DEBUG_SEED_PLACEHOLDER": "0x0de40 or 56964",
   "DEBUG_SEED_INVALID": "The seed must be a number: decimal or 0x-hex.",
   "DEBUG_SEED_USED": "Level built from seed %s",
+  "DEBUG_SEED_DIFFICULTY": "Difficulty in seed: %s",
   "MECH_PORTAL": "Portals",
   "MECH_PORTAL_DESC": "Entering sends the box to the paired exit.",
   "MECH_TRAP": "Traps",
