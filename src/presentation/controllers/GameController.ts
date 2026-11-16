@@ -167,10 +167,9 @@ export class GameController {
     const level = this.gameActor.getSnapshot().context.level;
     // Тестовый уровень собирается по своим параметрам, эпизодный — по
     // профилю эпизода в менеджере.
-    const rows =
-      this.testRecipe?.seed !== undefined
-        ? (generateTestLevel(this.testRecipe)?.rows ?? null)
-        : this.episodes.rebuildLevel(level.episodeId, level.levelId);
+    const rows = this.testRecipe
+      ? (generateTestLevel(this.testRecipe)?.rows ?? null)
+      : this.episodes.rebuildLevel(level.episodeId, level.levelId);
     if (rows) {
       const rebuilt = createLevelFromData(level.episodeId, level.levelId, rows);
       // Сравниваем отпечатки: одинаковое содержимое — тот же уровень.
@@ -281,12 +280,12 @@ export class GameController {
   nextTestLevel(): number | null {
     const recipe = this.testRecipe;
     if (!recipe) return null;
-    const seed = recipe.seed === undefined ? undefined : (recipe.seed + 1) >>> 0;
+    const seed = (recipe.seed + 1) >>> 0;
     const nextRecipe = { ...recipe, seed };
     const generated = generateTestLevel(nextRecipe);
     if (!generated) return null;
     this.startTestLevel(createLevelFromData(0, 0, generated.rows), this.testLabel, nextRecipe);
-    return seed ?? null;
+    return seed;
   }
 
   /** Идёт тестовый уровень из отладки: вход в игру заменён выходом в отладку. */

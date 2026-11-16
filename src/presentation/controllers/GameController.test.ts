@@ -163,7 +163,7 @@ describe('GameController: завершение уровня', () => {
 
   it('тестовый уровень из отладки показывает настоящий сид и собирается заново', () => {
     const { game, label, seed } = setup(false);
-    const recipe = { mechanics: ['portal' as const], difficulty: 20, seed: 0x1234 };
+    const recipe = { mechanics: ['portal' as const], seed: 0x1234 };
     const generated = generateTestLevel(recipe);
     expect(generated).not.toBeNull();
     game.startTestLevel(createLevelFromData(0, 0, generated!.rows), 'TEST', recipe);
@@ -191,7 +191,7 @@ describe('GameController: завершение уровня', () => {
     game.startTestLevel(
       createLevelFromData(0, 0, ['######', '#.R.r#', '#.Y.y#', '######']),
       'TEST',
-      { mechanics: [], difficulty: 50, seed: 1 },
+      { mechanics: [], seed: 1 },
     );
     game.handleDirection(DIRS.left);
     expect(actor.getSnapshot().context.moves).toBe(1);
@@ -205,7 +205,6 @@ describe('GameController: завершение уровня', () => {
     const { game, actor, showCompleted } = setup(false);
     game.startTestLevel(createLevelFromData(0, 0, ['#R.r#']), 'TEST', {
       mechanics: [],
-      difficulty: 50,
       seed: 1,
     });
     playUntil(game, () => (actor.getSnapshot().value as string) === 'completed');

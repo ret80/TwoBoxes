@@ -309,15 +309,15 @@ const menuCtrl = new MenuController(
     // Дать экрану нарисовать статус «Генерирую…» перед синхронным перебором.
     await new Promise((resolve) => setTimeout(resolve, 30));
     const usedSeed = seed ?? pickTestSeed(difficulty);
-    const generated = generateTestLevel({ mechanics, difficulty, seed: usedSeed });
+    const generated = generateTestLevel({ mechanics, seed: usedSeed });
     if (!generated) return null;
     // Пока шла генерация, игрок мог уйти с отладочного экрана — тогда
     // тестовый уровень не должен подменять следующий обычный запуск.
     if ((menuActor.getSnapshot().value as string) !== 'debug') return null;
     pendingDebugLevel = createLevelFromData(0, 0, generated.rows);
-    // Рецепт уровня (механики, сложность, сид) — чтобы показать настоящий
-    // сид в плашке и собрать карту заново по нему.
-    pendingDebugRecipe = { mechanics, difficulty, seed: usedSeed };
+    // Рецепт уровня (механики и сид) — чтобы показать настоящий сид в плашке и
+    // собрать карту заново по нему.
+    pendingDebugRecipe = { mechanics, seed: usedSeed };
     menuActor.send({ type: 'TEST_LEVEL' });
     return usedSeed;
   },

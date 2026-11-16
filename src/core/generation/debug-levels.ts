@@ -3,16 +3,14 @@ import { generateLevel, type GeneratedLevel } from './generate-level';
 import type { MechanicId } from './mechanics';
 import { levelSeedAt } from './recipe';
 
-/** Параметры тестового уровня из отладочного меню. */
+/**
+ * Параметры тестового уровня из отладочного меню. Сид обязателен: он задаёт
+ * карту целиком (и зашитую в него сложность), поэтому случайный сид подбирает
+ * вызывающий — см. `pickTestSeed`.
+ */
 export interface TestLevelOptions {
   mechanics: MechanicId[];
-  /**
-   * Целевая сложность 0..100. Влияет только на выбор сида (см. `pickTestSeed`):
-   * сам уровень целиком определяется сидом, иначе тот же сид с другим
-   * положением ползунка давал бы другую карту.
-   */
-  difficulty: number;
-  seed?: number;
+  seed: number;
 }
 
 /**
@@ -63,7 +61,7 @@ export function pickTestSeed(difficulty: number, random: () => number = Math.ran
       bestError = error;
     }
   }
-  return best >>> 0;
+  return best;
 }
 
 /**
@@ -72,7 +70,7 @@ export function pickTestSeed(difficulty: number, random: () => number = Math.ran
  * так сид однозначно задаёт карту.
  */
 export function generateTestLevel(options: TestLevelOptions): GeneratedLevel | null {
-  const seed = options.seed ?? pickTestSeed(options.difficulty);
+  const { seed } = options;
   const t = testLevelProgress(seed);
   const moves = Math.round(3 + 9 * t);
   const size = Math.round(8 + 5 * t);

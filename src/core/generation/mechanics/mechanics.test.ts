@@ -19,15 +19,15 @@ import type { MechanicId } from './types';
  * Сиды фикстур: сложность теперь выводится из сида, поэтому у каждой механики
  * свой — иначе две механики с одинаковой длиной имени делили бы один уровень.
  */
-const CASES: { id: MechanicId; difficulty: number; label: string; seed: number }[] = [
-  { id: 'portal', difficulty: 55, label: 'Порталы', seed: 0x10b68 },
-  { id: 'trap', difficulty: 55, label: 'Ловушки', seed: 0xcdaa },
-  { id: 'rotator', difficulty: 55, label: 'Ротаторы', seed: 0x12a57 },
+const CASES: { id: MechanicId; label: string; seed: number }[] = [
+  { id: 'portal', label: 'Порталы', seed: 0x10b68 },
+  { id: 'trap', label: 'Ловушки', seed: 0xcdaa },
+  { id: 'rotator', label: 'Ротаторы', seed: 0x12a57 },
   // Гироскоп на чрезмерно большой карте не всегда раскладывается, поэтому
   // у него сид с умеренной сложностью.
-  { id: 'gyro', difficulty: 55, label: 'Гироскопы', seed: 0x50e79d9b },
-  { id: 'switch', difficulty: 55, label: 'Переключатель', seed: 0x10b68 },
-  { id: 'oneWay', difficulty: 55, label: 'Односторонние', seed: 0x10b68 },
+  { id: 'gyro', label: 'Гироскопы', seed: 0x50e79d9b },
+  { id: 'switch', label: 'Переключатель', seed: 0x10b68 },
+  { id: 'oneWay', label: 'Односторонние', seed: 0x10b68 },
 ];
 
 describe('mechanics pipeline', () => {
@@ -37,12 +37,8 @@ describe('mechanics pipeline', () => {
       'switch',
     ]);
 
-    const classic = generateTestLevel({ mechanics: [], difficulty: 55, seed: 123 });
-    const withPortal = generateTestLevel({
-      mechanics: ['portal'],
-      difficulty: 55,
-      seed: 123,
-    });
+    const classic = generateTestLevel({ mechanics: [], seed: 123 });
+    const withPortal = generateTestLevel({ mechanics: ['portal'], seed: 123 });
     expect(classic).not.toBeNull();
     expect(withPortal).not.toBeNull();
     expect(withPortal?.rows).not.toEqual(classic?.rows);
@@ -52,7 +48,6 @@ describe('mechanics pipeline', () => {
     it(`${testCase.label}: generates a solvable level that uses the mechanic`, () => {
       const generated = generateTestLevel({
         mechanics: [testCase.id],
-        difficulty: testCase.difficulty,
         seed: testCase.seed,
       });
 
@@ -104,7 +99,6 @@ describe('mechanics pipeline', () => {
     for (const seed of [0xfcba6ade, 0x497f99f2]) {
       const generated = generateTestLevel({
         mechanics: ['switch', 'oneWay'],
-        difficulty: 50,
         seed,
       });
       expect(generated, `seed ${seed.toString(16)}`).not.toBeNull();

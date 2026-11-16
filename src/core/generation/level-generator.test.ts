@@ -207,20 +207,26 @@ describe('уровни «только обменом»', () => {
 });
 
 describe('тестовый уровень из отладки', () => {
-  it('по одному сиду всегда даёт ту же карту — где бы ни стоял ползунок', () => {
-    const seed = 0x50e79d9b;
-    const variants = [0, 35, 55, 100].map((difficulty) =>
-      generateTestLevel({ mechanics: ['portal'], difficulty, seed }),
-    );
-    expect(variants.every((v) => v !== null)).toBe(true);
-    const rows = variants[0]?.rows.join('\n');
-    for (const variant of variants) expect(variant?.rows.join('\n')).toBe(rows);
+  it('по сиду всегда собирается одна и та же карта', () => {
+    const options = { mechanics: ['portal' as const], seed: 0x50e79d9b };
+    const first = generateTestLevel(options);
+    const second = generateTestLevel({ ...options });
+    expect(first).not.toBeNull();
+    expect(second?.rows).toEqual(first?.rows);
   }, 60_000);
 
-  it('сложность зашита в сид, а ползунок лишь подбирает сид для случайной карты', () => {
-    const easy = pickTestSeed(10);
-    const hard = pickTestSeed(95);
-    expect(testLevelProgress(hard)).toBeGreaterThan(testLevelProgress(easy));
+  it('ползунок лишь подбирает сид, а сложность зашита в сам сид', () => {
+    // Детерминированный «розыгрыш»: проверка не зависит от Math.random.
+    let state = 12345;
+    const draw = (): number => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 0x100000000;
+    };
+    // Подбор попадает в обещанные ±2 балла сложности.
+    expect(Math.abs(testLevelProgress(pickTestSeed(70, draw)) - 0.7)).toBeLessThanOrEqual(0.02);
+    expect(testLevelProgress(pickTestSeed(95, draw))).toBeGreaterThan(
+      testLevelProgress(pickTestSeed(10, draw)),
+    );
   });
 });
 
