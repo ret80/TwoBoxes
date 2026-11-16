@@ -1,29 +1,8 @@
 import { CellType } from '../../types/cell';
-import { ColorType } from '../../types/color';
-import type { Position } from '../../types/position';
-import { createMechanicState } from '../../types/mechanic-state';
-import { createLevelFromMask } from '../../rules/create';
 import { createRng, mixSeed } from '../rng';
 import type { RouteCell } from '../mechanics';
-import { render } from '../field/render';
-import type { BuildContext, BuildOutcome, Candidate } from './types';
-import {
-  buildField,
-  continueWalk,
-  freePositions,
-  pickStarts,
-  type Walk,
-} from './walk-builder';
-
-const positionKey = (pos: Position): string => `${pos.x},${pos.y}`;
-const indexOf = (pos: Position, size: number): number => pos.y * size + pos.x;
-
-function boxesAt(starts: Position[]) {
-  return starts.map((pos, index) => ({
-    pos: pos.clone(),
-    color: index === 0 ? ColorType.ONE : ColorType.TWO,
-  }));
-}
+import type { BuildContext, BuildOutcome } from './types';
+import { finishCandidate, prepareStage } from './stage';
 
 interface TrapGateChoice {
   index: number;
@@ -65,9 +44,7 @@ function chooseGate(
         .filter((visit) => (visit.box ?? 0) === box && (visit.step ?? 0) > step)
         .map((visit) => visit.index),
     );
-    const crosses = route.some(
-      (visit) => (visit.box ?? 0) !== box && future.has(visit.index),
-    );
+    const crosses = route.some((visit) => (visit.box ?? 0) !== box && future.has(visit.index));
     candidates.push({
       index,
       // На ранних уровнях даже ворота щадят одним ходом; к концу эпизода
@@ -94,99 +71,35 @@ function chooseGate(
  */
 export function buildTrapGateCandidate(ctx: BuildContext): BuildOutcome {
   const rng = createRng(mixSeed(ctx.seed, ctx.attempt, 0x7a9e));
-  const field = buildField(ctx, rng);
-  if (!field) return { ok: false, reason: 'no-field' };
-  const { floor, size } = field;
 
-  const free = freePositions(floor, size);
-  if (free.length < 4) return { ok: false, reason: 'no-starts' };
-  const starts = pickStarts(free, rng);
-  if (!starts) return { ok: false, reason: 'no-starts' };
-
-  const clean = createLevelFromMask(floor, size, starts, [], new Map());
-  const cleanWalk: Walk | null = continueWalk(
-    clean,
-    boxesAt(starts),
-    createMechanicState(starts.length),
-    ctx.walkMoves,
-    rng,
-    false,
-  );
-  if (!cleanWalk || cleanWalk.dirs.length !== ctx.walkMoves) {
-    return { ok: false, reason: 'walk-failed' };
-  }
-
-  const cleanEnds = cleanWalk.boxes.map((box) => box.pos.clone());
-  const reserved = new Set([...starts, ...cleanEnds].map((pos) => indexOf(pos, size)));
-  const draft = {
-    size,
-    floor,
-    cells: new Map<number, CellType>(),
-    route: cleanWalk.route,
-    reserved,
-    progress: ctx.progress,
-    switchGate: ctx.switchGate,
-  };
+  const prepared = prepareStage(ctx, rng);
+  if (!prepared.ok) return prepared;
+  const { stage } = prepared;
 
   // Сначала остальные механики: они не должны занять выбранные ворота.
   for (const module of ctx.modules) {
     if (module.id === 'trap') continue;
-    if (!module.place(draft, rng)) return { ok: false, reason: 'mechanic-space' };
+    if (!module.place(stage.draft, rng)) return { ok: false, reason: 'mechanic-space' };
   }
 
-  const gate = chooseGate(
-    cleanWalk.route.filter(
-      (cell) =>
-        draft.floor[cell.index] === 1 &&
-        !draft.cells.has(cell.index) &&
-        !reserved.has(cell.index),
-    ),
-    floor,
-    ctx.progress,
-    rng,
+  const free = stage.draft.route?.filter(
+    (cell) =>
+      stage.floor[cell.index] === 1 &&
+      !stage.draft.cells.has(cell.index) &&
+      !stage.draft.reserved?.has(cell.index),
   );
+  const gate = chooseGate(free ?? [], stage.floor, ctx.progress, rng);
   if (!gate) return { ok: false, reason: 'mechanic-space' };
+  stage.draft.cells.set(gate.index, gate.cell);
 
-  const cells = new Map(draft.cells);
-  cells.set(gate.index, gate.cell);
-
-  const staged = createLevelFromMask(floor, size, starts, [], cells);
-  const walked = continueWalk(
-    staged,
-    boxesAt(starts),
-    createMechanicState(starts.length),
-    ctx.walkMoves,
+  return finishCandidate({
+    ctx,
     rng,
-    true,
-  );
-  if (!walked || walked.dirs.length !== ctx.walkMoves) {
-    return { ok: false, reason: 'walk-failed' };
-  }
-  if (!walked.route.some((cell) => cell.index === gate.index)) {
-    return { ok: false, reason: 'mechanic-space' };
-  }
-
-  const ends = walked.boxes.map((box) => box.pos.clone());
-  const all = [...starts, ...ends];
-  if (new Set(all.map(positionKey)).size !== all.length) {
-    return { ok: false, reason: 'walk-failed' };
-  }
-  if (ends.some((end) => cells.has(indexOf(end, size)))) {
-    return { ok: false, reason: 'end-on-mechanic' };
-  }
-
-  const level = createLevelFromMask(floor, size, starts, ends, cells);
-  const rows = render(floor, size, starts, ends, cells);
-  const candidate: Candidate = {
-    level,
-    rows,
-    floor,
-    size,
-    starts,
-    ends,
-    cells,
-    modules: ctx.modules,
-    walkMoves: ctx.walkMoves,
-  };
-  return { ok: true, candidate };
+    stage,
+    // Ворота бесполезны, если новое блуждание их не задело.
+    requireRoute: {
+      test: (walk) => walk.route.some((cell) => cell.index === gate.index),
+      reason: 'mechanic-space',
+    },
+  });
 }

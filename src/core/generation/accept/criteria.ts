@@ -66,10 +66,7 @@ export interface AcceptOptions {
   requireMechanics?: boolean;
 }
 
-export function acceptCandidate(
-  candidate: Candidate,
-  options: AcceptOptions,
-): Acceptance {
+export function acceptCandidate(candidate: Candidate, options: AcceptOptions): Acceptance {
   // Один обход: границы решения отсекают кандидата до полного анализа тупиков.
   const analysis = analyzeLevel(candidate.level, {
     minSolutionLength: options.moves,
@@ -103,8 +100,9 @@ export function acceptCandidate(
     };
   }
 
-  // Оба кубика должны реально участвовать в решении.
-  if (analysis.movesByBox[0] < 2 || analysis.movesByBox[1] < 2) {
+  // Каждый кубик должен реально участвовать в решении: без этого уровень
+  // проходится одним кубиком, а второй — мебель.
+  if (analysis.movesByBox.some((moves) => moves < 2)) {
     return { ok: false, reason: 'idle-box' };
   }
 

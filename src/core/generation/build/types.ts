@@ -48,11 +48,11 @@ export type BuildFailure =
   | 'no-starts'
   | 'walk-failed'
   | 'mechanic-space'
-  | 'end-on-mechanic';
+  | 'end-on-mechanic'
+  /** Строки карты не совпали с уровнем, который проверял решатель. */
+  | 'map-mismatch';
 
-export type BuildOutcome =
-  | { ok: true; candidate: Candidate }
-  | { ok: false; reason: BuildFailure };
+export type BuildOutcome = { ok: true; candidate: Candidate } | { ok: false; reason: BuildFailure };
 
 export interface LevelBuilder {
   readonly id: string;
