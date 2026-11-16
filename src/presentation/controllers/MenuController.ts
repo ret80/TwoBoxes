@@ -99,8 +99,13 @@ export class MenuController {
   private readonly debugEnabled =
     new URLSearchParams(window.location.search).has('debug') ||
     window.location.hash.includes('debug');
-  /** Свайп уже отработал — клик после него не должен открывать пункт. */
-  private suppressClickUntil = 0;
+  /**
+   * Свайп уже отработал: ближайший клик после него — продолжение жеста, а не
+   * нажатие. Флаг, а не таймер: пальцем свайп часто длится дольше любой
+   * отсечки по времени, и клик после него успевал переключить пункт обратно.
+   * Сбрасывается первым кликом и каждым новым касанием.
+   */
+  private swallowClick = false;
   /** Экран открыт поверх паузы: «Назад» вернёт в предыдущее меню — паузу. */
   private overlayReturn: (() => void) | null = null;
   /** Запрос догенерировать уровень, карт которого ещё нет (эпизод 2). */
@@ -173,7 +178,7 @@ export class MenuController {
     const { episodes, i18n } = this;
 
     const menu = buildMenuScreen(i18n, episodes.isResume(), this.debugEnabled, {
-      onActivate: (item) => this.activateItem(item),
+      onActivate: (item) => this.activateClick(item),
     });
     this.menu = menu;
     this.screens.set('mmenu', menu.root);
@@ -525,7 +530,7 @@ export class MenuController {
         }
       }
       // Клик, который браузер пришлёт после pointerup, не должен открывать пункт.
-      this.suppressClickUntil = performance.now() + 500;
+      this.swallowClick = true;
       setDragging(false);
       dragX = 0;
       this.selectItem(nearest);
@@ -535,6 +540,8 @@ export class MenuController {
       // Мышь перетаскивает карусель левой кнопкой; тач и перо — любым касанием.
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (this.current !== 'mmenu' || pointerId !== -1 || !e.isPrimary) return;
+      // Новое касание — новое нажатие: флаг жеста не должен съесть его клик.
+      this.swallowClick = false;
       stopInertia();
       pointerId = e.pointerId;
       startX = e.clientX;
@@ -566,7 +573,7 @@ export class MenuController {
           axis = 'x';
           // Начинаем с нуля на пороге: ряд не прыгает на первые 12 px жеста.
           dragBase = Math.sign(dx) * SWIPE_AXIS;
-          this.suppressClickUntil = performance.now() + 500;
+          this.swallowClick = true;
           setDragging(true);
           lastSampleX = e.clientX;
           lastSampleAt = performance.now();
@@ -581,7 +588,7 @@ export class MenuController {
           ady > adx * SWIPE_LOCK_RATIO
         ) {
           axis = 'y';
-          this.suppressClickUntil = performance.now() + 500;
+          this.swallowClick = true;
           // Свайп вверх или вниз по любой из двух кнопок — это обмен: важна
           // только сама пара, а не то, какую кнопку тянут и куда.
           this.selectPairItem(
@@ -631,12 +638,12 @@ export class MenuController {
       pointerId = -1;
       axis = '';
       if (!wasDragging) {
-        if (moved) this.suppressClickUntil = performance.now() + 500;
+        if (moved) this.swallowClick = true;
         setDragging(false);
         return;
       }
       // Клик после pointerup не должен открывать пункт.
-      this.suppressClickUntil = performance.now() + 500;
+      this.swallowClick = true;
       // Палец замер перед отпусканием — инерции нет, только магнит.
       if (performance.now() - lastSampleAt > 100) velocity = 0;
       // За краем ряда сразу возвращаемся магнитом, без свободного хода.
@@ -708,10 +715,21 @@ export class MenuController {
     this.updateMenu();
   }
 
+  /**
+   * Клик по пункту меню. Сразу после свайпа браузер присылает клик по кнопке,
+   * оказавшейся под пальцем: он съедается, иначе переключатель отвернул бы
+   * выбор назад. Обычное нажатие (без свайпа) флага не ставит.
+   */
+  private activateClick(item: MenuItemId): void {
+    if (this.swallowClick) {
+      this.swallowClick = false;
+      return;
+    }
+    this.activateItem(item);
+  }
+
   private activateItem(item: MenuItemId): void {
     if (this.current !== 'mmenu') return;
-    // Свайп закончился отпусканием пальца — клик после него игнорируем.
-    if (performance.now() < this.suppressClickUntil) return;
     // Клик по кнопке пары — осознанный выбор: пара переставляется.
     if (item === 'play' || item === 'continue') this.selectPairItem(item);
     else this.selectItem(item);

@@ -2,16 +2,26 @@ import { describe, expect, it } from 'vitest';
 import { starsForResult } from './game-result';
 
 describe('starsForResult', () => {
-  it('три звезды — только за прохождение в минимум ходов', () => {
+  it('три звезды прощают ошибку в пределах 10% минимума', () => {
     expect(starsForResult(5, 5)).toBe(3);
-    expect(starsForResult(12, 12)).toBe(3);
+    expect(starsForResult(6, 5)).toBe(3);
+    expect(starsForResult(10, 10)).toBe(3);
+    expect(starsForResult(11, 10)).toBe(3);
   });
 
-  it('две звезды — при запасе не больше половины минимума', () => {
-    expect(starsForResult(6, 5)).toBe(2);
-    expect(starsForResult(8, 5)).toBe(2);
-    // На коротких уровнях прощается хотя бы один лишний ход.
-    expect(starsForResult(4, 3)).toBe(2);
+  it('две звезды — запас до 60% минимума', () => {
+    // Минимум 10: 12..16 ходов ещё дают две звезды, 17 — уже одна.
+    expect(starsForResult(12, 10)).toBe(2);
+    expect(starsForResult(14, 10)).toBe(2);
+    expect(starsForResult(16, 10)).toBe(2);
+    expect(starsForResult(17, 10)).toBe(1);
+  });
+
+  it('на коротких уровнях ступени не схлопываются', () => {
+    // Минимум 3: допуск на три звезды — ход, на две — два хода.
+    expect(starsForResult(4, 3)).toBe(3);
+    expect(starsForResult(5, 3)).toBe(2);
+    expect(starsForResult(6, 3)).toBe(1);
   });
 
   it('одна звезда — за заметно большее число ходов', () => {
@@ -26,29 +36,32 @@ describe('starsForResult', () => {
   describe('подсказки', () => {
     it('даже идеальное прохождение с подсказкой не даёт трёх звёзд', () => {
       expect(starsForResult(5, 5, 1)).toBe(2);
-      expect(starsForResult(12, 12, 1)).toBe(2);
+      expect(starsForResult(10, 10, 1)).toBe(2);
     });
 
-    it('одна подсказка на длинном уровне ещё укладывается в две звезды', () => {
-      // min 12: подсказка стоит 6 ходов, запас на две звезды — тоже 6.
-      expect(starsForResult(12, 12, 1)).toBe(2);
-      // А вместе с лишним ходом запаса уже не хватает.
-      expect(starsForResult(13, 12, 1)).toBe(1);
+    it('подсказка занимает больше половины запаса второй ступени', () => {
+      // Минимум 10: подсказка стоит 4 хода, запас на две звезды — 6.
+      expect(starsForResult(10, 10, 1)).toBe(2);
+      expect(starsForResult(12, 10, 1)).toBe(2);
+      // 3 лишних хода плюс подсказка — уже за пределами 16.
+      expect(starsForResult(13, 10, 1)).toBe(1);
     });
 
     it('несколько подсказок роняют оценку до одной звезды', () => {
-      expect(starsForResult(12, 12, 2)).toBe(1);
+      expect(starsForResult(10, 10, 2)).toBe(1);
       expect(starsForResult(5, 5, 5)).toBe(1);
     });
 
     it('подсказка на коротком уровне стоит не меньше двух ходов', () => {
-      // min 3: подсказка стоит 2 хода, запас на две звезды — 2.
+      // Минимум 3: подсказка стоит 2 хода, запас на две звезды — тоже 2.
       expect(starsForResult(3, 3, 1)).toBe(2);
       expect(starsForResult(4, 3, 1)).toBe(1);
     });
 
     it('лишние ходы и подсказки складываются', () => {
-      expect(starsForResult(6, 5, 1)).toBe(1);
+      // Минимум 5: подсказка стоит 2, запас на две звезды — 3.
+      expect(starsForResult(6, 5, 1)).toBe(2);
+      expect(starsForResult(7, 5, 1)).toBe(1);
     });
   });
 });
