@@ -630,6 +630,33 @@ export function buildDebugScreen(
     panel.appendChild(row);
   }
 
+  // Сид: можно ввести конкретное число (десятичное или `0x`-hex), чтобы
+  // получить тот же уровень, что и раньше. Пустое поле — случайный сид.
+  const seedInput = el<HTMLInputElement>('input', 'settings-row__input');
+  seedInput.type = 'text';
+  seedInput.inputMode = 'text';
+  seedInput.spellcheck = false;
+  seedInput.autocomplete = 'off';
+  seedInput.placeholder = i18n.t('DEBUG_SEED_PLACEHOLDER');
+  // Сложность зашита в сид, а ползунок только подбирает сид — поэтому под
+  // полем видно, какая сложность у карты на самом деле.
+  const seedDifficulty = el('span', 'settings-row__seedDifficulty');
+  const updateSeed = (value: string): void => {
+    seedInput.value = value;
+    const seed = parseSeed(value);
+    seedDifficulty.hidden = typeof seed !== 'number';
+    if (typeof seed === 'number') {
+      seedDifficulty.textContent = i18n.t(
+        'DEBUG_SEED_DIFFICULTY',
+        Math.round(testLevelProgress(seed) * 100),
+      );
+    }
+  };
+  seedInput.addEventListener('input', () => updateSeed(seedInput.value));
+  // Сид после генерации означает «повторить эту карту» — сложность в нём уже
+  // зашита. Сдвиг ползунка такой сид сбрасывает, иначе ползунок бы не работал.
+  let lastUsedSeed: string | null = null;
+
   const difficultyRow = el('label', 'settings-row');
   difficultyRow.appendChild(el('span', 'settings-row__label', i18n.t('DEBUG_DIFFICULTY')));
   const difficulty = el<HTMLInputElement>('input', 'settings-row__range');
@@ -639,65 +666,32 @@ export function buildDebugScreen(
   difficulty.step = '5';
   difficulty.value = String(values.difficulty);
   const difficultyOut = el('span', 'settings-row__value', String(values.difficulty));
-  // Сид после генерации означает «повторить эту карту» — сложность в нём уже
-  // зашита. Ползунок тогда поле очищает, иначе он выглядел бы нерабочим.
-  let lastUsedSeed: string | null = null;
   difficulty.addEventListener('input', () => {
     difficultyOut.textContent = difficulty.value;
     cb.onDifficultyChange(Number(difficulty.value));
     if (lastUsedSeed !== null && seedInput.value.trim() === lastUsedSeed) {
-      seedInput.value = '';
       lastUsedSeed = null;
-      showSeedDifficulty();
+      updateSeed('');
     }
   });
   difficultyRow.append(difficulty, difficultyOut);
   panel.appendChild(difficultyRow);
 
-  // Сид: можно ввести конкретное число (десятичное или `0x`-hex), чтобы
-  // получить тот же уровень, что и раньше. Пустое поле — случайный сид.
   const seedRow = el('div', 'settings-row settings-row--seed');
   seedRow.appendChild(el('span', 'settings-row__label', i18n.t('DEBUG_SEED')));
-  const seedInput = el<HTMLInputElement>('input', 'settings-row__input');
-  seedInput.type = 'text';
-  seedInput.inputMode = 'text';
-  seedInput.spellcheck = false;
-  seedInput.autocomplete = 'off';
-  seedInput.placeholder = i18n.t('DEBUG_SEED_PLACEHOLDER');
-  if (values.seed !== null && values.seed !== undefined) {
-    seedInput.value = formatLevelSeed(values.seed);
-  }
   const seedField = el('div', 'settings-row__seedField');
   const clearSeed = el<HTMLButtonElement>('button', 'settings-row__clear', '×');
   clearSeed.type = 'button';
   clearSeed.title = i18n.t('DEBUG_SEED_CLEAR');
   clearSeed.setAttribute('aria-label', i18n.t('DEBUG_SEED_CLEAR'));
-  // Сложность, зашитая в сид: ползунок только подбирает сид, поэтому какая
-  // получилась карта, видно по этой строке.
-  const seedDifficulty = el('span', 'settings-row__seedDifficulty');
-  seedDifficulty.hidden = true;
-  const showSeedDifficulty = (): void => {
-    const seed = parseSeed(seedInput.value);
-    if (typeof seed === 'number') {
-      seedDifficulty.textContent = i18n.t(
-        'DEBUG_SEED_DIFFICULTY',
-        Math.round(testLevelProgress(seed) * 100),
-      );
-      seedDifficulty.hidden = false;
-    } else {
-      seedDifficulty.hidden = true;
-    }
-  };
-  seedInput.addEventListener('input', showSeedDifficulty);
   clearSeed.addEventListener('click', () => {
-    seedInput.value = '';
-    showSeedDifficulty();
+    updateSeed('');
     seedInput.focus();
   });
   seedField.append(seedInput, clearSeed);
   seedRow.append(seedField, seedDifficulty);
   panel.appendChild(seedRow);
-  showSeedDifficulty();
+  updateSeed(values.seed == null ? '' : formatLevelSeed(values.seed));
 
   const generate = el<HTMLButtonElement>('button', 'btn btn--wide', i18n.t('DEBUG_GENERATE'));
   const status = el('p', 'help__text', '');
@@ -718,8 +712,7 @@ export function buildDebugScreen(
     // Сид, с которым уровень получился, остаётся в поле: повторный клик даёт ту
     // же самую карту.
     lastUsedSeed = formatLevelSeed(used);
-    seedInput.value = lastUsedSeed;
-    showSeedDifficulty();
+    updateSeed(lastUsedSeed);
     status.textContent = i18n.t('DEBUG_SEED_USED', lastUsedSeed);
   });
   panel.append(generate, status);
