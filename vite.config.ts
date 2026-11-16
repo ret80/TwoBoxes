@@ -38,11 +38,16 @@ function yandexSdk(): Plugin {
 
 export default defineConfig(({ mode }) => {
   // `--mode yandex` — сборка для Яндекс Игр (папка `dist-yandex`).
+  // `--mode android` — сборка для Android-приложения через Capacitor.
   const yandex = mode === 'yandex';
+  const android = mode === 'android';
+  // В архиве для издателя и в WebView index.html лежит в корне, поэтому
+  // пути к ассетам должны быть относительными: абсолютные сломаются на
+  // чужом origin (в приложении игра грузится с https://localhost).
+  const base = yandex || android ? './' : '/TwoBoxes/';
+  const outDir = android ? 'dist-android' : yandex ? 'dist-yandex' : 'dist';
   return {
-    // В архиве для издателя index.html лежит в корне, поэтому пути к ассетам
-    // должны быть относительными: абсолютные сломаются на чужом origin.
-    base: yandex ? './' : '/TwoBoxes/',
+    base,
     define: { __APP_VERSION__: JSON.stringify(buildVersion()) },
     root: '.',
     plugins: yandex ? [yandexSdk()] : [],
@@ -55,7 +60,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      outDir: yandex ? 'dist-yandex' : 'dist',
+      outDir,
       target: 'es2020',
       minify: true,
       assetsInlineLimit: 4096,

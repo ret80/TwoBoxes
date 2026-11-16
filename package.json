@@ -8,6 +8,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "yandex": "tsc && vite build --mode yandex",
+    "android": "tsc && vite build --mode android && cap sync android",
+    "android:play": "bash scripts/android-play.sh",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -17,6 +19,7 @@
   "author": "",
   "type": "module",
   "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
     "@types/ysdk": "^1.2.0",
@@ -30,6 +33,8 @@
     "vitest": "^5.1.0"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
     "@tweenjs/tween.js": "^25.0.0",
     "gl-matrix": "^3.4.4",
     "picogl": "^0.17.9",
