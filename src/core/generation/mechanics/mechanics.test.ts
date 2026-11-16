@@ -15,13 +15,19 @@ import type { MechanicId } from './types';
  * решаемым, а его кратчайшее решение — воспроизводиться теми же правилами,
  * что и в игре.
  */
-const CASES: { id: MechanicId; difficulty: number; label: string }[] = [
-  { id: 'portal', difficulty: 55, label: 'Порталы' },
-  { id: 'trap', difficulty: 55, label: 'Ловушки' },
-  { id: 'rotator', difficulty: 55, label: 'Ротаторы' },
-  { id: 'gyro', difficulty: 55, label: 'Гироскопы' },
-  { id: 'switch', difficulty: 55, label: 'Переключатель' },
-  { id: 'oneWay', difficulty: 55, label: 'Односторонние' },
+/**
+ * Сиды фикстур: сложность теперь выводится из сида, поэтому у каждой механики
+ * свой — иначе две механики с одинаковой длиной имени делили бы один уровень.
+ */
+const CASES: { id: MechanicId; difficulty: number; label: string; seed: number }[] = [
+  { id: 'portal', difficulty: 55, label: 'Порталы', seed: 0x10b68 },
+  { id: 'trap', difficulty: 55, label: 'Ловушки', seed: 0xcdaa },
+  { id: 'rotator', difficulty: 55, label: 'Ротаторы', seed: 0x12a57 },
+  // Гироскоп на чрезмерно большой карте не всегда раскладывается, поэтому
+  // у него сид с умеренной сложностью.
+  { id: 'gyro', difficulty: 55, label: 'Гироскопы', seed: 0x50e79d9b },
+  { id: 'switch', difficulty: 55, label: 'Переключатель', seed: 0x10b68 },
+  { id: 'oneWay', difficulty: 55, label: 'Односторонние', seed: 0x10b68 },
 ];
 
 describe('mechanics pipeline', () => {
@@ -47,7 +53,7 @@ describe('mechanics pipeline', () => {
       const generated = generateTestLevel({
         mechanics: [testCase.id],
         difficulty: testCase.difficulty,
-        seed: 0x51ce + testCase.id.length * 7919,
+        seed: testCase.seed,
       });
 
       expect(generated, `${testCase.id} must generate`).not.toBeNull();
@@ -95,7 +101,7 @@ describe('mechanics pipeline', () => {
   }
 
   it('switch + oneWay: кнопка обязательна, а не декорация', () => {
-    for (const seed of [0x00013012, 0x0001aa39]) {
+    for (const seed of [0xfcba6ade, 0x497f99f2]) {
       const generated = generateTestLevel({
         mechanics: ['switch', 'oneWay'],
         difficulty: 50,

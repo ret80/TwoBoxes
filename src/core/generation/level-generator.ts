@@ -19,7 +19,7 @@ export {
 export type { EpisodeLevelRecipe } from './episode';
 
 export { generateDemoLevel } from './demo';
-export { generateTestLevel } from './debug-levels';
+export { generateTestLevel, pickTestSeed, testLevelProgress } from './debug-levels';
 export type { TestLevelOptions } from './debug-levels';
 
 export { episodeProfiles } from './curve';

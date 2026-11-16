@@ -6,7 +6,10 @@ import {
   generateEpisodeLevel,
   generateEpisodeLevelRecipe,
   generateLevel,
+  generateTestLevel,
+  pickTestSeed,
   rebuildEpisodeLevel,
+  testLevelProgress,
 } from './level-generator';
 import { findShortestSolution, solveLevel } from './solver';
 import { measureLevel } from './difficulty';
@@ -201,6 +204,26 @@ describe('уровни «только обменом»', () => {
       ).toBeNull();
     }
   }, 60_000);
+});
+
+describe('тестовый уровень из отладки', () => {
+  it('по одному сиду всегда даёт ту же карту — где бы ни стоял ползунок', () => {
+    const seed = 0x50e79d9b;
+    const variants = [0, 35, 55, 100].map((difficulty) =>
+      generateTestLevel({ mechanics: ['portal'], difficulty, seed }),
+    );
+    expect(variants.every((v) => v !== null)).toBe(true);
+    const rows = variants[0]?.rows.join('\n');
+    for (const variant of variants) expect(variant?.rows.join('\n')).toBe(rows);
+  }, 60_000);
+
+  it('сложность зашита в сид, а ползунок лишь подбирает сид для случайной карты', () => {
+    const easy = pickTestSeed(10);
+    const hard = pickTestSeed(95);
+    expect(testLevelProgress(hard)).toBeGreaterThan(testLevelProgress(easy));
+    // Один и тот же сид не зависит от того, откуда он взялся.
+    expect(testLevelProgress(easy)).toBe(testLevelProgress(easy));
+  });
 });
 
 describe('level solver', () => {

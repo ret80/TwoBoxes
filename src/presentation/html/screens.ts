@@ -638,9 +638,16 @@ export function buildDebugScreen(
   difficulty.step = '5';
   difficulty.value = String(values.difficulty);
   const difficultyOut = el('span', 'settings-row__value', String(values.difficulty));
+  // Сид после генерации означает «повторить эту карту» — сложность в нём уже
+  // зашита. Ползунок тогда поле очищает, иначе он выглядел бы нерабочим.
+  let lastUsedSeed: string | null = null;
   difficulty.addEventListener('input', () => {
     difficultyOut.textContent = difficulty.value;
     cb.onDifficultyChange(Number(difficulty.value));
+    if (lastUsedSeed !== null && seedInput.value.trim() === lastUsedSeed) {
+      seedInput.value = '';
+      lastUsedSeed = null;
+    }
   });
   difficultyRow.append(difficulty, difficultyOut);
   panel.appendChild(difficultyRow);
@@ -689,8 +696,9 @@ export function buildDebugScreen(
     }
     // Сид, с которым уровень получился, остаётся в поле: повторный клик даёт ту
     // же самую карту.
-    seedInput.value = formatLevelSeed(used);
-    status.textContent = i18n.t('DEBUG_SEED_USED', formatLevelSeed(used));
+    lastUsedSeed = formatLevelSeed(used);
+    seedInput.value = lastUsedSeed;
+    status.textContent = i18n.t('DEBUG_SEED_USED', lastUsedSeed);
   });
   panel.append(generate, status);
 

@@ -17,7 +17,11 @@ import {
   GENERATED_EPISODES,
 } from '@core/data/generated-episodes';
 import { Statistics } from '@core/services/statistics';
-import { generateTestLevel, type TestLevelOptions } from '@core/generation/level-generator';
+import {
+  generateTestLevel,
+  pickTestSeed,
+  type TestLevelOptions,
+} from '@core/generation/level-generator';
 import { formatLevelSeed } from '@core/generation/level-seed';
 import type { MechanicId } from '@core/generation/mechanics';
 import { createLevelFromData } from '@core/rules/create';
@@ -299,12 +303,12 @@ const menuCtrl = new MenuController(
   // Отладка: открыть все уровни — прогресс сразу пишется в сохранение.
   () => game.saveProgress(),
   // Отладка: собрать уровень под выбранные механики и сложность. Сид из поля
-  // ввода (или случайный, если поле пустое) возвращается экрану, чтобы ввести
-  // его повторно и получить ту же карту.
+  // ввода (или подобранный под ползунок, если поле пустое) возвращается экрану,
+  // чтобы ввести его повторно и получить ту же карту: сложность зашита в сид.
   async (mechanics: MechanicId[], difficulty: number, seed: number | null) => {
     // Дать экрану нарисовать статус «Генерирую…» перед синхронным перебором.
     await new Promise((resolve) => setTimeout(resolve, 30));
-    const usedSeed = seed ?? 0x7e57 + (Date.now() % 100000);
+    const usedSeed = seed ?? pickTestSeed(difficulty);
     const generated = generateTestLevel({ mechanics, difficulty, seed: usedSeed });
     if (!generated) return null;
     // Пока шла генерация, игрок мог уйти с отладочного экрана — тогда
