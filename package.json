@@ -1,6 +1,6 @@
 {
   "name": "2boxpuzzle",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "description": "2Box Puzzle — Sokoban-like hexagonal-architecture web game (TypeScript + picogl + XState). Port of the Godot game.",
   "keywords": [],
   "license": "ISC",

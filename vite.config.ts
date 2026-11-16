@@ -1,9 +1,18 @@
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
+
+/** `0.5` из версии пакета: третье число подписи — хеш коммита. */
+const gameVersion = pkg.version.split('.').slice(0, 2).join('.');
+
 /**
- * Версия сборки для подписи в меню: `0.5.<короткий хеш коммита>`.
+ * Версия сборки для подписи в меню: `0.5.<короткий хеш коммита>`, где `0.5`
+ * берётся из `version` в package.json.
  *
  * Если в рабочем дереве есть непринятые изменения, дописывается `-dirty` — по
  * подписи сразу видно, что игра собрана не из чистого коммита. Без git (архив
@@ -13,9 +22,9 @@ function buildVersion(): string {
   try {
     const hash = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
     const dirty = execSync('git status --porcelain', { encoding: 'utf8' }).trim() !== '';
-    return `0.5.${hash}${dirty ? '-dirty' : ''}`;
+    return `${gameVersion}.${hash}${dirty ? '-dirty' : ''}`;
   } catch {
-    return '0.5.dev';
+    return `${gameVersion}.dev`;
   }
 }
 
