@@ -10,6 +10,7 @@
     "yandex": "tsc && vite build --mode yandex",
     "android": "tsc && vite build --mode android && cap sync android",
     "android:assets": "node scripts/android-assets.mjs",
+    "android:clean": "bash scripts/android-clean.sh",
     "android:play": "bash scripts/android-play.sh",
     "preview": "vite preview",
     "test": "vitest run",
