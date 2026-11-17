@@ -11,6 +11,16 @@ type Strings = Record<string, string>;
 const DICTS: Record<Locale, Strings> = { en, ru };
 
 /**
+ * Язык системы в код игры: `ru`, `ru-RU`, `ru-BY` → `ru`; незнакомый (`de-DE`,
+ * `uk-UA`, пустой) → `en`. Одно правило для браузера (обычная сборка),
+ * WebView на Android и языка площадки из SDK.
+ */
+function localeFor(lang: string | null | undefined): Locale {
+  const code = (lang ?? '').trim().toLowerCase().slice(0, 2);
+  return (code in DICTS ? code : 'en') as Locale;
+}
+
+/**
  * Менеджер локализации (план 13.1, строки из loc/puzzle_game.csv — 18 строк).
  * Автоопределение языка по navigator.language при первом запуске;
  * выбор сохраняется в localStorage.
@@ -32,8 +42,9 @@ export class LocaleManager {
       this.locale = saved as Locale;
       this.chosenManually = true;
     } else {
-      const lang = navigator.language.slice(0, 2);
-      this.locale = lang in DICTS ? (lang as Locale) : 'en';
+      // Язык системы игрока: если игра его поддерживает — ставим его,
+      // иначе английский по умолчанию.
+      this.locale = localeFor(navigator.language);
     }
     this.syncDocumentLang();
   }
@@ -67,8 +78,7 @@ export class LocaleManager {
    */
   applyPlatformLocale(lang: string | null | undefined): void {
     if (!lang || this.chosenManually) return;
-    const code = lang.slice(0, 2).toLowerCase();
-    this.applyLocale((code in DICTS ? code : 'en') as Locale);
+    this.applyLocale(localeFor(lang));
   }
 
   getLocale(): Locale {
