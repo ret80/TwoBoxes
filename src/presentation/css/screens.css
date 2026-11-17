@@ -166,7 +166,7 @@
         -50% + (var(--slot) - var(--active-slot, 0)) * var(--xmb-step-x) +
           var(--drag-x, 0px)
       ),
-      calc(-50% + var(--dy, 0) * var(--xmb-step-y))
+      calc(-50% + var(--dy, 0) * var(--xmb-step-y) + var(--grab-y, 0px))
     )
     scale(var(--xmb-scale));
   transition:
@@ -186,6 +186,19 @@
  * После отпускания класс снимается и включается плавная магнитная доводка.
  */
 .screen--menu.is-dragging .xmb__item {
+  transition:
+    opacity 0.3s ease,
+    background 0.2s ease,
+    box-shadow 0.3s ease;
+}
+
+/*
+ * Кнопка пары «Продолжить/Играть», которую тащат вверх-вниз: едет за пальцем
+ * без transition, поверх соседей. Отпускание возвращает transition, и кнопка
+ * либо встаёт на место соседней, либо мягко возвращается.
+ */
+.xmb__item.is-grabbed {
+  z-index: 3;
   transition:
     opacity 0.3s ease,
     background 0.2s ease,

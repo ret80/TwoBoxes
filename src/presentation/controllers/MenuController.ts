@@ -52,13 +52,22 @@ const MENU_LABEL: Record<MenuItemId, string> = {
  * превращается в непрерывное перетаскивание карусели.
  */
 const SWIPE_AXIS = 12;
-const SWIPE_STEP_Y = 34;
 /**
  * Во сколько раз сдвиг должен превышать сдвиг по другой оси, чтобы жест
  * считался направленным. Палец при листании карусели почти всегда сносит
  * вверх-вниз, и без запаса боковой жест уходил в переключение «Продолжить».
  */
 const SWIPE_LOCK_RATIO = 1.6;
+/**
+ * Тот же запас для вертикали на кнопках пары «Играть»/«Продолжить». Меньше,
+ * чем у карусели: обмен — основное действие этих двух кнопок, и жест вверх
+ * с небольшим сносом вбок должен оставаться обменом, а не уводить ряд.
+ */
+const PAIR_LOCK_RATIO = 1.2;
+/** Доля вертикального шага пары, после которой отпущенная кнопка меняется местами. */
+const PAIR_SWAP_TRAVEL = 0.5;
+/** Сопротивление ходу кнопки мимо соседней и в пустоту под ней. */
+const PAIR_DRAG_RESISTANCE = 0.22;
 /** Запас вокруг ряда иконок: вертикальный свайп работает только в этой полосе. */
 const SWIPE_ZONE_PAD = 28;
 /** Сопротивление за крайней иконкой: ряд тянется, но не уезжает в пустоту. */
@@ -380,12 +389,13 @@ export class MenuController {
    * За крайними иконками добавлено сопротивление, чтобы пустой ряд не уезжал
    * за экран.
    *
-   * Вертикальный свайп остаётся шагом: он переключает «Продолжить»/«Играть»
-   * в той же колонке. Направление не важно — тащить можно любую из двух
-   * кнопок (вверх или вниз), поэтому игроку не нужно угадывать, какую именно
-   * тянуть. Работает он только если жест начался на одной из этих двух иконок
-   * — у остальных вертикальной пары нет, и оттуда жест остаётся горизонтальным
-   * до конца касания.
+   * Вертикальный жест на «Продолжить»/«Играть» переставляет эту пару: кнопка
+   * едет за пальцем и меняется местами с соседней, если её протащили больше
+   * половины шага. Обмен решается положением пальца на отпускании, поэтому он
+   * одинаково срабатывает с любого расстояния больше половины шага, с любой
+   * скоростью и на любой из двух кнопок. Работает он только если жест начался
+   * на одной из этих двух иконок — у остальных вертикальной пары нет, и оттуда
+   * жест остаётся горизонтальным до конца касания.
    */
   private attachSwipe(): void {
     let pointerId = -1;
@@ -403,6 +413,11 @@ export class MenuController {
     let dragMin = 0;
     let dragMax = 0;
     let stepX = 0;
+    /** Вертикальный шаг пары: середина этого пути — точка обмена. */
+    let pairStepY = 0;
+    /** Кнопка пары, которую сейчас тащат, и её смещение за пальцем. */
+    let grabbing: 'play' | 'continue' | null = null;
+    let grabY = 0;
     /** Скорость пальца в px/ms — сглаженная по последним событиям. */
     let velocity = 0;
     let lastSampleX = 0;
@@ -435,12 +450,15 @@ export class MenuController {
       if (stage) {
         const meter = document.createElement('div');
         meter.style.cssText =
-          'position:absolute;left:0;top:0;height:0;visibility:hidden;width:var(--xmb-step-x)';
+          'position:absolute;left:0;top:0;visibility:hidden;width:var(--xmb-step-x);height:var(--xmb-step-y)';
         stage.appendChild(meter);
-        stepX = meter.getBoundingClientRect().width;
+        const rect = meter.getBoundingClientRect();
+        stepX = rect.width;
+        pairStepY = rect.height;
         meter.remove();
       } else {
         stepX = 0;
+        pairStepY = 0;
       }
       const activeSlot = MENU_SLOT[this.activeItem];
       let minRel = 0;
@@ -461,6 +479,26 @@ export class MenuController {
       const menu = this.menu;
       if (!menu) return;
       menu.root.style.setProperty('--drag-x', `${dragX}px`);
+    };
+
+    /** Перетаскиваемая кнопка пары едет за пальцем без transition. */
+    const applyGrab = (): void => {
+      const menu = this.menu;
+      const btn = grabbing ? menu?.items.get(grabbing) : undefined;
+      if (!btn) return;
+      btn.style.setProperty('--grab-y', `${grabY}px`);
+    };
+
+    /** Вернуть кнопку на её слот: смещение за пальцем снимается. */
+    const clearGrab = (): void => {
+      const menu = this.menu;
+      if (grabbing && menu) {
+        const btn = menu.items.get(grabbing);
+        btn?.classList.remove('is-grabbed');
+        btn?.style.removeProperty('--grab-y');
+      }
+      grabbing = null;
+      grabY = 0;
     };
 
     const setDragging = (on: boolean): void => {
@@ -522,6 +560,9 @@ export class MenuController {
       let nearestDist = Math.abs(dragX);
       for (const [id, btn] of menu.items) {
         if (id === this.activeItem || btn.hidden) continue;
+        // Вторая кнопка пары нарисована на шаг выше центрального слота: боковой
+        // свайп не может её активировать, иначе она увеличивалась бы не на месте.
+        if ((id === 'play' || id === 'continue') && id !== this.pairAnchor) continue;
         const offset = (MENU_SLOT[id] - activeSlot) * stepX + dragX;
         const dist = Math.abs(offset);
         if (dist < nearestDist) {
@@ -536,6 +577,49 @@ export class MenuController {
       this.selectItem(nearest);
     };
 
+    /** Кнопка пары стоит внизу? Внизу обмен тянется вверх, у верхней — вниз. */
+    const grabToward = (): 1 | -1 => (grabbing === this.pairAnchor ? -1 : 1);
+
+    /**
+     * Кнопка идёт за пальцем только в сторону соседней: в пустоту и за соседнюю
+     * она уезжает с сопротивлением, чтобы жест не терял связь с пальцем.
+     */
+    const applyGrabFromPointer = (raw: number): void => {
+      const toward = grabToward();
+      let travel = raw * toward;
+      if (travel < 0) {
+        travel *= PAIR_DRAG_RESISTANCE;
+      } else if (travel > pairStepY) {
+        travel = pairStepY + (travel - pairStepY) * PAIR_DRAG_RESISTANCE;
+      }
+      grabY = travel * toward;
+      applyGrab();
+    };
+
+    /**
+     * Отпустили кнопку пары. Обмен происходит, только если её протащили больше
+     * половины вертикального шага в сторону соседней — то есть она перешла
+     * середину пути и визуально уже стоит на чужом месте. Иначе кнопка
+     * возвращается обратно. Так исход зависит только от того, где игрок
+     * отпустил палец, а не от скорости или числа попыток.
+     */
+    const finishGrab = (allowSwap: boolean): void => {
+      const pressed = grabbing;
+      if (!pressed || !this.menu) {
+        clearGrab();
+        return;
+      }
+      const atBottom = pressed === this.pairAnchor;
+      const toward = atBottom ? -1 : 1;
+      const travelled = grabY * toward;
+      clearGrab();
+      if (!allowSwap || pairStepY <= 0 || travelled < pairStepY * PAIR_SWAP_TRAVEL) return;
+      // Перетаскиваемая кнопка встаёт на место соседней, а кнопка, которую она
+      // перекрыла, занимает нижний слот и становится активной.
+      const target = atBottom ? (pressed === 'play' ? 'continue' : 'play') : pressed;
+      this.selectPairItem(target);
+    };
+
     const onDown = (e: PointerEvent) => {
       // Мышь перетаскивает карусель левой кнопкой; тач и перо — любым касанием.
       if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -543,6 +627,7 @@ export class MenuController {
       // Новое касание — новое нажатие: флаг жеста не должен съесть его клик.
       this.swallowClick = false;
       stopInertia();
+      clearGrab();
       pointerId = e.pointerId;
       startX = e.clientX;
       startY = e.clientY;
@@ -568,7 +653,29 @@ export class MenuController {
       const adx = Math.abs(dx);
       const ady = Math.abs(dy);
       if (axis === '') {
-        if (adx >= SWIPE_AXIS && adx > ady * SWIPE_LOCK_RATIO) {
+        // Порог у обеих осей один: раньше вертикаль ждала большего сдвига, и
+        // почти вертикальный жест с лёгким сносом вбок успевал раньше увести
+        // карусель в соседнюю иконку. Ось выбирается по тому, куда палец ушёл
+        // сильнее, а неоднозначная диагональ ждёт следующего события.
+        if (Math.max(adx, ady) < SWIPE_AXIS) return;
+        if (
+          pressedPair &&
+          inIconZone(startY) &&
+          ady >= SWIPE_AXIS &&
+          ady >= adx * PAIR_LOCK_RATIO
+        ) {
+          // Вертикаль на кнопках пары: кнопка едет за пальцем, обмен — на
+          // отпускании, если она перешла середину шага.
+          axis = 'y';
+          this.swallowClick = true;
+          // Кнопка сразу встаёт под палец: порог оси — не мёртвая зона, а точка,
+          // с которой видно направление. Иначе середина пути наступала бы на
+          // 12 px позже, чем провёл палец игрок.
+          grabbing = pressedPair;
+          grabY = 0;
+          this.menu?.items.get(grabbing)?.classList.add('is-grabbed');
+          applyGrabFromPointer(dy);
+        } else if (adx >= SWIPE_AXIS && adx >= ady * SWIPE_LOCK_RATIO) {
           // Горизонталь: ряд едет за пальцем.
           axis = 'x';
           // Начинаем с нуля на пороге: ряд не прыгает на первые 12 px жеста.
@@ -578,31 +685,14 @@ export class MenuController {
           lastSampleX = e.clientX;
           lastSampleAt = performance.now();
           velocity = 0;
-        } else if (
-          // Вертикаль — только шагом и только когда палец ушёл вверх-вниз
-          // заметно сильнее, чем вбок: иначе дрожание руки при листании
-          // срабатывало как переключение «Продолжить».
-          pressedPair &&
-          inIconZone(startY) &&
-          ady >= SWIPE_STEP_Y &&
-          ady > adx * SWIPE_LOCK_RATIO
-        ) {
-          axis = 'y';
-          this.swallowClick = true;
-          // Свайп вверх или вниз по любой из двух кнопок — это обмен: важна
-          // только сама пара, а не то, какую кнопку тянут и куда.
-          this.selectPairItem(
-            this.activeItem === 'continue'
-              ? 'play'
-              : this.activeItem === 'play'
-                ? 'continue'
-                : pressedPair,
-          );
         }
         return;
       }
 
-      if (axis === 'y') return;
+      if (axis === 'y') {
+        applyGrabFromPointer(dy);
+        return;
+      }
 
       if (axis === 'x') {
         // Скорость по последним событиям: нужна для инерции на отпускании.
@@ -630,6 +720,7 @@ export class MenuController {
     const onUp = (e: PointerEvent) => {
       if (e.pointerId !== pointerId) return;
       const wasDragging = dragging && axis === 'x';
+      const wasPairDrag = axis === 'y' && grabbing !== null;
       // Жест ушёл дальше порога, но так и не выбрал ось (например, вертикальный
       // увод с иконки без вертикальной пары): это не нажатие, пункт открывать
       // не надо.
@@ -637,6 +728,15 @@ export class MenuController {
         Math.max(Math.abs(e.clientX - startX), Math.abs(e.clientY - startY)) >= SWIPE_AXIS;
       pointerId = -1;
       axis = '';
+      pressedPair = null;
+      if (wasPairDrag) {
+        // Клик после pointerup не должен открывать пункт. Отмена касания
+        // (pointercancel) не обменивает кнопки: обмен — только осознанный
+        // отпуск над соседним слотом.
+        this.swallowClick = true;
+        finishGrab(e.type === 'pointerup');
+        return;
+      }
       if (!wasDragging) {
         if (moved) this.swallowClick = true;
         setDragging(false);
@@ -661,6 +761,7 @@ export class MenuController {
       if ((s.value as string) !== 'mmenu') {
         stopInertia();
         setDragging(false);
+        clearGrab();
         dragX = 0;
       }
     });
@@ -699,7 +800,13 @@ export class MenuController {
   }
 
   private selectItem(item: MenuItemId): void {
-    const next = item === 'continue' && !this.episodes.isResume() ? 'play' : item;
+    let next = item === 'continue' && !this.episodes.isResume() ? 'play' : item;
+    // Кнопки пары делят один столбец: в центре стоит якорь, вторая — на шаг
+    // выше. Приход в столбец сбоку (свайп, стрелки) активирует якорь, а не
+    // верхнюю кнопку: активная иконка обязана быть центральной.
+    if ((next === 'play' || next === 'continue') && next !== this.pairAnchor) {
+      next = this.pairAnchor;
+    }
     if (next === this.activeItem) return;
     this.activeItem = next;
     this.updateMenu();
@@ -710,8 +817,10 @@ export class MenuController {
    * пришедший в пару боковым движением пункт подсвечивается на своём месте.
    */
   private selectPairItem(item: 'play' | 'continue'): void {
-    this.selectItem(item);
-    this.pairAnchor = this.activeItem === 'continue' ? 'continue' : 'play';
+    // Якорь меняется до выбора: выбранная кнопка встаёт в центр и становится
+    // активной, поэтому активная кнопка пары всегда совпадает с якорем.
+    this.pairAnchor = item === 'continue' && this.episodes.isResume() ? 'continue' : 'play';
+    this.selectItem(this.pairAnchor);
     this.updateMenu();
   }
 
@@ -813,8 +922,9 @@ export class MenuController {
     const canResume = this.episodes.isResume();
     btn.hidden = !canResume;
     btn.disabled = !canResume;
-    if (!canResume && this.activeItem === 'continue') {
-      this.activeItem = 'play';
+    if (!canResume) {
+      this.pairAnchor = 'play';
+      if (this.activeItem === 'continue') this.activeItem = 'play';
     }
     this.updateMenu();
   }
