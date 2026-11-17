@@ -246,10 +246,17 @@ const GROUND_SHADOW_ALPHA = 0.45;
  */
 const GROUND_SHADOW_REACH = 0.5;
 
-/** Маска тени: пиксели на клетку, поле вокруг и радиус размытия в пикселях. */
+/** Маска тени: пиксели на клетку и поле вокруг, чтобы размытие не срезалось. */
 const SHADOW_PX_PER_CELL = 8;
 const SHADOW_MARGIN_CELLS = 3;
-const SHADOW_BLUR_PX = 2.5;
+/**
+ * Мягкость тени в долях клетки, а не в пикселях маски: иначе при смене
+ * плотности маски (`SHADOW_PX_PER_CELL`) тень незаметно становится жёстче.
+ * Половина клетки — тень читается как мягкая полоса под парящей плитой, но не
+ * расползается на соседние клетки и не забивает светлое дно пустот.
+ */
+const SHADOW_BLUR_CELLS = 0.5;
+const SHADOW_BLUR_PX = SHADOW_PX_PER_CELL * SHADOW_BLUR_CELLS;
 /** Контактная тень кубика лежит на плите, чуть выше вставок механик. */
 const CONTACT_SHADOW_Y = PLATFORM_TOP + 0.05;
 const CONTACT_SHADOW_SOFT = 0.05;
@@ -273,8 +280,9 @@ function gridKeyOf(state: RenderState): string {
 
 /**
  * Маска тени платформы: белый силуэт проходимых клеток по чёрному фону,
- * размытый canvas-фильтром. По краям — поля на `SHADOW_MARGIN_CELLS`, чтобы
- * размытие не срезалось границей текстуры. `null` — canvas недоступен.
+ * размытый canvas-фильтром на `SHADOW_BLUR_PX`. По краям — поля на
+ * `SHADOW_MARGIN_CELLS`, чтобы размытие не срезалось границей текстуры.
+ * `null` — canvas недоступен.
  */
 function buildShadowMask(
   width: number,
