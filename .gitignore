@@ -55,3 +55,6 @@ lerna-debug.log*
 
 # Temp
 screenshots/
+
+# Promo materials for storefronts (texts, icons, videos) — kept outside the repo
+promo/
