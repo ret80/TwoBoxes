@@ -43,6 +43,7 @@ import {
   MASK_VERTEX_SHADER,
   SHADOW_FRAGMENT_SHADER,
   SHADOW_VERTEX_SHADER,
+  TILE_VERTEX_SHADER,
   VERTEX_SHADER,
 } from './shaders';
 import { Camera } from './camera';
@@ -436,6 +437,25 @@ interface PendingPortalHop {
 }
 
 /**
+ * Инстансы плит поля: по одному на проходимую клетку. Все клетки — один и тот
+ * же куб, отличаются только смещением и масштабом, поэтому весь пол рисуется
+ * одним проходом.
+ */
+interface TileInstances {
+  /** Карта, для которой собран набор: при смене уровня пересобирается. */
+  key: string;
+  vao: VertexArray;
+  offsets: VertexBuffer;
+  scales: VertexBuffer;
+  draw: DrawCall;
+  /** Клетки набора парами (x, y) — в том же порядке, что и данные инстансов. */
+  cells: Uint16Array;
+  data: { offsets: Float32Array; scales: Float32Array };
+  /** Статичные (без анимации появления) данные уже в буферах — не грузим каждый кадр. */
+  staticUploaded: boolean;
+}
+
+/**
  * Рендер-адаптер на picogl (WebGL2). Реализация IRenderer.
  * Стиль оригинала: изометрическая ортокамера, простые примитивы, flat-цвета
  * с мягким направленным светом (верхние грани светлее боковых), пастельная
@@ -454,12 +474,20 @@ export class PicoglRenderer implements IRenderer {
   private glowProgram: Program | null = null;
   private shadowProgram: Program | null = null;
   private maskProgram: Program | null = null;
+  /** Программа плит: тот же куб, но со смещением и масштабом из инстансов. */
+  private tileProgram: Program | null = null;
+  private cubePositions: VertexBuffer | null = null;
+  private cubeNormals: VertexBuffer | null = null;
+  /** Инстансы плит поля: весь пол — один draw call (см. `drawPlatformTiles`). */
+  private tileInstances: TileInstances | null = null;
   private cubeVao: VertexArray | null = null;
   private quadVao: VertexArray | null = null;
   private quadXYVao: VertexArray | null = null;
   private glowVao: VertexArray | null = null;
   private shadowVao: VertexArray | null = null;
-  private maskVao: VertexArray | null = null;
+  /** Юнит-квад тени: общие позиции и UV для всех инстансов клеток. */
+  private maskQuadPositions: VertexBuffer | null = null;
+  private maskQuadUvs: VertexBuffer | null = null;
   private gridVao: VertexArray | null = null;
 
   private cubeDraw: DrawCall | null = null;
@@ -467,8 +495,19 @@ export class PicoglRenderer implements IRenderer {
   private quadXYDraw: DrawCall | null = null;
   private glowDraw: DrawCall | null = null;
   private shadowDraw: DrawCall | null = null;
-  private maskDraw: DrawCall | null = null;
   private gridDraw: DrawCall | null = null;
+  /**
+   * Инстансы тени земли: на клетку — смещение квада и его кусок маски, весь
+   * проход одним draw call. Пересобираются при смене карты или угла камеры.
+   */
+  private shadowInstances: {
+    vao: VertexArray;
+    offsets: VertexBuffer;
+    uvs: VertexBuffer;
+    draw: DrawCall;
+  } | null = null;
+  /** Подпись набора инстансов: карта плюс рыскание камеры (от него сдвиг тени). */
+  private shadowInstancesKey = '';
   /** Размытая маска платформы для тени: пересобирается при смене уровня. */
   private shadowMask: { key: string; texture: Texture } | null = null;
   /** Готовность клеток поля для тени: по текселю на клетку, обновляется в сборке. */
@@ -626,13 +665,14 @@ export class PicoglRenderer implements IRenderer {
     this.glowProgram = this.app.createProgram(GLOW_VERTEX_SHADER, GLOW_FRAGMENT_SHADER);
     this.shadowProgram = this.app.createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
     this.maskProgram = this.app.createProgram(MASK_VERTEX_SHADER, MASK_FRAGMENT_SHADER);
+    this.tileProgram = this.app.createProgram(TILE_VERTEX_SHADER, FRAGMENT_SHADER);
 
-    const cubePositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_VERTICES);
-    const cubeNormals = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_NORMALS);
+    this.cubePositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_VERTICES);
+    this.cubeNormals = this.app.createVertexBuffer(PicoGL.FLOAT, 3, CUBE_NORMALS);
     this.cubeVao = this.app
       .createVertexArray()
-      .vertexAttributeBuffer(0, cubePositions)
-      .vertexAttributeBuffer(1, cubeNormals);
+      .vertexAttributeBuffer(0, this.cubePositions)
+      .vertexAttributeBuffer(1, this.cubeNormals);
 
     const quadPositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XZ_VERTICES);
     const quadNormals = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_NORMALS);
@@ -671,17 +711,16 @@ export class PicoglRenderer implements IRenderer {
     this.shadowDraw = this.app.createDrawCall(this.shadowProgram, this.shadowVao);
 
     // Тень платформы: тот же квад в XZ, но с UV — по нему растягивается
-    // размытая маска силуэта.
-    const maskPositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XZ_VERTICES);
-    const maskUvs = this.app.createVertexBuffer(PicoGL.FLOAT, 2, QUAD_XZ_UVS);
-    this.maskVao = this.app
-      .createVertexArray()
-      .vertexAttributeBuffer(0, maskPositions)
-      .vertexAttributeBuffer(2, maskUvs);
-    this.maskDraw = this.app.createDrawCall(this.maskProgram, this.maskVao);
-    // После потери контекста текстуры невалидны — соберём их заново.
+    // размытая маска силуэта. Клетки тени — инстансы этого квада: смещение и
+    // кусок UV приходят из инстансных буферов (см. `buildShadowInstances`).
+    this.maskQuadPositions = this.app.createVertexBuffer(PicoGL.FLOAT, 3, QUAD_XZ_VERTICES);
+    this.maskQuadUvs = this.app.createVertexBuffer(PicoGL.FLOAT, 2, QUAD_XZ_UVS);
+    // После потери контекста текстуры и инстансы невалидны — соберём их заново.
     this.shadowMask = null;
     this.shadowProgress = null;
+    this.shadowInstances = null;
+    this.shadowInstancesKey = '';
+    this.tileInstances = null;
   }
 
   resize(width: number, height: number): void {
@@ -1383,6 +1422,11 @@ export class PicoglRenderer implements IRenderer {
 
     // Стены и пол инвертированы: проходимые клетки — приподнятые плиты, по которым
     // катаются кубики (WALL больше не рисуется — на его месте обрыв и фон сцены).
+    // Плиты отличаются только смещением и масштабом, поэтому весь пол рисуется
+    // одним инстансным проходом, а не кубом на каждую клетку.
+    this.drawPlatformTiles(state, animating);
+
+    // Вставки механик и площадки целей — декали поверх плит.
     for (let y = 0; y < state.height; y++) {
       for (let x = 0; x < state.width; x++) {
         const cell = state.grid[y * state.width + x] as CellType;
@@ -1393,16 +1437,6 @@ export class PicoglRenderer implements IRenderer {
         const eased = easeOutCubic(progress);
         const scale = animating ? 0.05 + 0.95 * eased : 1;
         const lift = animating ? (1 - eased) * 1.2 : 0;
-
-        drawCube(
-          worldX(x),
-          (PLATFORM_TOP / 2) * scale + lift,
-          worldZ(y),
-          scale,
-          PLATFORM_TOP * scale,
-          scale,
-          this.palette.platform,
-        );
 
         if (isEndCell(cell)) {
           const goalColor = cell === CellType.END ? this.palette.goalOne : this.palette.goalTwo;
@@ -1753,14 +1787,105 @@ export class PicoglRenderer implements IRenderer {
   }
 
   /**
-   * Тень платформы одним квадом: размытая маска силуэта растягивается на
-   * габариты поля с полями и сдвигается на экранный низ. Маска собирается
-   * заново только при смене карты.
+   * Плиты поля одним инстансным проходом. Раньше каждая проходимая клетка
+   * рисовалась своим кубом — на большом поле это десятки draw call за кадр.
+   * Клетки отличаются только смещением и масштабом, поэтому они уходят в
+   * инстансные атрибуты, а проход остаётся один.
+   *
+   * Пока идёт сборка уровня, масштаб и подъём клеток меняются каждый кадр —
+   * тогда инстансный буфер обновляется (проход по-прежнему один). После сборки
+   * данные статичны и грузятся в GPU только один раз.
+   *
+   * Клетка, которая ещё не появилась (`progress <= 0`), получает нулевой
+   * масштаб: вырожденный куб не даёт пикселей, но остаётся в том же проходе.
+   */
+  private drawPlatformTiles(state: RenderState, animating: boolean): void {
+    const inst = this.ensureTileInstances(state);
+    if (!inst) return;
+    if (animating || !inst.staticUploaded) {
+      const offsets = inst.data.offsets;
+      const scales = inst.data.scales;
+      const count = inst.cells.length / 2;
+      for (let i = 0; i < count; i++) {
+        const x = inst.cells[i * 2];
+        const y = inst.cells[i * 2 + 1];
+        const progress = this.cellProgress(x, y);
+        const eased = easeOutCubic(Math.min(1, progress));
+        const scale = progress <= 0 ? 0 : animating ? 0.05 + 0.95 * eased : 1;
+        const lift = animating && progress > 0 ? (1 - eased) * 1.2 : 0;
+        offsets[i * 3] = x - state.width / 2 + 0.5;
+        offsets[i * 3 + 1] = (PLATFORM_TOP / 2) * scale + lift;
+        offsets[i * 3 + 2] = y - state.height / 2 + 0.5;
+        scales[i * 3] = scale;
+        scales[i * 3 + 1] = PLATFORM_TOP * scale;
+        scales[i * 3 + 2] = scale;
+      }
+      inst.offsets.data(offsets);
+      inst.scales.data(scales);
+      inst.staticUploaded = !animating;
+    }
+    this.applyViewProj(inst.draw)
+      .uniform('uColor', this.palette.platform)
+      .uniform('uAlpha', 1)
+      .uniform('uGlow', 0)
+      .draw();
+  }
+
+  /**
+   * Набор инстансов плит: по одному кубу на проходимую клетку. Собирается
+   * заново только при смене карты, буферы переиспользуются между кадрами.
+   */
+  private ensureTileInstances(state: RenderState): TileInstances | null {
+    const app = this.app;
+    if (!app || !this.tileProgram || !this.cubePositions || !this.cubeNormals) return null;
+    const key = gridKeyOf(state);
+    if (this.tileInstances?.key === key) return this.tileInstances;
+    this.tileInstances?.vao.delete();
+    this.tileInstances?.offsets.delete();
+    this.tileInstances?.scales.delete();
+    this.tileInstances = null;
+
+    const cells: number[] = [];
+    for (let y = 0; y < state.height; y++) {
+      for (let x = 0; x < state.width; x++) {
+        if (isWalkableCell(state.grid[y * state.width + x] as CellType)) cells.push(x, y);
+      }
+    }
+    if (cells.length === 0) return null;
+
+    const count = cells.length / 2;
+    const offsetData = new Float32Array(count * 3);
+    const scaleData = new Float32Array(count * 3);
+    const offsets = app.createVertexBuffer(PicoGL.FLOAT, 3, offsetData);
+    const scales = app.createVertexBuffer(PicoGL.FLOAT, 3, scaleData);
+    const vao = app
+      .createVertexArray()
+      .vertexAttributeBuffer(0, this.cubePositions)
+      .vertexAttributeBuffer(1, this.cubeNormals)
+      .instanceAttributeBuffer(3, offsets)
+      .instanceAttributeBuffer(4, scales);
+    const draw = app.createDrawCall(this.tileProgram, vao);
+    this.tileInstances = {
+      key,
+      vao,
+      offsets,
+      scales,
+      draw,
+      cells: new Uint16Array(cells),
+      data: { offsets: offsetData, scales: scaleData },
+      staticUploaded: false,
+    };
+    return this.tileInstances;
+  }
+
+  /**
+   * Тень платформы: клеточные квады с размытой маской силуэта, растянутой на
+   * габариты поля с полями. Маска собирается заново только при смене карты.
    */
   private drawGroundShadow(state: RenderState): void {
     const key = gridKeyOf(state);
     if (!this.shadowMask || this.shadowMask.key !== key) {
-      if (!this.app || !this.maskDraw) return;
+      if (!this.app || !this.maskProgram) return;
       this.shadowMask?.texture.delete();
       this.shadowMask = null;
       const canvas = buildShadowMask(state.width, state.height, (x, y) =>
@@ -1775,56 +1900,83 @@ export class PicoglRenderer implements IRenderer {
       });
       this.shadowMask = { key, texture };
     }
-    if (!this.maskDraw || !this.shadowMask || !this.app) return;
+    if (!this.shadowMask || !this.app) return;
     const animating = this.createMask !== null;
     this.updateShadowProgress(state, animating);
     if (!this.shadowProgress) return;
-    // Крошечный сдвиг в экранный низ: тень чуть плотнее у ближней кромки.
-    const { yaw } = this.camera.getAngles();
-    const dx = -Math.sin(yaw) * GROUND_SHADOW_REACH;
-    const dz = Math.cos(yaw) * GROUND_SHADOW_REACH;
+    const draw = this.buildShadowInstances(state, key);
+    if (!draw) return;
 
     const cellsX = state.width + SHADOW_MARGIN_CELLS * 2;
     const cellsZ = state.height + SHADOW_MARGIN_CELLS * 2;
-    const du = 1 / cellsX;
-    const dv = 1 / cellsZ;
-    this.applyViewProj(this.maskDraw)
+    this.applyViewProj(draw)
       .texture('uMask', this.shadowMask.texture)
       .texture('uProgress', this.shadowProgress.texture)
       .uniform('uColor', this.palette.shadow)
       .uniform('uAlpha', GROUND_SHADOW_ALPHA)
       .uniform('uCells', [cellsX, cellsZ])
       .uniform('uMargin', SHADOW_MARGIN_CELLS)
-      .uniform('uProgressOn', animating ? 1 : 0);
+      .uniform('uProgressOn', animating ? 1 : 0)
+      .draw();
+  }
 
-    // Тень рисуется клеточными квадами, а не одним на всё поле: проекция
-    // с варпом нелинейна по экрану, и большой квад искажался бы целиком —
-    // тень уезжала бы от плит на несколько клеток. Клетки делят одну
-    // текстуру без нахлёста, поэтому швов между ними нет.
-    //
-    // Каждая клетка тени проявляется вместе со своей плитой (по её волне
-    // появления), поэтому уровень собирается уже с тенью, а не получает её
-    // после.
+  /**
+   * Набор инстансов тени: по одному на клетку, рядом с которой есть плита.
+   * Раньше эти квады рисовались по одному в цикле кадра (сотни draw call на
+   * кадр). Квады остаются размером в клетку, поэтому варп проекции искажает их
+   * так же, как раньше; клетки делят одну текстуру без нахлёста — швов нет.
+   *
+   * Каждая клетка тени проявляется вместе со своей плитой (по её волне
+   * появления), поэтому уровень собирается уже с тенью.
+   */
+  private buildShadowInstances(state: RenderState, key: string): DrawCall | null {
+    const app = this.app;
+    if (!app || !this.maskProgram || !this.maskQuadPositions || !this.maskQuadUvs) return null;
+    // Крошечный сдвиг в экранный низ: тень чуть плотнее у ближней кромки.
+    // Направление берётся от рыскания камеры, поэтому угол — часть ключа.
+    const { yaw } = this.camera.getAngles();
+    const fullKey = `${key}|${yaw.toFixed(4)}`;
+    if (this.shadowInstancesKey === fullKey) return this.shadowInstances?.draw ?? null;
+    this.shadowInstances?.vao.delete();
+    this.shadowInstances?.offsets.delete();
+    this.shadowInstances?.uvs.delete();
+    this.shadowInstances = null;
+    this.shadowInstancesKey = fullKey;
+
+    const dx = -Math.sin(yaw) * GROUND_SHADOW_REACH;
+    const dz = Math.cos(yaw) * GROUND_SHADOW_REACH;
+    const cellsX = state.width + SHADOW_MARGIN_CELLS * 2;
+    const cellsZ = state.height + SHADOW_MARGIN_CELLS * 2;
+    const du = 1 / cellsX;
+    const dv = 1 / cellsZ;
+
+    const offsets: number[] = [];
+    const uvs: number[] = [];
     for (let y = -SHADOW_MARGIN_CELLS; y < state.height + SHADOW_MARGIN_CELLS; y++) {
       for (let x = -SHADOW_MARGIN_CELLS; x < state.width + SHADOW_MARGIN_CELLS; x++) {
-        // Рисуем только клетки, где маска вообще есть: вокруг плит и их краёв.
+        // Только клетки, где маска вообще есть: вокруг плит и их краёв.
         if (!this.shadowNear(state, x, y)) continue;
-        mat4.fromTranslation(this.decalModel, [
+        offsets.push(
           x - state.width / 2 + 0.5 + dx,
           GROUND_SHADOW_Y,
           y - state.height / 2 + 0.5 + dz,
-        ]);
-        this.maskDraw
-          .uniform('uModel', this.decalModel)
-          .uniform('uUvRect', [
-            (SHADOW_MARGIN_CELLS + x) * du,
-            (SHADOW_MARGIN_CELLS + y) * dv,
-            du,
-            dv,
-          ])
-          .draw();
+        );
+        uvs.push((SHADOW_MARGIN_CELLS + x) * du, (SHADOW_MARGIN_CELLS + y) * dv, du, dv);
       }
     }
+    if (offsets.length === 0) return null;
+
+    const offsetBuf = app.createVertexBuffer(PicoGL.FLOAT, 3, new Float32Array(offsets));
+    const uvBuf = app.createVertexBuffer(PicoGL.FLOAT, 4, new Float32Array(uvs));
+    const vao = app
+      .createVertexArray()
+      .vertexAttributeBuffer(0, this.maskQuadPositions)
+      .vertexAttributeBuffer(2, this.maskQuadUvs)
+      .instanceAttributeBuffer(3, offsetBuf)
+      .instanceAttributeBuffer(4, uvBuf);
+    const draw = app.createDrawCall(this.maskProgram, vao);
+    this.shadowInstances = { vao, offsets: offsetBuf, uvs: uvBuf, draw };
+    return draw;
   }
 
   /**

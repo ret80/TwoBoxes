@@ -71,6 +71,33 @@ void main() {
 `;
 
 /**
+ * Плиты поля: тот же куб и тот же свет, что в VERTEX_SHADER, но модель
+ * приходит не матрицей, а парой инстансных атрибутов — смещением клетки и
+ * масштабом. На поле десятки одинаковых клеток, отличающихся только этими
+ * числами, поэтому весь пол рисуется одним draw call.
+ *
+ * Масштаб не запекается в нормаль: нормаль делится на него в шейдере — так
+ * освещение плит совпадает с прежним (матрица модели была только переносом и
+ * масштабом, поэтому длина её столбцов и есть масштаб).
+ */
+export const TILE_VERTEX_SHADER = `#version 300 es
+layout(location = 0) in vec3 aPosition;
+layout(location = 1) in vec3 aNormal;
+/** Смещение клетки в мировых координатах — по одному на инстанс. */
+layout(location = 3) in vec3 aOffset;
+/** Масштаб клетки по осям: сборка уровня растит плиту из точки. */
+layout(location = 4) in vec3 aScale;
+uniform mat4 uViewProj;
+uniform float uWarp;
+out vec3 vNormal;
+${PROJECT}
+void main() {
+  vNormal = normalize(aNormal / max(aScale, vec3(0.0001)));
+  gl_Position = projectVertex(uViewProj * vec4(aPosition * aScale + aOffset, 1.0));
+}
+`;
+
+/**
  * Контактная тень кубика.
  *
  * Рисуется плоским квадом в плоскости XZ, внутри которого шейдер считает
@@ -92,26 +119,33 @@ void main() {
 `;
 
 /**
- * Тень платформы: один квад с размытой маской силуэта плит.
+ * Тень платформы: клеточные квады с размытой маской силуэта плит.
  *
  * Поштучные квады клеток не сливаются в одну тень: каждая клетка даёт свой
  * скруглённый край, и на месте общей тени получается гребёнка. Поэтому силуэт
  * плит рисуется в маленький canvas, размывается там же гауссом и уходит в
- * текстуру — квад тени повторяет форму поля целиком, включая дырки.
+ * текстуру — квады тени повторяют форму поля целиком, включая дырки.
+ *
+ * Квады клеток — инстансы одного юнит-квада: смещение клетки и её кусок маски
+ * приходят из инстансных атрибутов, поэтому весь проход — один draw call.
+ * Квад остаётся размером в клетку, а не растягивается на всё поле: проекция с
+ * варпом нелинейна по экрану, и большой квад искажался бы целиком — тень
+ * уезжала бы от плит на несколько клеток.
  */
 export const MASK_VERTEX_SHADER = `#version 300 es
 layout(location = 0) in vec3 aPosition;
 layout(location = 2) in vec2 aUv;
-uniform mat4 uModel;
+/** Смещение клетки в мировых координатах — по одному на инстанс. */
+layout(location = 3) in vec3 aOffset;
+/** Кусок маски для этой клетки: смещение и размер в UV. */
+layout(location = 4) in vec4 aUvRect;
 uniform mat4 uViewProj;
 uniform float uWarp;
-/** Кусок маски, который ложится на этот квад: смещение и размер в UV. */
-uniform vec4 uUvRect;
 out vec2 vUv;
 ${PROJECT}
 void main() {
-  vUv = aUv * uUvRect.zw + uUvRect.xy;
-  gl_Position = projectVertex(uViewProj * uModel * vec4(aPosition, 1.0));
+  vUv = aUv * aUvRect.zw + aUvRect.xy;
+  gl_Position = projectVertex(uViewProj * vec4(aPosition + aOffset, 1.0));
 }
 `;
 
