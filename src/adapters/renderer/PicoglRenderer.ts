@@ -250,12 +250,13 @@ const GROUND_SHADOW_REACH = 0.5;
 const SHADOW_PX_PER_CELL = 8;
 const SHADOW_MARGIN_CELLS = 3;
 /**
- * Мягкость тени в долях клетки, а не в пикселях маски: иначе при смене
- * плотности маски (`SHADOW_PX_PER_CELL`) тень незаметно становится жёстче.
- * Половина клетки — тень читается как мягкая полоса под парящей плитой, но не
- * расползается на соседние клетки и не забивает светлое дно пустот.
+ * Мягкость тени — стандартное отклонение гаусса в долях клетки, а не в
+ * пикселях маски: при смене плотности маски (`SHADOW_PX_PER_CELL`) тень не
+ * должна незаметно становиться жёстче. 0.31 клетки — это прежние 2.5 px маски:
+ * тень читается как мягкая полоса под парящей плитой, но не расползается на
+ * соседние клетки и не забивает светлое дно пустот.
  */
-const SHADOW_BLUR_CELLS = 0.5;
+const SHADOW_BLUR_CELLS = 0.31;
 const SHADOW_BLUR_PX = SHADOW_PX_PER_CELL * SHADOW_BLUR_CELLS;
 /** Контактная тень кубика лежит на плите, чуть выше вставок механик. */
 const CONTACT_SHADOW_Y = PLATFORM_TOP + 0.05;
@@ -279,10 +280,76 @@ function gridKeyOf(state: RenderState): string {
 }
 
 /**
+ * Размыть маску гауссом по пикселям.
+ *
+ * Свой проход, а не `ctx.filter = 'blur(...)'`, потому что фильтр канваса ведёт
+ * себя по-разному: в Safari он не поддерживается вовсе (маска оставалась резкой,
+ * тень выходила жёсткой), а в Chrome с тем же радиусом размывал заметно сильнее.
+ * Пиксельная свёртка даёт одинаковый результат во всех браузерах, а мягкость
+ * при этом задаётся в клетках, а не в пикселях маски.
+ */
+function blurMask(source: HTMLCanvasElement, sigma: number): HTMLCanvasElement {
+  const ctx = source.getContext('2d');
+  if (!ctx || sigma <= 0) return source;
+  const w = source.width;
+  const h = source.height;
+  const src = new Float32Array(w * h);
+  const image = ctx.getImageData(0, 0, w, h);
+  for (let i = 0; i < src.length; i++) src[i] = image.data[i * 4] / 255;
+
+  // Ядро гаусса: радиус в три сигмы — хвост дальше уже не виден.
+  const radius = Math.max(1, Math.ceil(sigma * 3));
+  const kernel = new Float32Array(radius * 2 + 1);
+  let total = 0;
+  for (let i = -radius; i <= radius; i++) {
+    const v = Math.exp(-(i * i) / (2 * sigma * sigma));
+    kernel[i + radius] = v;
+    total += v;
+  }
+  for (let i = 0; i < kernel.length; i++) kernel[i] /= total;
+
+  // Свёртка разделимая: сначала по строкам, потом по столбцам.
+  const rows = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const sx = x + k < 0 ? 0 : x + k >= w ? w - 1 : x + k;
+        acc += src[row + sx] * kernel[k + radius];
+      }
+      rows[row + x] = acc;
+    }
+  }
+
+  const out = ctx.createImageData(w, h);
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) {
+      let acc = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const sy = y + k < 0 ? 0 : y + k >= h ? h - 1 : y + k;
+        acc += rows[sy * w + x] * kernel[k + radius];
+      }
+      const i = (y * w + x) * 4;
+      const value = Math.round(acc * 255);
+      out.data[i] = value;
+      out.data[i + 1] = value;
+      out.data[i + 2] = value;
+      out.data[i + 3] = 255;
+    }
+  }
+
+  const result = document.createElement('canvas');
+  result.width = w;
+  result.height = h;
+  result.getContext('2d')?.putImageData(out, 0, 0);
+  return result;
+}
+
+/**
  * Маска тени платформы: белый силуэт проходимых клеток по чёрному фону,
- * размытый canvas-фильтром на `SHADOW_BLUR_PX`. По краям — поля на
- * `SHADOW_MARGIN_CELLS`, чтобы размытие не срезалось границей текстуры.
- * `null` — canvas недоступен.
+ * размытый на `SHADOW_BLUR_PX`. По краям — поля на `SHADOW_MARGIN_CELLS`,
+ * чтобы размытие не срезалось границей текстуры. `null` — canvas недоступен.
  */
 function buildShadowMask(
   width: number,
@@ -309,18 +376,9 @@ function buildShadowMask(
       if (walkable(x, y)) ctx.fillRect(margin + x * px, margin + y * px, px, px);
     }
   }
-  const blurred = document.createElement('canvas');
-  blurred.width = w;
-  blurred.height = h;
-  const blur = blurred.getContext('2d');
-  if (!blur) return mask;
-  blur.fillStyle = '#000';
-  blur.fillRect(0, 0, w, h);
-  // Фильтр размывает силуэт целиком, а не каждую клетку отдельно — поэтому
-  // края соседних клеток сливаются в одну мягкую тень (см. MASK-шейдер).
-  blur.filter = `blur(${SHADOW_BLUR_PX}px)`;
-  blur.drawImage(mask, 0, 0);
-  return blurred;
+  // Размываем силуэт целиком, а не каждую клетку отдельно — поэтому края
+  // соседних клеток сливаются в одну мягкую тень (см. MASK-шейдер).
+  return blurMask(mask, SHADOW_BLUR_PX);
 }
 
 /** Позиция кубика для анимации: координаты уровня (центр клетки) + мировая высота. */
