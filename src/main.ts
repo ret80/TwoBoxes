@@ -33,6 +33,7 @@ import { OrbitInput } from '@adapters/input/OrbitInput';
 import { ModalityTracker } from '@adapters/input/ModalityTracker';
 import { YandexCloudSave } from '@adapters/storage/YandexCloudSave';
 import {
+  getYandexLang,
   initYandexPlatform,
   markYandexReady,
   setYandexGameplay,
@@ -75,6 +76,13 @@ let dialogVisible = false;
 const applySceneBlur = (): void => {
   app.dataset.sceneBlur = dialogVisible ? 'dialog' : baseSceneBlur;
 };
+
+/*
+ * Яндекс Игры: SDK поднимаем до сборки интерфейса. Язык площадки (п. 2.14
+ * требований) приходит только из него, и чем раньше начнётся init, тем раньше
+ * игра заговорит на языке игрока. Промис ждём ниже, в блоке загрузки прогресса.
+ */
+const sdkReady = initYandexPlatform();
 
 // 1–3. Ядро
 const config = new Config();
@@ -264,6 +272,9 @@ const setTopbarAction = (mode: 'pause' | 'exit'): void => {
   if (mode === 'exit') setButtonIcon(gameScreen.pause, 'exit', i18n.t('DEBUG_BACK'));
   else setButtonIcon(gameScreen.pause, 'pause', i18n.t('PAUSE'));
 };
+// Язык мог смениться из SDK (п. 2.14) или в настройках: экран игры собирается
+// один раз, поэтому его подписи обновляем сами.
+i18n.subscribe(() => setTopbarAction(game.isTestLevel ? 'exit' : 'pause'));
 gameScreen.pause.addEventListener('click', () => {
   if (game.isTestLevel) menuActor.send({ type: 'EXIT_TEST' });
   else game.pause();
@@ -605,7 +616,10 @@ applyKeyGuide();
 // стартовый экран сразу видит сохранённую игру. Вне билда для издателя SDK
 // нет, и всё это ничего не делает.
 void (async () => {
-  const sdk = await initYandexPlatform();
+  const sdk = await sdkReady;
+  // П. 2.14: язык площадки применяется до отметки о готовности, чтобы стартовый
+  // экран уже был на языке игрока (ручной выбор в настройках важнее).
+  i18n.applyPlatformLocale(getYandexLang());
   await storage.init(sdk);
   markYandexReady();
   // Локальный прогресс был прочитан до ответа площадки — обновить меню.
